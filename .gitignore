@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# Rules 39 + 40 — FATAL. A secret pushed once is exposed permanently: deleting
+# it in a later commit does not remove it from git history. If anything below
+# ever reaches a commit, revoke and regenerate the credential immediately.
+#
+# Save this file as `.gitignore` at the repo root, and commit it BEFORE the
+# first commit that could contain a secret.
+# ---------------------------------------------------------------------------
+
+# OAuth 2.0 / Gmail API credentials (Appendix A)
+credentials.json
+token.json
+client_secret*.json
+*credentials*.json
+*token*.json
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+secrets.json
+*.pem
+*.key
+
+# Private per-peer config, IF it holds an API key.
+# NOTE: the negotiated SHARED config MUST be committed (Appendix F mandatory
+# rule 4). Never ignore config/shared/. Keep keys out of config entirely and
+# read them from the environment instead — then nothing here needs excluding.
+config/private/*.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Tooling
+.ngrok/
+ngrok.yml
+.DS_Store
+.idea/
+.vscode/
+*Zone.Identifier*
+
+# Course-supplied reference material — copyrighted (all rights reserved),
+# not required by any rule to be *in* the repo, and not ours to redistribute.
+# Keep them on disk for local reference; never commit them.
+police_thief_p2p.pdf
+software_submission_guidelines-V3.pdf
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT ignored — these are graded artifacts:
+#   config/shared/   negotiated configs, one per game (mandatory rule 4)
+#   logs/            match logs needed for replay and audit (rule 20)
+#   docs/            belief-map and "Verified OK" screenshots (rule 42)
+#   PRD/ PLAN.md TODO.md                                       (rule 50)
+# ---------------------------------------------------------------------------
