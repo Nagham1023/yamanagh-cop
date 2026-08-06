@@ -13,7 +13,7 @@ import random
 from cop.domain.board import Board, Position
 from cop.memory.belief import BeliefMap
 from cop.memory.scent import ScentField
-from cop.reasoning.hint import decide_intent, generate_hint, interpret_hint
+from cop.reasoning.hint import decide_intent, generate_hint, generate_scent_report, interpret_hint
 from cop.tools.hint_providers import TemplateHintProvider
 
 
@@ -54,15 +54,20 @@ def test_scent_decay_proceeds_correctly_and_independently_of_what_the_hint_said(
     provider = TemplateHintProvider()
     rng = random.Random(20260806)
 
-    scent.emit(true_pos)
+    scent.advance(true_pos, board)
     intent = decide_intent(lie_probability=1.0, rng=rng)
     hint_text = generate_hint(true_pos, provider, config, intent)
     focal_point = interpret_hint(hint_text, board)
     belief.update_from_hint(focal_point, board)  # deception applied to belief
 
+    # Advancing elsewhere each subsequent turn (the agent moved away) means
+    # true_pos's residual only decays — no fresh deposit lands there again,
+    # matching test_scent.py's own "cell outside this turn's kernel only
+    # decays" case.
+    far_pos = Position(board.size - 1, board.size - 1)
     levels = [scent.sample(true_pos, board)[true_pos]]
     for _ in range(5):
-        scent.decay()
+        scent.advance(far_pos, board)
         levels.append(scent.sample(true_pos, board)[true_pos])
 
     for before, after in zip(levels[:-1], levels[1:], strict=True):
@@ -71,3 +76,39 @@ def test_scent_decay_proceeds_correctly_and_independently_of_what_the_hint_said(
 
     # The belief map's own deception-induced shift never touches scent.
     assert scent.sample(true_pos, board)[true_pos] == levels[-1]
+
+
+def test_a_truthful_scent_report_corroborates_against_a_lying_hint_and_wins(config):
+    # The Revision 1 milestone: PLAN.md's "single largest differentiator in
+    # the grade" — the corroboration mechanic actually working, not just
+    # "a lie shifts belief wrong in isolation" (proven above). True position
+    # chosen clear of any board edge so the fresh kernel deposited at
+    # true_pos is itself perfectly symmetric (no clipping bias) — every bit
+    # of directional lean in the sampled window comes from the earlier,
+    # still-decaying residue at `previous_pos`, not from board-edge clipping.
+    board = Board(size=config.board_size)
+    true_pos = Position(2, 2)  # north-west quadrant, 2 cells clear of every edge
+    previous_pos = Position(1, 1)  # further north-west still — a real trail
+    belief = BeliefMap.uniform(board)
+    scent = ScentField.from_config(config)
+    provider = TemplateHintProvider()
+    rng = random.Random(20260806)
+
+    intent = decide_intent(lie_probability=1.0, rng=rng)
+    assert intent is False
+    hint_text = generate_hint(true_pos, provider, config, intent)
+    lie_focal_point = interpret_hint(hint_text, board)
+
+    scent.advance(previous_pos, board)
+    scent.advance(true_pos, board)
+    sampled = scent.sample(true_pos, board)
+    scent_text = generate_scent_report(sampled, true_pos, config)
+    truth_focal_point = interpret_hint(scent_text, board)
+
+    belief.update_from_hint(lie_focal_point, board)
+    belief.update_from_scent_report(truth_focal_point, board)
+
+    # Despite the lie shifting belief toward the wrong (south-east) region,
+    # the always-truthful scent report — derived from the agent's real
+    # recent trail — outweighs it once both updates are applied.
+    assert belief.probability(truth_focal_point) > belief.probability(lie_focal_point)

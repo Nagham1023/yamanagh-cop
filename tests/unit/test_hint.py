@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import random
 import re
+from dataclasses import replace
 
 import pytest
 
 from cop.domain.board import Board, Position
-from cop.reasoning.hint import choose_provider, decide_intent, generate_hint, interpret_hint
+from cop.memory.scent import ScentField
+from cop.reasoning.hint import (
+    choose_provider,
+    decide_intent,
+    dominant_scent_direction,
+    generate_hint,
+    generate_scent_report,
+    interpret_hint,
+)
 from cop.tools.hint_providers import HintProvider, TemplateHintProvider
 
 _COORDINATE_PATTERN = re.compile(r"\d")
@@ -125,3 +134,66 @@ def test_choose_provider_always_returns_configured_when_every_n_steps_is_one(eve
         assert (
             choose_provider(step, configured, template, every_n_steps) is configured
         )
+
+
+def test_dominant_scent_direction_on_an_asymmetric_window_finds_the_true_lean():
+    own_pos = Position(3, 3)
+    # All residual scent to the north-east of own_pos; nothing elsewhere.
+    sampled = {
+        Position(4, 2): 0.62,
+        Position(5, 1): 0.20,
+        own_pos: 0.90,
+    }
+
+    vertical, horizontal = dominant_scent_direction(sampled, own_pos)
+
+    assert (vertical, horizontal) == ("north", "east")
+
+
+def test_dominant_scent_direction_on_a_fresh_symmetric_window_defaults_to_north_west():
+    own_pos = Position(3, 3)
+    # A freshly-advanced field is radially symmetric around its own centre —
+    # no real lean yet (e.g. turn 1). Every direction ties.
+    sampled = {
+        own_pos: 0.90,
+        Position(4, 3): 0.62, Position(2, 3): 0.62,
+        Position(3, 4): 0.62, Position(3, 2): 0.62,
+        Position(4, 4): 0.42, Position(2, 2): 0.42,
+        Position(4, 2): 0.42, Position(2, 4): 0.42,
+    }
+
+    vertical, horizontal = dominant_scent_direction(sampled, own_pos)
+
+    assert (vertical, horizontal) == ("north", "west")
+
+
+def test_generate_scent_report_respects_the_word_limit_even_when_tiny(config):
+    # generate_scent_report's own template is short enough that only an
+    # artificially tiny limit exercises the backstop truncation at all.
+    sampled = {Position(4, 2): 0.62, Position(3, 3): 0.90}
+    truncated_config = replace(config, hint_word_limit=2)
+
+    text = generate_scent_report(sampled, Position(3, 3), truncated_config)
+
+    assert len(text.split()) == 2
+
+
+def test_generate_scent_report_never_produces_digits_that_look_like_coordinates(config):
+    # "Grep the wire" (Design Question 5), extended to the scent-report
+    # field (Revision 1): sweep every board position as a real trail's
+    # endpoint, through a real ScentField (not a hand-built dict), across a
+    # spread of prior positions so the sampled window is never trivially
+    # symmetric — the same systematic-sweep discipline as
+    # test_generate_hint_never_produces_digits_that_look_like_coordinates.
+    board = Board(size=config.board_size)
+    positions = [Position(c, r) for c in range(config.board_size) for r in range(config.board_size)]
+    previous_offsets = [(-1, -1), (1, 1), (-1, 1), (1, -1), (0, 0)]
+
+    for own_pos in positions:
+        for d_col, d_row in previous_offsets:
+            field = ScentField.from_config(config)
+            field.advance(Position(own_pos.col + d_col, own_pos.row + d_row), board)
+            field.advance(own_pos, board)
+            sampled = field.sample(own_pos, board)
+            text = generate_scent_report(sampled, own_pos, config)
+            assert not _COORDINATE_PATTERN.search(text), f"{text!r} contains a digit"

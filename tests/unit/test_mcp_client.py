@@ -47,11 +47,12 @@ def running_server(config):
 
 
 def test_send_hint_round_trips_over_real_http(running_server):
-    data = asyncio.run(send_hint(running_server, "quiet by the river"))
-    assert data == {"accepted": True, "word_count": 4}
+    data = asyncio.run(send_hint(running_server, "quiet by the river", "Scent strongest to the north west."))
+    assert data == {"accepted": True, "word_count": 4, "scent_word_count": 6}
 
 
 def test_send_hint_reports_an_over_limit_hint(running_server, config):
     over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))
-    data = asyncio.run(send_hint(running_server, over_limit_text))
-    assert data == {"accepted": False, "word_count": config.hint_word_limit + 1}
+    data = asyncio.run(send_hint(running_server, over_limit_text, "Scent strongest to the north west."))
+    assert data["accepted"] is False
+    assert data["word_count"] == config.hint_word_limit + 1

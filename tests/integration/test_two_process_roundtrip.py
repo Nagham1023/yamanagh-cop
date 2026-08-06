@@ -32,8 +32,10 @@ def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
     proc_b = _spawn_server(port_b, log_b)
     try:
         _wait_for_port(port_b)
-        data = asyncio.run(send_hint(f"http://127.0.0.1:{port_b}/mcp", "quiet by the river"))
-        assert data == {"accepted": True, "word_count": 4}
+        data = asyncio.run(
+            send_hint(f"http://127.0.0.1:{port_b}/mcp", "quiet by the river", "Scent strongest to the north west.")
+        )
+        assert data == {"accepted": True, "word_count": 4, "scent_word_count": 6}
     finally:
         proc_b.terminate()
         proc_b.wait(timeout=5)
@@ -79,7 +81,11 @@ def test_killing_the_peer_produces_a_clean_technical_loss_not_a_hang(tmp_path):
 
     start = time.monotonic()
     try:
-        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port_b}/mcp", "a test hint"))
+        asyncio.run(
+            orchestrator.send_to_peer(
+                f"http://127.0.0.1:{port_b}/mcp", "a test hint", "Scent strongest to the north west."
+            )
+        )
         raised = False
     except Exception:
         raised = True

@@ -106,7 +106,7 @@ class Orchestrator(BrainTurnMixin):
         self._start_watchdog_monitor()
         self.server.run(transport="http", host=host, port=port, show_banner=False)
 
-    async def send_to_peer(self, peer_url: str, text: str) -> dict:
+    async def send_to_peer(self, peer_url: str, text: str, scent_report: str) -> dict:
         """Client role: send a natural-language hint to the peer, deadline-guarded,
         state-machine-tracked (rule 26/27 — no coordinates, ever, past this point).
 
@@ -121,12 +121,12 @@ class Orchestrator(BrainTurnMixin):
         this method's job is only to make the loss real and recorded.
         """
         self.state_machine.transition("SENDING")
-        self.trace.log("sending_hint", peer_url=peer_url, text=text)
+        self.trace.log("sending_hint", peer_url=peer_url, text=text, scent_report=scent_report)
 
         self.state_machine.transition("AWAITING_RESPONSE")
         try:
             result = await await_with_deadline(
-                send_hint(peer_url, text),
+                send_hint(peer_url, text, scent_report),
                 timeout_seconds=self.config.response_timeout_seconds,
             )
         except Exception as exc:

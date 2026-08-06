@@ -1,4 +1,5 @@
-"""FastMCP server tool surface: decodes valid hints, flags over-limit ones.
+"""FastMCP server tool surface: decodes valid hint+scent-report payloads,
+flags either field if it's over-limit (Revision 1's two-field shape).
 
 Uses FastMCP's in-process `Client(mcp)` transport — a real client/server
 round-trip through the actual library, no mocking, just without opening a
@@ -34,35 +35,44 @@ def _call(mcp, arguments: dict):
 
 def test_receive_hint_decodes_a_valid_payload(config):
     mcp = build_server(config)
-    data = _call(mcp, {"text": "quiet by the river"})
-    assert data == {"accepted": True, "word_count": 4}
+    data = _call(mcp, {"text": "quiet by the river", "scent_report": "Scent strongest to the north west."})
+    assert data == {"accepted": True, "word_count": 4, "scent_word_count": 6}
 
 
 def test_receive_hint_flags_a_hint_over_the_word_limit(config):
     mcp = build_server(config)
     over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))
-    data = _call(mcp, {"text": over_limit_text})
-    assert data == {"accepted": False, "word_count": config.hint_word_limit + 1}
+    data = _call(mcp, {"text": over_limit_text, "scent_report": "Scent strongest to the north west."})
+    assert data["accepted"] is False
+    assert data["word_count"] == config.hint_word_limit + 1
+
+
+def test_receive_hint_flags_a_scent_report_over_the_word_limit(config):
+    mcp = build_server(config)
+    over_limit_scent = " ".join(["word"] * (config.hint_word_limit + 1))
+    data = _call(mcp, {"text": "quiet by the river", "scent_report": over_limit_scent})
+    assert data["accepted"] is False
+    assert data["scent_word_count"] == config.hint_word_limit + 1
 
 
 def test_receive_hint_rejects_a_non_string_payload(config):
     mcp = build_server(config)
     with pytest.raises(ToolError):
-        _call(mcp, {"text": 12345})
+        _call(mcp, {"text": 12345, "scent_report": "Scent strongest to the north west."})
 
 
 def test_receive_hint_rejects_a_missing_argument(config):
     mcp = build_server(config)
     with pytest.raises(ToolError):
-        _call(mcp, {})
+        _call(mcp, {"text": "quiet by the river"})
 
 
 def test_on_receive_hook_fires_on_every_successful_call(config):
     calls = []
     mcp = build_server(config, on_receive=lambda: calls.append(1))
 
-    _call(mcp, {"text": "north of the market"})
-    _call(mcp, {"text": "south of the bridge"})
+    _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the north west."})
+    _call(mcp, {"text": "south of the bridge", "scent_report": "Scent strongest to the south east."})
 
     assert len(calls) == 2
 
@@ -71,8 +81,17 @@ def test_on_receive_hook_is_optional(config):
     # build_server's default (no on_receive) must not raise — proves the
     # hook is genuinely optional, not just untested in the happy path.
     mcp = build_server(config)
-    data = _call(mcp, {"text": "near the old market"})
-    assert data == {"accepted": True, "word_count": 4}
+    data = _call(mcp, {"text": "near the old market", "scent_report": "Scent strongest to the north west."})
+    assert data == {"accepted": True, "word_count": 4, "scent_word_count": 6}
+
+
+def test_on_hint_hook_receives_both_fields(config):
+    received = []
+    mcp = build_server(config, on_hint=lambda text, scent_report: received.append((text, scent_report)))
+
+    _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the south east."})
+
+    assert received == [("north of the market", "Scent strongest to the south east.")]
 
 
 def test_the_numeric_position_tool_is_gone(config):

@@ -24,7 +24,7 @@ def test_update_from_scent_keeps_summing_to_one_and_down_weights_searched_cells(
     cop_pos = Position(3, 3)
     before = belief.probability(cop_pos)
 
-    scent.emit(cop_pos)
+    scent.advance(cop_pos, board)
     belief.update_from_scent(scent, cop_pos, board)
 
     assert abs(belief.total_probability() - 1.0) < 1e-9
@@ -67,3 +67,31 @@ def test_most_likely_cell_returns_the_actual_argmax():
     belief._probabilities[peak] = 100.0
 
     assert belief.most_likely_cell() == peak
+
+
+def test_update_from_scent_report_keeps_summing_to_one_and_up_weights_the_focal_region(config):
+    board = Board(size=config.board_size)
+    belief = BeliefMap.uniform(board)
+    focal_point = Position(1, 1)
+    before = belief.probability(focal_point)
+
+    belief.update_from_scent_report(focal_point, board)
+
+    assert abs(belief.total_probability() - 1.0) < 1e-9
+    assert belief.probability(focal_point) > before
+
+
+def test_scent_report_corroboration_outweighs_a_disagreeing_hint(config):
+    # The actual corroboration mechanic: a (possibly-lying) hint pointing
+    # one way and an always-truthful scent report pointing another way,
+    # applied to the same fresh BeliefMap — the scent report's region
+    # should end up more probable, since _SCENT_REPORT_BOOST > _HINT_BOOST.
+    board = Board(size=config.board_size)
+    belief = BeliefMap.uniform(board)
+    lie_focal = Position(1, 1)
+    truth_focal = Position(5, 5)
+
+    belief.update_from_hint(lie_focal, board)
+    belief.update_from_scent_report(truth_focal, board)
+
+    assert belief.probability(truth_focal) > belief.probability(lie_focal)

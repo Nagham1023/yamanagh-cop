@@ -57,6 +57,52 @@ def choose_provider(
     return template_provider
 
 
+def dominant_scent_direction(sampled: dict[Position, float], own_pos: Position) -> tuple[str, str]:
+    """The (vertical, horizontal) compass pair with the most residual scent
+    around `own_pos`, excluding `own_pos` itself (Revision 1, Design
+    Question 1). Figure 4's kernel is perfectly symmetric at the centre —
+    any directional lean in `sampled` comes entirely from older, still-
+    decaying residue from earlier positions, not this turn's fresh deposit.
+    Each axis judged independently (same north/south x west/east vocabulary
+    `tools/hint_providers.py`'s `_quadrant` uses); ties — e.g. turn 1, no
+    history yet — default to north-west, matching `interpret_hint`'s own
+    default rather than an arbitrary pick.
+    """
+    north = south = west = east = 0.0
+    for cell, value in sampled.items():
+        if cell == own_pos:
+            continue
+        d_row = cell.row - own_pos.row
+        d_col = cell.col - own_pos.col
+        if d_row < 0:
+            north += value
+        elif d_row > 0:
+            south += value
+        if d_col < 0:
+            west += value
+        elif d_col > 0:
+            east += value
+    vertical = "north" if north >= south else "south"
+    horizontal = "west" if west >= east else "east"
+    return vertical, horizontal
+
+
+def generate_scent_report(sampled: dict[Position, float], own_pos: Position, config: GameConfig) -> str:
+    """A short, deterministic, always-truthful natural-language report of
+    the sender's own scent trail (Revision 1) — never routed through
+    `HintProvider`/`choose_provider`/any LLM, regardless of `[trash_talk]
+    provider`. A declared-truthful channel routed through a possibly-
+    nondeterministic model would undermine the one property
+    ("uncorruptible") the whole corroboration mechanic depends on. Same
+    hard backstop-truncation discipline as `generate_hint`."""
+    vertical, horizontal = dominant_scent_direction(sampled, own_pos)
+    text = f"Scent strongest to the {vertical} {horizontal}."
+    words = text.split()
+    if len(words) > config.hint_word_limit:
+        text = " ".join(words[: config.hint_word_limit])
+    return text
+
+
 def interpret_hint(text: str, board: Board) -> Position:
     """Parse incoming text into a focal `Position` for `BeliefMap.update_from_hint`.
 

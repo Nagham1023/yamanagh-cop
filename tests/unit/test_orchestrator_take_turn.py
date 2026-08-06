@@ -12,9 +12,11 @@ import threading
 import time
 
 from cop.domain.board import Position
+from cop.memory.belief import BeliefMap
 from cop.orchestrator import Orchestrator
 from cop.reasoning.brain_base import BrainBase, Move
 from cop.reasoning.cop_brain import CopBrain
+from cop.reasoning.hint import interpret_hint
 
 
 class _AlwaysProposesAnOffBoardMove(BrainBase):
@@ -51,6 +53,12 @@ def _sent_hint_text(trace_path) -> str:
     return sending_event["text"]
 
 
+def _sent_scent_report(trace_path) -> str:
+    events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    (sending_event,) = [e for e in events if e["event"] == "sending_hint"]
+    return sending_event["scent_report"]
+
+
 def test_take_turn_moves_according_to_the_brains_own_decision_not_a_fixed_position(config, tmp_path):
     # The ack (`{"accepted": bool, "word_count": int}`) no longer echoes back
     # enough to distinguish outcomes by content — PRD 4's wire protocol is
@@ -64,7 +72,8 @@ def test_take_turn_moves_according_to_the_brains_own_decision_not_a_fixed_positi
 
     result = asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
 
-    assert result == {"accepted": True, "word_count": len(_sent_hint_text(tmp_path / "client_trace.jsonl").split())}
+    assert result["accepted"] is True
+    assert result["word_count"] == len(_sent_hint_text(tmp_path / "client_trace.jsonl").split())
     assert client.game_state.own_pos == Position(3, 2)
     assert client.state_machine.state == "WAITING_FOR_OPPONENT"
 
@@ -156,3 +165,71 @@ def test_take_turn_logs_the_intent_flag(config, tmp_path):
     ]
     (hint_event,) = [e for e in events if e["event"] == "hint_generated"]
     assert hint_event["intent"] in (True, False)
+
+
+def test_take_turn_sends_the_generated_scent_report_alongside_the_claim(config, tmp_path):
+    # Revision 1: the scent report is a real, second field on the wire, not
+    # just an ack detail — proves take_turn() actually generates and sends
+    # it, not a fixed/placeholder string, same "wiring is real" discipline
+    # the tactical hint already gets.
+    _, port = _start_server(config, tmp_path, "server")
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+
+    asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+
+    scent_report_text = _sent_scent_report(tmp_path / "client_trace.jsonl")
+    assert scent_report_text.startswith("Scent strongest to the")
+
+
+def test_on_hint_received_applies_both_the_claim_and_the_scent_report(config, tmp_path):
+    # The receiving side of Revision 1's corroboration mechanic: both
+    # channels measurably update belief, at their own trust weight — not
+    # just the tactical claim as PRD 4's original build did.
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    claim_focal = interpret_hint("Near the south east side.", client.board)
+    scent_focal = interpret_hint("Scent strongest to the north west.", client.board)
+    claim_before = client.belief_map.probability(claim_focal)
+    scent_before = client.belief_map.probability(scent_focal)
+
+    client._on_hint_received("Near the south east side.", "Scent strongest to the north west.")
+
+    assert client.belief_map.probability(claim_focal) > claim_before
+    assert client.belief_map.probability(scent_focal) > scent_before
+    # The scent report's guaranteed-truthful boost outweighs the claim's.
+    assert client.belief_map.probability(scent_focal) > client.belief_map.probability(claim_focal)
+
+
+def test_on_hint_received_does_not_apply_an_over_limit_claim(config, tmp_path):
+    # rule-auditor finding (I9): receive_hint's ack flags an over-limit
+    # field to the sender, but the ack alone doesn't stop the *content* from
+    # reaching this callback — each field must be gated independently
+    # before it touches belief state. Compared against a control BeliefMap
+    # that only ever received the (still-valid) scent-report update: if the
+    # over-limit claim contributed nothing, the two end up byte-identical —
+    # a stronger proof than checking one cell's probability, which the
+    # other field's renormalization would perturb regardless.
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    scent_text = "Scent strongest to the north west."
+    scent_focal = interpret_hint(scent_text, client.board)
+    over_limit_text = " ".join(["south", "east"] * config.hint_word_limit)
+
+    control = BeliefMap.uniform(client.board)
+    control.update_from_scent_report(scent_focal, client.board)
+
+    client._on_hint_received(over_limit_text, scent_text)
+
+    assert client.belief_map._probabilities == control._probabilities
+
+
+def test_on_hint_received_does_not_apply_an_over_limit_scent_report(config, tmp_path):
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    claim_text = "Near the south east side."
+    claim_focal = interpret_hint(claim_text, client.board)
+    over_limit_scent = " ".join(["north", "west"] * config.hint_word_limit)
+
+    control = BeliefMap.uniform(client.board)
+    control.update_from_hint(claim_focal, client.board)
+
+    client._on_hint_received(claim_text, over_limit_scent)
+
+    assert client.belief_map._probabilities == control._probabilities

@@ -1,7 +1,7 @@
 """Watch PRD 4's milestone run live: two sections, matching the split
 between the language/deception algorithm (local, no network) and wiring
 correctness (one real round-trip) — see PRD-4-language-and-scent.md,
-Design Questions 3/4.
+Design Questions 3/4, and Revision 1's opponent-scent corroboration.
 
 Reuses tests/integration/_helpers.py to launch the second peer for section
 2, same helper the automated integration tests use.
@@ -27,7 +27,12 @@ from cop.memory.belief import BeliefMap  # noqa: E402
 from cop.memory.scent import ScentField  # noqa: E402
 from cop.orchestrator import Orchestrator  # noqa: E402
 from cop.reasoning.cop_brain import CopBrain  # noqa: E402
-from cop.reasoning.hint import decide_intent, generate_hint, interpret_hint  # noqa: E402
+from cop.reasoning.hint import (  # noqa: E402
+    decide_intent,
+    generate_hint,
+    generate_scent_report,
+    interpret_hint,
+)
 from cop.shared.config import GameConfig  # noqa: E402
 from cop.tools.hint_providers import TemplateHintProvider  # noqa: E402
 
@@ -52,13 +57,39 @@ def section_1_local_language(config: GameConfig, board: Board) -> None:
             f"probability there {before:.4f} -> {after:.4f}"
         )
 
-    print("\n  scent decay at the cop's true position over 5 steps (independent of the hint above):")
+    print("\n  scent decay at the cop's true position over 5 steps (agent has since moved away):")
     scent = ScentField.from_config(config)
-    scent.emit(true_pos)
+    scent.advance(true_pos, board)
+    far_pos = Position(board.size - 1, board.size - 1)
     for step in range(5):
         level = scent.sample(true_pos, board)[true_pos]
         print(f"    step {step}: {level:.4f}")
-        scent.decay()
+        scent.advance(far_pos, board)
+
+    print("\n  Revision 1 — the corroboration mechanic: a lying claim vs the always-truthful scent report")
+    corroboration_true_pos = Position(2, 2)  # north-west, clear of every board edge
+    previous_pos = Position(1, 1)  # a real trail, further north-west still
+    intent = decide_intent(lie_probability=1.0, rng=rng)
+    lie_text = generate_hint(corroboration_true_pos, provider, config, intent)
+    lie_focal_point = interpret_hint(lie_text, board)
+
+    trail = ScentField.from_config(config)
+    trail.advance(previous_pos, board)
+    trail.advance(corroboration_true_pos, board)
+    scent_text = generate_scent_report(trail.sample(corroboration_true_pos, board), corroboration_true_pos, config)
+    truth_focal_point = interpret_hint(scent_text, board)
+
+    corroborated_belief = BeliefMap.uniform(board)
+    corroborated_belief.update_from_hint(lie_focal_point, board)
+    corroborated_belief.update_from_scent_report(truth_focal_point, board)
+    print(f"    true position: {corroboration_true_pos}  (recent trail from {previous_pos})")
+    print(f"    lying claim:   {lie_text!r} -> focal point {lie_focal_point}")
+    print(f"    scent report:  {scent_text!r} -> focal point {truth_focal_point}")
+    print(
+        f"    net belief: lie's region={corroborated_belief.probability(lie_focal_point):.4f}, "
+        f"truth's region={corroborated_belief.probability(truth_focal_point):.4f} "
+        f"-> {'truth wins' if corroborated_belief.probability(truth_focal_point) > corroborated_belief.probability(lie_focal_point) else 'lie wins (unexpected)'}"
+    )
 
 
 def section_2_one_real_round_trip(config: GameConfig) -> None:

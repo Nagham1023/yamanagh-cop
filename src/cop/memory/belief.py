@@ -21,10 +21,16 @@ from ..domain.board import Board, Position
 from ..domain.movement import DELTAS
 from .scent import ScentField
 
-# Fixed algorithm constant, not an Appendix F game-rule quantity (I6 doesn't
+# Fixed algorithm constants, not Appendix F game-rule quantities (I6 doesn't
 # apply — see PRD 4 Design Question 1's note on heuristic constants, same
-# category as movement.DELTAS or CopBrain's tie-break order).
+# category as movement.DELTAS or CopBrain's tie-break order). The scent
+# report's boost is deliberately larger than the tactical hint's: it's
+# guaranteed truthful (Revision 1's declared-truthful channel) where the
+# hint might be a deliberate lie, so when the two disagree about a region,
+# multiplicative reweighting alone (no explicit contradiction-detection
+# branch) should still net toward the scent report's region.
 _HINT_BOOST = 3.0
+_SCENT_REPORT_BOOST = 6.0
 
 
 @dataclass
@@ -59,10 +65,7 @@ class BeliefMap:
                 self._probabilities[cell] *= 1 - level
         self._normalize()
 
-    def update_from_hint(self, focal_point: Position, board: Board) -> None:
-        """Up-weight the interpreted hint's focal cell and its orthogonal
-        neighbours. `focal_point` comes from `reasoning.hint.interpret_hint` —
-        this method doesn't know or care whether it's honest or a lie."""
+    def _boost_region(self, focal_point: Position, board: Board, factor: float) -> None:
         cells = {focal_point}
         for direction, delta in DELTAS.items():
             if direction == "STAY":
@@ -72,5 +75,23 @@ class BeliefMap:
                 cells.add(neighbour)
         for cell in cells:
             if cell in self._probabilities:
-                self._probabilities[cell] *= _HINT_BOOST
+                self._probabilities[cell] *= factor
         self._normalize()
+
+    def update_from_hint(self, focal_point: Position, board: Board) -> None:
+        """Up-weight the interpreted (tactical, possibly-lying) hint's focal
+        cell and its orthogonal neighbours. `focal_point` comes from
+        `reasoning.hint.interpret_hint` — this method doesn't know or care
+        whether it's honest or a lie; corroboration against the always-
+        truthful scent report (`update_from_scent_report`) is what protects
+        against that, not this method itself."""
+        self._boost_region(focal_point, board, _HINT_BOOST)
+
+    def update_from_scent_report(self, focal_point: Position, board: Board) -> None:
+        """Up-weight the interpreted, always-truthful scent report's focal
+        region (Revision 1) — same shape as `update_from_hint`, larger
+        boost (`_SCENT_REPORT_BOOST` > `_HINT_BOOST`) reflecting its
+        guaranteed honesty. `focal_point` comes from
+        `reasoning.hint.interpret_hint` applied to `generate_scent_report`'s
+        output, reused unchanged since the vocabulary matches by design."""
+        self._boost_region(focal_point, board, _SCENT_REPORT_BOOST)
