@@ -112,3 +112,35 @@ def test_a_truthful_scent_report_corroborates_against_a_lying_hint_and_wins(conf
     # the always-truthful scent report — derived from the agent's real
     # recent trail — outweighs it once both updates are applied.
     assert belief.probability(truth_focal_point) > belief.probability(lie_focal_point)
+
+
+def test_round_trip_from_emitted_field_through_language_recovers_the_correct_direction_within_one_cell(config):
+    # The full pipeline the corroboration mechanic depends on: a real trail
+    # is emitted into ScentField, translated into natural language, parsed
+    # back out on the receiving side, and folded into a fresh BeliefMap —
+    # the recovered belief must land within one cell of the true direction,
+    # not just "somewhere plausible."
+    board = Board(size=config.board_size)
+    own_pos = Position(2, 4)  # clear of every edge
+    scent = ScentField.from_config(config)
+    scent.advance(Position(4, 2), board)  # a real trail, north-east of own_pos
+    scent.advance(Position(3, 3), board)  # still north-east, closer
+    scent.advance(own_pos, board)
+
+    scent_text = generate_scent_report(scent.sample(own_pos, board), own_pos, config)
+    assert "north" in scent_text and "east" in scent_text
+
+    focal_point = interpret_hint(scent_text, board)
+    assert focal_point.row < board.size / 2  # north
+    assert focal_point.col > board.size / 2  # east
+
+    belief = BeliefMap.uniform(board)
+    belief.update_from_scent_report(focal_point, board)
+    recovered = belief.most_likely_cell()
+
+    # most_likely_cell()'s argmax can land on the focal cell or any of its
+    # 4 orthogonal neighbours (update_from_scent_report boosts all 5
+    # equally — a documented tie, see test_belief.py) — "within one cell"
+    # (Chebyshev distance) is the correct tolerance here, not exact equality.
+    chebyshev = max(abs(recovered.col - focal_point.col), abs(recovered.row - focal_point.row))
+    assert chebyshev <= 1

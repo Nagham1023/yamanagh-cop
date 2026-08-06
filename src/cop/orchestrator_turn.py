@@ -16,6 +16,7 @@ from .reasoning.hint import (
     generate_hint,
     generate_scent_report,
     interpret_hint,
+    is_no_scent_report,
 )
 
 # Not an Appendix F parameter — Table 21 defines the provider/cadence, not a
@@ -94,12 +95,26 @@ class BrainTurnMixin:
         sends is untrusted): `receive_hint`'s ack already flags an over-limit
         field to the sender, but the ack alone doesn't stop the *content*
         from reaching this callback. A malformed one field must not also
-        block the other, still-valid field from updating belief.
+        block the other, still-valid field from updating belief. The scent
+        report's own no-signal sentinel (`is_no_scent_report`) is a second,
+        independent reason to skip its update — "no information" must not
+        silently become a weak, wrong directional claim on the receiving
+        side either.
+
+        RULE-19-SCENT-AUDIT-AT-PRD-6: `scent_report` is trusted here on
+        honest-by-construction grounds only (the sender's own code never
+        applies the Intent flag to it) — there is no cryptographic check
+        yet that the declared reading matches the sender's actual revealed
+        trail. PRD 6's Commit-Reveal/mutual-log-audit machinery is where a
+        tampered scent report becomes a real, catchable rule 19 hash
+        mismatch, not just an honesty convention. See the guard test in
+        `tests/unit/test_prd6_scent_audit_guard.py` — delete it, in the
+        same commit, once PRD 6 makes it pass for real.
         """
         if len(text.split()) <= self.config.hint_word_limit:
             focal_point = interpret_hint(text, self.board)
             self.belief_map.update_from_hint(focal_point, self.board)
-        if len(scent_report.split()) <= self.config.hint_word_limit:
+        if len(scent_report.split()) <= self.config.hint_word_limit and not is_no_scent_report(scent_report):
             scent_focal_point = interpret_hint(scent_report, self.board)
             self.belief_map.update_from_scent_report(scent_focal_point, self.board)
         self.trace.log("hint_received", text=text, scent_report=scent_report)

@@ -167,6 +167,73 @@ def test_dominant_scent_direction_on_a_fresh_symmetric_window_defaults_to_north_
     assert (vertical, horizontal) == ("north", "west")
 
 
+def test_dominant_scent_direction_outside_the_window_returns_no_signal(config):
+    # A position the agent has never been near — sample() reads every cell
+    # as 0.0 (never emitted), so there is genuinely nothing to report, not
+    # a real-but-tied lean (contrast with the fresh-symmetric-window case
+    # above, whose values are nonzero and legitimately default north-west).
+    board = Board(size=config.board_size)
+    field = ScentField.from_config(config)
+    own_pos = Position(3, 3)  # field never advanced anywhere
+
+    sampled = field.sample(own_pos, board)
+
+    assert dominant_scent_direction(sampled, own_pos) is None
+
+
+def test_generate_scent_report_outside_the_window_produces_the_no_signal_sentinel(config):
+    board = Board(size=config.board_size)
+    field = ScentField.from_config(config)
+    own_pos = Position(3, 3)  # field never advanced anywhere — genuinely empty
+
+    text = generate_scent_report(field.sample(own_pos, board), own_pos, config)
+
+    assert text == "No scent detected."
+    assert not _COORDINATE_PATTERN.search(text)
+
+
+def test_dominant_scent_direction_inside_the_window_argmax_lands_in_the_correct_quadrant(config):
+    # A real trail: two prior positions strictly north-east of the agent's
+    # current position, through a real ScentField (not a hand-built dict) —
+    # the argmax of the resulting gradient must point back the way the
+    # agent actually came from.
+    board = Board(size=config.board_size)
+    field = ScentField.from_config(config)
+    own_pos = Position(2, 4)  # clear of every edge
+    field.advance(Position(4, 2), board)  # north-east of own_pos
+    field.advance(Position(3, 3), board)  # still north-east, closer
+    field.advance(own_pos, board)
+
+    direction = dominant_scent_direction(field.sample(own_pos, board), own_pos)
+
+    assert direction == ("north", "east")
+
+
+def test_scent_report_is_never_affected_by_intent(config):
+    # The scent report has no `intent` parameter at all (by construction —
+    # never routed through the lie-capable claim path), but this proves it
+    # empirically rather than just by reading the signature: sweep both
+    # Intent values through the tactical claim (confirming it *does* change
+    # the claim, so the sweep is actually exercising something) while the
+    # scent report, generated from the same trail in between, stays
+    # byte-identical regardless.
+    board = Board(size=config.board_size)
+    provider = TemplateHintProvider()
+    true_pos = Position(2, 2)
+    field = ScentField.from_config(config)
+    field.advance(Position(1, 1), board)
+    field.advance(true_pos, board)
+    sampled = field.sample(true_pos, board)
+
+    truthful_claim = generate_hint(true_pos, provider, config, intent=True)
+    scent_report_after_truthful = generate_scent_report(sampled, true_pos, config)
+    lying_claim = generate_hint(true_pos, provider, config, intent=False)
+    scent_report_after_lying = generate_scent_report(sampled, true_pos, config)
+
+    assert truthful_claim != lying_claim  # the sweep is exercising a real difference
+    assert scent_report_after_truthful == scent_report_after_lying
+
+
 def test_generate_scent_report_respects_the_word_limit_even_when_tiny(config):
     # generate_scent_report's own template is short enough that only an
     # artificially tiny limit exercises the backstop truncation at all.

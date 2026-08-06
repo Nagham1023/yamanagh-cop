@@ -57,16 +57,25 @@ def choose_provider(
     return template_provider
 
 
-def dominant_scent_direction(sampled: dict[Position, float], own_pos: Position) -> tuple[str, str]:
+def dominant_scent_direction(sampled: dict[Position, float], own_pos: Position) -> tuple[str, str] | None:
     """The (vertical, horizontal) compass pair with the most residual scent
     around `own_pos`, excluding `own_pos` itself (Revision 1, Design
     Question 1). Figure 4's kernel is perfectly symmetric at the centre —
     any directional lean in `sampled` comes entirely from older, still-
     decaying residue from earlier positions, not this turn's fresh deposit.
     Each axis judged independently (same north/south x west/east vocabulary
-    `tools/hint_providers.py`'s `_quadrant` uses); ties — e.g. turn 1, no
-    history yet — default to north-west, matching `interpret_hint`'s own
-    default rather than an arbitrary pick.
+    `tools/hint_providers.py`'s `_quadrant` uses); a *nonzero* tie — e.g.
+    turn 1's still-symmetric fresh kernel, no history yet — defaults to
+    north-west, matching `interpret_hint`'s own default rather than an
+    arbitrary pick.
+
+    Returns `None` when `sampled` carries no scent at all outside `own_pos`
+    itself — genuinely no information (a position the agent has never been
+    near, or whose trail has fully decayed away), as opposed to a real but
+    tied signal. Collapsing that distinction into the same north-west
+    default would make "I have no information" silently masquerade as a
+    directional claim every time it occurs — a weak, wrong signal reaching
+    the belief map instead of no signal at all.
     """
     north = south = west = east = 0.0
     for cell, value in sampled.items():
@@ -82,9 +91,23 @@ def dominant_scent_direction(sampled: dict[Position, float], own_pos: Position) 
             west += value
         elif d_col > 0:
             east += value
+    if north == south == west == east == 0.0:
+        return None
     vertical = "north" if north >= south else "south"
     horizontal = "west" if west >= east else "east"
     return vertical, horizontal
+
+
+_NO_SCENT_REPORT = "No scent detected."
+
+
+def is_no_scent_report(text: str) -> bool:
+    """True when `text` is `generate_scent_report`'s own no-signal sentinel.
+    The receiver must skip `BeliefMap.update_from_scent_report` entirely in
+    that case, not fall back to `interpret_hint`'s own north-west default —
+    that would manufacture a weak, wrong signal from genuine absence of
+    information (see `dominant_scent_direction`)."""
+    return text == _NO_SCENT_REPORT
 
 
 def generate_scent_report(sampled: dict[Position, float], own_pos: Position, config: GameConfig) -> str:
@@ -95,8 +118,8 @@ def generate_scent_report(sampled: dict[Position, float], own_pos: Position, con
     nondeterministic model would undermine the one property
     ("uncorruptible") the whole corroboration mechanic depends on. Same
     hard backstop-truncation discipline as `generate_hint`."""
-    vertical, horizontal = dominant_scent_direction(sampled, own_pos)
-    text = f"Scent strongest to the {vertical} {horizontal}."
+    direction = dominant_scent_direction(sampled, own_pos)
+    text = _NO_SCENT_REPORT if direction is None else f"Scent strongest to the {direction[0]} {direction[1]}."
     words = text.split()
     if len(words) > config.hint_word_limit:
         text = " ".join(words[: config.hint_word_limit])

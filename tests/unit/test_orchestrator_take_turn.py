@@ -233,3 +233,21 @@ def test_on_hint_received_does_not_apply_an_over_limit_scent_report(config, tmp_
     client._on_hint_received(claim_text, over_limit_scent)
 
     assert client.belief_map._probabilities == control._probabilities
+
+
+def test_on_hint_received_applies_no_belief_update_for_a_no_signal_scent_report(config, tmp_path):
+    # "A thief outside the sampling window produces an all-zero report":
+    # once dominant_scent_direction reports genuinely no information
+    # (is_no_scent_report), the receiver must skip update_from_scent_report
+    # entirely — no signal reaches the belief map, rather than a weak wrong
+    # one manufactured from interpret_hint's own north-west default.
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    claim_text = "Near the south east side."
+    claim_focal = interpret_hint(claim_text, client.board)
+
+    control = BeliefMap.uniform(client.board)
+    control.update_from_hint(claim_focal, client.board)
+
+    client._on_hint_received(claim_text, "No scent detected.")
+
+    assert client.belief_map._probabilities == control._probabilities
