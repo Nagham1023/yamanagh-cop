@@ -101,4 +101,4 @@ Two clearly-labeled sections, matching the §7/§8 split — don't blur them int
 - [x] Update `PRD/PRD-3-blind-strategy.md` — flip status to Done, add a retrospective "Built & verified" section (same shape as PRD 1 and PRD 2's)
 - [x] Update `TODO.md` — PRD 3 row to done, demo script command added
 - [x] Own critical pass, `TODO1.md`/`TODO2.md`-style but retrospective — found a third real gap: `take_turn()` didn't catch exceptions from the brain/`GameState.apply`, unlike `send_to_peer`'s own careful handling; fixed with the same catch-log-transition-reraise shape, regression test added
-- [ ] Commit
+- [x] Commit — `65074f9`
