@@ -30,10 +30,13 @@ from cop.reasoning.subgame import run_local_subgame  # noqa: E402
 from cop.shared.config import GameConfig  # noqa: E402
 
 
-def _narrate(round_number, action, cop_pos, thief_pos) -> None:
+def _narrate(round_number, action, cop_pos, thief_pos, barriers) -> None:
     kind = f"moves {action.direction}" if isinstance(action, Move) else f"places barrier {action.target}"
     distance = abs(cop_pos.col - thief_pos.col) + abs(cop_pos.row - thief_pos.row)
-    print(f"  round {round_number}: cop {kind} -> {cop_pos}, thief at {thief_pos}, distance {distance}")
+    print(
+        f"  round {round_number}: cop {kind} -> {cop_pos}, thief at {thief_pos}, "
+        f"distance {distance}, barriers placed {len(barriers)}"
+    )
 
 
 def _stay(own_pos, board, barriers) -> str:

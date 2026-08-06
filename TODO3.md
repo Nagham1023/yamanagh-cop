@@ -1,8 +1,10 @@
 # TODO3 — Build Checklist for PRD 3 (Blind Strategy)
 
-Status: **Done.** Built, tested (128 tests + 1 xfailed, 100% coverage), `ruff` clean, `check_config.py` 31/31, `rule-auditor`-clean, milestone watched running live. Mirrors `PRD-3-blind-strategy.md`'s scope and its five Design Questions; each item is independently actionable (file + what "done" looks like), same specificity level as `TODO2.md`.
+Status: **Done.** Built, tested (144 tests + 1 xfailed, 100% coverage), `ruff` clean, `check_config.py` 31/31, `rule-auditor`-clean across three passes, milestone watched running live. Mirrors `PRD-3-blind-strategy.md`'s scope and its five Design Questions; each item is independently actionable (file + what "done" looks like), same specificity level as `TODO2.md`.
 
 **Two real bugs found and fixed during §8/§10** (not anticipated by this checklist, found via actually running the milestone): (1) the barrier heuristic could block the cop's own best path, causing a permanent movement oscillation — fixed in §4/§3's `CopBrain._decide_move` by excluding the cop's own preferred next step from barrier candidates; (2) the original self-trap check became provably-dead code once (1) was fixed, and was removed rather than kept untested. See `PRD-3-blind-strategy.md`'s "Built & verified" section for the full account.
+
+**A requested second review pass added 6 more tests** (cycle detection, board-size/quota parameterization, a 500-state property-based legality sweep, reproducibility, entombment, and a PRD-4 seam check) — see `PRD-3-blind-strategy.md`'s "A second review pass" section. One genuine strategy finding: `CopBrain` can make barrier progress but structurally never finishes a game via rule-47 entombment, only coordinate capture. One more real gap found by `rule-auditor` reviewing the new tests themselves: the PRD-4 seam's AST check had a positional-argument blind spot, closed structurally via `GameState`'s new `kw_only=True`.
 
 ## 0. Setup
 

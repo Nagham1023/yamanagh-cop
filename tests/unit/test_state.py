@@ -55,3 +55,12 @@ def test_applying_an_illegal_barrier_placement_raises_and_does_not_corrupt_state
 
     assert state.barriers.placed == set()
     assert state.steps_taken == 0
+
+
+def test_positional_construction_is_rejected():
+    # kw_only=True (rule-auditor finding): a positional GameState(own,
+    # thief, barriers) call would silently bypass test_prd4_seam.py's
+    # AST check for ground_truth_target_position usage, since that check
+    # only inspects keyword arguments and attribute assignments.
+    with pytest.raises(TypeError):
+        GameState(Position(0, 0), Position(5, 5), BarrierSet(quota=14))

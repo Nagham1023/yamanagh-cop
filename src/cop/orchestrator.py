@@ -35,7 +35,7 @@ from .planner.deadline import await_with_deadline
 from .planner.state_machine import PeerStateMachine
 from .planner.watchdog import Watchdog
 from .reasoning.brain_base import BrainBase
-from .reasoning.state import GameState
+from .reasoning.state import GameState, ground_truth_target_position
 from .shared.config import GameConfig
 from .tools.mcp_client import send_position
 from .tools.mcp_server import build_server
@@ -48,7 +48,7 @@ class Orchestrator(BrainTurnMixin):
         self.board = Board(size=config.board_size)
         self.game_state = GameState(
             own_pos=Position(*config.cop_start),
-            target_pos=Position(*config.thief_start),
+            target_pos=ground_truth_target_position(Position(*config.thief_start)),
             barriers=BarrierSet(quota=config.barrier_quota),
         )
         self.trace = Trace(log_path)

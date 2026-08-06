@@ -19,10 +19,10 @@ from ..domain.movement import apply_move
 from ..domain.scoring import Outcome
 from ..shared.config import GameConfig
 from .brain_base import Action, BrainBase, PlaceBarrier
-from .state import GameState
+from .state import GameState, ground_truth_target_position
 
 ThiefMover = Callable[[Position, Board, BarrierSet], str]
-OnTurn = Callable[[int, Action, Position, Position], None]
+OnTurn = Callable[[int, Action, Position, Position, "frozenset[Position]"], None]
 
 
 def run_local_subgame(
@@ -31,9 +31,17 @@ def run_local_subgame(
     board: Board,
     config: GameConfig,
     on_turn: OnTurn | None = None,
+    initial_cop_pos: Position | None = None,
+    initial_thief_pos: Position | None = None,
+    initial_barriers: BarrierSet | None = None,
 ) -> Outcome:
-    """Alternate cop/thief turns from `config`'s start positions until
-    `domain.end_conditions.determine_outcome` returns a real `Outcome`.
+    """Alternate cop/thief turns until `domain.end_conditions.determine_outcome`
+    returns a real `Outcome`.
+
+    Starts from `config`'s start positions and an empty `BarrierSet` unless
+    `initial_cop_pos`/`initial_thief_pos`/`initial_barriers` override them —
+    needed to test scenarios (e.g. a near-sealed encirclement) that can't be
+    reached from `config`'s defaults within a reasonable number of turns.
 
     One `while` iteration is one round (a cop decision counts as one step
     toward `step_ceiling` — see `GameState.apply`'s docstring). All three
@@ -43,29 +51,32 @@ def run_local_subgame(
     applies its own capture-before-ceiling precedence.
 
     `on_turn`, if given, is called once per round with
-    `(round_number, action, cop_pos, thief_pos)` right after the cop's
-    action is applied — the same `on_receive`-style optional observability
-    hook PRD 2's `build_server` uses, so the demo script can narrate
-    progress without a second copy of this loop.
+    `(round_number, action, cop_pos, thief_pos, frozenset(barriers))` right
+    after the cop's action is applied — the same `on_receive`-style optional
+    observability hook PRD 2's `build_server` uses, so callers (the demo
+    script, cycle-detection tests) can narrate or record progress without a
+    second copy of this loop.
     """
+    thief_pos = initial_thief_pos or Position(*config.thief_start)
     cop_state = GameState(
-        own_pos=Position(*config.cop_start),
-        target_pos=Position(*config.thief_start),
-        barriers=BarrierSet(quota=config.barrier_quota),
+        own_pos=initial_cop_pos or Position(*config.cop_start),
+        target_pos=ground_truth_target_position(thief_pos),
+        barriers=initial_barriers if initial_barriers is not None else BarrierSet(quota=config.barrier_quota),
     )
-    thief_pos = Position(*config.thief_start)
     round_number = 0
 
     while True:
         round_number += 1
-        cop_state.target_pos = thief_pos
+        cop_state.target_pos = ground_truth_target_position(thief_pos)
         action = cop_brain._decide_move(cop_state.own_pos, thief_pos, board, cop_state.barriers)
         barrier_capture = isinstance(action, PlaceBarrier) and is_barrier_capture(
             action.target, thief_pos
         )
         cop_state.apply(action, board)
         if on_turn is not None:
-            on_turn(round_number, action, cop_state.own_pos, thief_pos)
+            on_turn(
+                round_number, action, cop_state.own_pos, thief_pos, frozenset(cop_state.barriers.placed)
+            )
 
         captured = (
             barrier_capture
