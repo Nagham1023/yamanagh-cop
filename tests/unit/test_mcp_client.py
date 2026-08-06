@@ -1,4 +1,4 @@
-"""mcp_client.send_position against a real (if lightweight) HTTP server.
+"""mcp_client.send_hint against a real (if lightweight) HTTP server.
 
 Runs the server in a background thread on a genuinely free port rather than
 a separate OS process — proving the HTTP round-trip works at all. The
@@ -22,7 +22,7 @@ import time
 
 import pytest
 
-from cop.tools.mcp_client import send_position
+from cop.tools.mcp_client import send_hint
 from cop.tools.mcp_server import build_server
 
 
@@ -46,11 +46,12 @@ def running_server(config):
     yield f"http://127.0.0.1:{port}/mcp"
 
 
-def test_send_position_round_trips_over_real_http(running_server):
-    data = asyncio.run(send_position(running_server, col=2, row=5))
-    assert data == {"accepted": True, "col": 2, "row": 5}
+def test_send_hint_round_trips_over_real_http(running_server):
+    data = asyncio.run(send_hint(running_server, "quiet by the river"))
+    assert data == {"accepted": True, "word_count": 4}
 
 
-def test_send_position_reports_an_off_board_target(running_server, config):
-    data = asyncio.run(send_position(running_server, col=config.board_size, row=0))
-    assert data == {"accepted": False, "col": config.board_size, "row": 0}
+def test_send_hint_reports_an_over_limit_hint(running_server, config):
+    over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))
+    data = asyncio.run(send_hint(running_server, over_limit_text))
+    assert data == {"accepted": False, "word_count": config.hint_word_limit + 1}

@@ -41,14 +41,13 @@ def spawn_server(
     port: int,
     log_path: Path,
     peer_port: int | None = None,
-    peer_col: int = 0,
-    peer_row: int = 0,
+    peer_text: str = "a test hint",
 ) -> subprocess.Popen:
     """Launch `_server_process.py` as a real OS process.
 
     `peer_port` is optional: when given, the spawned process, once its own
-    server is up, also sends `(peer_col, peer_row)` to that peer port —
-    letting a process act as sender and receiver in the same run, for the
+    server is up, also sends `peer_text` to that peer port — letting a
+    process act as sender and receiver in the same run, for the
     overlapping-exchange test.
     """
     args = [
@@ -58,5 +57,5 @@ def spawn_server(
         "--config", REPO_CONFIG,
     ]
     if peer_port is not None:
-        args += ["--peer-port", str(peer_port), "--peer-col", str(peer_col), "--peer-row", str(peer_row)]
+        args += ["--peer-port", str(peer_port), "--peer-text", peer_text]
     return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -18,6 +18,12 @@ silent bad behaviour surfacing three modules downstream:
 PRD 2 extends this dataclass with `response_timeout_seconds`/
 `watchdog_threshold_seconds` (Table 19) — same pattern as PRD 1: each layer
 adds the fields it needs rather than every module parsing the raw JSON.
+
+PRD 4 extends it again with `arena`/`hint_word_limit` (Table 14) and
+`scent_source_strength`/`scent_decay_rate`/`scent_field_size` (Table 16).
+`arena` may legitimately be `""` (Table 14 #1's own "generic landmarks"
+carve-out), so it's type-checked only, not non-empty-checked — a stricter
+validator here would reject a value the book explicitly allows.
 """
 
 from __future__ import annotations
@@ -42,6 +48,13 @@ def _non_negative_int(data: dict[str, Any], key: str) -> int:
     value = data[key]
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{key} must be a non-negative int, got {value!r}")
+    return value
+
+
+def _string(data: dict[str, Any], key: str) -> str:
+    value = data[key]
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string, got {value!r}")
     return value
 
 
@@ -74,6 +87,11 @@ class GameConfig:
     score_draw: int
     response_timeout_seconds: float
     watchdog_threshold_seconds: float
+    arena: str
+    hint_word_limit: int
+    scent_source_strength: float
+    scent_decay_rate: float
+    scent_field_size: int
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GameConfig:
@@ -111,6 +129,11 @@ class GameConfig:
             score_draw=_non_negative_int(data, "score_draw"),
             response_timeout_seconds=_positive_number(data, "response_timeout_seconds"),
             watchdog_threshold_seconds=_positive_number(data, "watchdog_threshold_seconds"),
+            arena=_string(data, "arena"),
+            hint_word_limit=_positive_int(data, "hint_word_limit"),
+            scent_source_strength=_positive_number(data, "scent_source_strength"),
+            scent_decay_rate=_positive_number(data, "scent_decay_rate"),
+            scent_field_size=_positive_int(data, "scent_field_size"),
         )
 
     @classmethod

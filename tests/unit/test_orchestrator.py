@@ -51,9 +51,9 @@ def test_send_to_peer_round_trips_and_resolves_the_turn(config, tmp_path):
 
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
     client.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
-    result = asyncio.run(client.send_to_peer(f"http://127.0.0.1:{port}/mcp", col=2, row=3))
+    result = asyncio.run(client.send_to_peer(f"http://127.0.0.1:{port}/mcp", "quiet by the river"))
 
-    assert result == {"accepted": True, "col": 2, "row": 3}
+    assert result == {"accepted": True, "word_count": 4}
     assert client.state_machine.state == "WAITING_FOR_OPPONENT"
 
 
@@ -65,9 +65,9 @@ def test_send_to_peer_deadline_exceeded_transitions_to_technical_loss_and_logs(c
     slow = FastMCP("slow_peer")
 
     @slow.tool
-    def receive_position(col: int, row: int) -> dict:
+    def receive_hint(text: str) -> dict:
         time.sleep(0.3)
-        return {"accepted": True, "col": col, "row": row}
+        return {"accepted": True, "word_count": len(text.split())}
 
     port = _free_port()
     thread = threading.Thread(
@@ -83,7 +83,7 @@ def test_send_to_peer_deadline_exceeded_transitions_to_technical_loss_and_logs(c
     orchestrator.state_machine.transition("COMPUTING_MOVE")
 
     with pytest.raises(DeadlineExceededError):
-        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", col=1, row=1))
+        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
 
     assert orchestrator.state_machine.state == "TECHNICAL_LOSS"
 

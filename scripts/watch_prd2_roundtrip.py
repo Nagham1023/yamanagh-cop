@@ -24,7 +24,7 @@ from cop.orchestrator import Orchestrator
 from cop.planner.state_machine import PeerStateMachine
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
-from cop.tools.mcp_client import send_position
+from cop.tools.mcp_client import send_hint
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HELPER = REPO_ROOT / "tests" / "integration" / "_server_process.py"
@@ -71,8 +71,8 @@ def main() -> None:
     try:
         wait_for_port(port)
         print(f"  peer B is a separate OS process, pid={peer.pid}, listening on port {port}")
-        data = asyncio.run(send_position(f"http://127.0.0.1:{port}/mcp", col=4, row=5))
-        print(f"  agent A sends (col=4, row=5) -> agent B decodes: {data}")
+        data = asyncio.run(send_hint(f"http://127.0.0.1:{port}/mcp", "quiet by the river"))
+        print(f"  agent A sends 'quiet by the river' -> agent B decodes: {data}")
 
         print("\n2. An illegal state transition is rejected, not absorbed (rule 5)")
         machine = PeerStateMachine()
@@ -95,7 +95,7 @@ def main() -> None:
 
         start = time.monotonic()
         try:
-            asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", col=1, row=1))
+            asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
         except Exception as exc:
             elapsed = time.monotonic() - start
             print(f"  send_to_peer raised {type(exc).__name__} after {elapsed:.2f}s — not a hang")

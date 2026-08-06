@@ -1,6 +1,10 @@
 """PRD 2's actual milestone, automated: two real OS processes (rule 1),
 proven not to share state (rule 2), round-tripping a message over
 localhost. `_server_process.py` is the helper each spawned process runs.
+
+The wire payload is a natural-language hint (PRD 4) rather than PRD 2's
+original bare coordinates — the rules this file proves (1, 2, 5, 6, 7) are
+unchanged; only what actually crosses the wire is.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from cop.orchestrator import Orchestrator
 from cop.planner.state_machine import PeerStateMachine
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
-from cop.tools.mcp_client import send_position
+from cop.tools.mcp_client import send_hint
 
 
 def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
@@ -28,8 +32,8 @@ def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
     proc_b = _spawn_server(port_b, log_b)
     try:
         _wait_for_port(port_b)
-        data = asyncio.run(send_position(f"http://127.0.0.1:{port_b}/mcp", col=4, row=5))
-        assert data == {"accepted": True, "col": 4, "row": 5}
+        data = asyncio.run(send_hint(f"http://127.0.0.1:{port_b}/mcp", "quiet by the river"))
+        assert data == {"accepted": True, "word_count": 4}
     finally:
         proc_b.terminate()
         proc_b.wait(timeout=5)
@@ -75,7 +79,7 @@ def test_killing_the_peer_produces_a_clean_technical_loss_not_a_hang(tmp_path):
 
     start = time.monotonic()
     try:
-        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port_b}/mcp", col=1, row=1))
+        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port_b}/mcp", "a test hint"))
         raised = False
     except Exception:
         raised = True

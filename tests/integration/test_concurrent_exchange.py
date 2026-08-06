@@ -22,8 +22,8 @@ def test_two_processes_send_and_receive_in_the_same_overlapping_exchange(tmp_pat
     # to send to its peer as soon as its own server (and the peer's) are up —
     # both processes act as sender and receiver in the same wall-clock
     # window, rather than one finishing before the other starts.
-    proc_a = spawn_server(port_a, log_a, peer_port=port_b, peer_col=1, peer_row=1)
-    proc_b = spawn_server(port_b, log_b, peer_port=port_a, peer_col=6, peer_row=6)
+    proc_a = spawn_server(port_a, log_a, peer_port=port_b, peer_text="hint from a")
+    proc_b = spawn_server(port_b, log_b, peer_port=port_a, peer_text="hint from b")
     try:
         wait_for_port(port_a)
         wait_for_port(port_b)
@@ -32,10 +32,10 @@ def test_two_processes_send_and_receive_in_the_same_overlapping_exchange(tmp_pat
         events_b = _wait_for_event(log_b, "turn_resolved", timeout=5.0)
 
         # Each process's own trace logs the ack for *its own send*: A sent
-        # (1, 1) to B, B sent (6, 6) to A — the echoed payload matches what
-        # that process itself sent, not what it received.
-        assert events_a["result"] == {"accepted": True, "col": 1, "row": 1}
-        assert events_b["result"] == {"accepted": True, "col": 6, "row": 6}
+        # "hint from a" to B, B sent "hint from b" to A — the echoed payload
+        # matches what that process itself sent, not what it received.
+        assert events_a["result"] == {"accepted": True, "word_count": 3}
+        assert events_b["result"] == {"accepted": True, "word_count": 3}
 
         # Both sends landed within the same short window — genuine overlap,
         # not one process finishing long before the other even started.

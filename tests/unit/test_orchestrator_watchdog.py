@@ -35,7 +35,7 @@ def test_watchdog_persist_and_shutdown_write_to_the_orchestrator_trace_log(confi
     assert "watchdog_controlled_shutdown" in events
 
 
-def test_receiving_a_position_feeds_the_orchestrators_watchdog_heartbeat(config, tmp_path):
+def test_receiving_a_hint_feeds_the_orchestrators_watchdog_heartbeat(config, tmp_path):
     # Proves the on_receive wiring, not just that build_server accepts the
     # kwarg: a real call through orchestrator.server must move the
     # orchestrator's own watchdog off a forced-stale timestamp.
@@ -44,7 +44,7 @@ def test_receiving_a_position_feeds_the_orchestrators_watchdog_heartbeat(config,
 
     async def _call():
         async with Client(orchestrator.server) as client:
-            await client.call_tool("receive_position", {"col": 1, "row": 1})
+            await client.call_tool("receive_hint", {"text": "a test hint"})
 
     asyncio.run(_call())
 

@@ -19,6 +19,11 @@ def test_loads_the_dev_config_from_disk():
     assert cfg.cop_start == (0, 0)
     assert cfg.response_timeout_seconds == 30.0
     assert cfg.watchdog_threshold_seconds == 60.0
+    assert cfg.arena == "New York"
+    assert cfg.hint_word_limit == 15
+    assert cfg.scent_source_strength == 0.9
+    assert cfg.scent_decay_rate == 0.10
+    assert cfg.scent_field_size == 5
 
 
 def test_missing_required_field_raises(tmp_path):
@@ -39,6 +44,8 @@ def _full_config(**overrides):
         "score_capture_cop": 20, "score_capture_thief": 5,
         "score_survival_cop": 5, "score_survival_thief": 10, "score_draw": 2,
         "response_timeout_seconds": 30, "watchdog_threshold_seconds": 60,
+        "arena": "New York", "hint_word_limit": 15,
+        "scent_source_strength": 0.9, "scent_decay_rate": 0.10, "scent_field_size": 5,
     }
     base.update(overrides)
     return base
@@ -92,3 +99,35 @@ def test_fractional_timeout_is_accepted():
     # useful for keeping the test suite itself fast.
     config = GameConfig.from_dict(_full_config(response_timeout_seconds=0.5))
     assert config.response_timeout_seconds == 0.5
+
+
+def test_non_string_arena_is_rejected():
+    with pytest.raises(ValueError, match="arena"):
+        GameConfig.from_dict(_full_config(arena=42))
+
+
+def test_empty_arena_is_accepted():
+    # Table 14 #1: "" is the documented "generic landmarks" carve-out, not
+    # an invalid value — a non-empty validator here would be wrong.
+    config = GameConfig.from_dict(_full_config(arena=""))
+    assert config.arena == ""
+
+
+def test_zero_hint_word_limit_is_rejected():
+    with pytest.raises(ValueError, match="hint_word_limit"):
+        GameConfig.from_dict(_full_config(hint_word_limit=0))
+
+
+def test_negative_scent_source_strength_is_rejected():
+    with pytest.raises(ValueError, match="scent_source_strength"):
+        GameConfig.from_dict(_full_config(scent_source_strength=-0.1))
+
+
+def test_negative_scent_decay_rate_is_rejected():
+    with pytest.raises(ValueError, match="scent_decay_rate"):
+        GameConfig.from_dict(_full_config(scent_decay_rate=-0.1))
+
+
+def test_zero_scent_field_size_is_rejected():
+    with pytest.raises(ValueError, match="scent_field_size"):
+        GameConfig.from_dict(_full_config(scent_field_size=0))

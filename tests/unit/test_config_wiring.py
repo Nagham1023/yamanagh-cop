@@ -38,6 +38,8 @@ def test_barrier_quota_from_config_drives_quota_rejection(tmp_path):
         "score_capture_cop": 20, "score_capture_thief": 5,
         "score_survival_cop": 5, "score_survival_thief": 10, "score_draw": 2,
         "response_timeout_seconds": 30, "watchdog_threshold_seconds": 60,
+        "arena": "New York", "hint_word_limit": 15,
+        "scent_source_strength": 0.9, "scent_decay_rate": 0.10, "scent_field_size": 5,
     }
     path = tmp_path / "config_quota_one.json"
     path.write_text(json.dumps(custom), encoding="utf-8")

@@ -40,6 +40,11 @@ def _config_for(board_size: int) -> GameConfig:
         score_draw=2,
         response_timeout_seconds=30.0,
         watchdog_threshold_seconds=60.0,
+        arena="New York",
+        hint_word_limit=15,
+        scent_source_strength=0.9,
+        scent_decay_rate=0.10,
+        scent_field_size=5,
     )
 
 

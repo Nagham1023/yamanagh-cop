@@ -7,9 +7,8 @@ actually exercised rather than approximated with threads.
 
 `--peer-port` is optional: when given, this process also acts as a client
 once both its own server and the peer's are reachable, sending
-`(--peer-col, --peer-row)`. That's what lets the concurrent-exchange test
-have a real OS process send and receive within the same run, not just
-receive.
+`--peer-text`. That's what lets the concurrent-exchange test have a real OS
+process send and receive within the same run, not just receive.
 """
 
 from __future__ import annotations
@@ -26,10 +25,10 @@ from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
 
 
-def _send_once_peer_is_up(orchestrator: Orchestrator, peer_port: int, col: int, row: int) -> None:
+def _send_once_peer_is_up(orchestrator: Orchestrator, peer_port: int, text: str) -> None:
     wait_for_port(peer_port)
     orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
-    asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{peer_port}/mcp", col=col, row=row))
+    asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{peer_port}/mcp", text))
 
 
 def main() -> None:
@@ -38,8 +37,7 @@ def main() -> None:
     parser.add_argument("--log-path", required=True)
     parser.add_argument("--config", required=True)
     parser.add_argument("--peer-port", type=int, default=None)
-    parser.add_argument("--peer-col", type=int, default=0)
-    parser.add_argument("--peer-row", type=int, default=0)
+    parser.add_argument("--peer-text", default="a test hint")
     args = parser.parse_args()
 
     config = GameConfig.from_file(args.config)
@@ -49,7 +47,7 @@ def main() -> None:
     if args.peer_port is not None:
         threading.Thread(
             target=_send_once_peer_is_up,
-            args=(orchestrator, args.peer_port, args.peer_col, args.peer_row),
+            args=(orchestrator, args.peer_port, args.peer_text),
             daemon=True,
         ).start()
 

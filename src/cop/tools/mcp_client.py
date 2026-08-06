@@ -12,8 +12,8 @@ from typing import Any
 from fastmcp import Client
 
 
-async def send_position(url: str, col: int, row: int) -> dict[str, Any]:
-    """Call the peer's `receive_position` tool over HTTP; return its ack dict."""
+async def send_hint(url: str, text: str) -> dict[str, Any]:
+    """Call the peer's `receive_hint` tool over HTTP; return its ack dict."""
     async with Client(url) as client:
-        result = await client.call_tool("receive_position", {"col": col, "row": row})
+        result = await client.call_tool("receive_hint", {"text": text})
         return result.data

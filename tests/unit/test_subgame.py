@@ -87,6 +87,11 @@ def test_capture_wins_even_on_the_exact_ceiling_turn():
         score_draw=2,
         response_timeout_seconds=30.0,
         watchdog_threshold_seconds=60.0,
+        arena="New York",
+        hint_word_limit=15,
+        scent_source_strength=0.9,
+        scent_decay_rate=0.10,
+        scent_field_size=5,
     )
     board = Board(size=config.board_size)
 

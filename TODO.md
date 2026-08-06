@@ -93,24 +93,30 @@ uv run python scripts/watch_prd2_roundtrip.py   # two OS processes, round-trip, 
 uv run python scripts/watch_prd3_brain.py   # local pursuit (static + moving target) + one real take_turn() round-trip
 ```
 
-## PRD 4 — Language and scent
+## PRD 4 — Language and scent — **DONE**
 
-- [ ] rule 23 — scent-emission model cryptographically locked pre-game
-- [ ] rule 26 — in-game communication is free natural language only
-- [ ] rule 27 — no numeric position protocol (remove PRD 2's bare-coordinate scaffolding)
-- [ ] build: Table 14 params (arena, hint word limit) wired from config
-- [ ] build: scent emission + decay model per Table 16 constants
-- [ ] build: Bayesian belief-map update from scent + hint
-- [ ] build: LLM hint generation, `template` mode as zero-token default
-- [ ] build: `Intent` truth/lie flag on outgoing hints
-- [ ] build: hint word-limit enforcement in the LLM system prompt
-- [ ] test: grep the wire — no coordinates survive anywhere in an outgoing hint
-- [ ] test: belief map is a genuine probability distribution (sums to one)
-- [ ] test: a known-false hint measurably shifts belief in the wrong direction (milestone)
-- [ ] test: scent constants match Table 16 exactly, exposed for pre-game locking
-- [ ] milestone watched end-to-end by a human
-- [ ] `rule-auditor` run, zero fatal violations
-- [ ] `PRD/PRD-4-language-and-scent.md` written; commit
+- [x] rule 23 — scent-emission model cryptographically locked pre-game (model made config-driven and `check_config.py`-checkable here; the actual pre-game locking ceremony is PRD 6's Step-0)
+- [x] rule 26 — in-game communication is free natural language only
+- [x] rule 27 — no numeric position protocol (removed PRD 2's bare-coordinate scaffolding — `receive_position`/`send_position` deleted entirely)
+- [x] build: Table 14 params (arena, hint word limit) wired from config
+- [x] build: scent emission + decay model per Table 16 constants (`memory/scent.py`)
+- [x] build: belief-map update from scent + hint (`memory/belief.py`; multiplicative reweighting, not a full Bayesian posterior — documented as a defensible choice for this layer)
+- [x] build: LLM hint generation, `template` mode as zero-token default (`tools/hint_providers.py`, `ollama` also implemented at zero API cost; `claude_api`/`claude_cli` deliberately interface-only until PRD 7's Gatekeeper)
+- [x] build: `Intent` truth/lie flag on outgoing hints, locally recorded via `trace.log("hint_generated", intent=...)`
+- [x] build: hint word-limit enforcement in the LLM system prompt (`OllamaHintProvider.system_prompt`), backstopped by a hard Python truncation
+- [x] test: grep the wire — no coordinates survive anywhere in an outgoing hint (`test_hint.py`'s exhaustive sweep across all board positions × both intents)
+- [x] test: belief map is a genuine probability distribution (sums to one) after every update
+- [x] test: a known-false hint measurably shifts belief in the wrong direction (milestone) — `test_belief_deception.py`
+- [x] test: scent constants match Table 16 exactly, sourced from `GameConfig` not literals, exposed for pre-game locking
+- [x] found + fixed a real gap: the PRD 3 seam had *three* non-seam sites once belief-driven `target_pos` landed (`orchestrator.py`'s init and `orchestrator_turn.py`'s per-turn refresh), not the one originally planned — caught by `test_prd4_seam.py` itself, documented in the PRD's Design Question 3
+- [x] milestone watched end-to-end by a human (`scripts/watch_prd4_language.py`)
+- [x] `rule-auditor` run against rules 23/26/27 and I6/I9, zero fatal violations
+- [x] `PRD/PRD-4-language-and-scent.md` written; commit
+
+**Demo script (run from repo root):**
+```bash
+uv run python scripts/watch_prd4_language.py   # local truthful/lying hints + belief shift, scent decay, one real round-trip with the actual wire text printed
+```
 
 ## PRD 5 — Cloud exposure and tunneling
 

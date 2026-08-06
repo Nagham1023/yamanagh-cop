@@ -80,11 +80,9 @@ Any one of these scores nothing regardless of match results. Full list with sanc
 
 `software_submission_guidelines-V3.pdf` is a generic professional-software standard the course also grades against, independently of the 55 book rules. It adds requirements the book never mentions: `docs/PRD.md` + `docs/PLAN.md` + `docs/TODO.md` under `docs/`, ≥85% test coverage, zero `ruff check` violations, an SDK-facade architecture, and docstrings on every function/class/module. Where it gives a number that conflicts with Appendix F (e.g. its illustrative Gatekeeper config), **Appendix F wins** — the guide's numbers there are illustrating the pattern's shape, not overriding the game's locked parameters.
 
-## Known trap
+## Known trap — closed at PRD 4
 
-PRD 2 deliberately sends bare coordinates over localhost. That is legal only while the language layer does not exist. **PRD 4 must remove it** — rule 27 is fatal, and this is exactly the kind of scaffolding that survives quietly into a real match. Grep the wire before the first counted game.
-
-The scaffolding is marked at both ends with the literal string `RULE-27-REMOVE-AT-PRD-4` — `grep -rn RULE-27-REMOVE-AT-PRD-4 src/ tests/` finds the tool definition in `src/cop/tools/mcp_server.py` and its guard test in `tests/unit/test_mcp_server.py` (a `strict=True` `xfail` asserting `receive_position` is absent from the tool surface). That test currently fails as expected; PRD 4 must delete both the tool and the xfail marker together — leaving the xfail behind after the tool is actually gone turns it into an XPASS, which `strict=True` turns into a hard suite failure, so it can't be missed.
+PRD 2 deliberately sent bare coordinates over localhost, legal only while the language layer didn't exist. It was marked at both ends with the literal string `RULE-27-REMOVE-AT-PRD-4` (the tool in `src/cop/tools/mcp_server.py`, a guard `xfail` in `tests/unit/test_mcp_server.py`) specifically so this couldn't survive quietly into a real match. PRD 4 removed `receive_position`/`send_position` entirely, replacing them with `receive_hint`/`send_hint` (free natural language, rule 26/27); the guard `xfail` was deleted in the same commit rather than left behind. `grep -rn RULE-27-REMOVE-AT-PRD-4 src/ tests/` now returns nothing — that emptiness is itself the confirmation, not something to re-add.
 
 ## Where the numbers live
 

@@ -40,7 +40,7 @@ def test_send_to_peer_against_a_dead_port_reaches_technical_loss_without_hanging
 
     start = time.monotonic()
     with pytest.raises(Exception):  # noqa: B017 - deliberately broad: any connection failure counts
-        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", col=1, row=1))
+        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
     elapsed = time.monotonic() - start
 
     assert elapsed < 5.0, "must fail fast, not hang toward the full response_timeout_seconds"
@@ -79,7 +79,7 @@ def test_send_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error
     start = time.monotonic()
     try:
         with pytest.raises(DeadlineExceededError):
-            asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", col=1, row=1))
+            asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
         elapsed = time.monotonic() - start
 
         assert elapsed < 2.0, "silence must be caught by the deadline, not hang indefinitely"

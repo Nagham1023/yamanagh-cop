@@ -1,0 +1,73 @@
+"""The PRD 4 milestone, local: a known-false hint measurably shifts
+BeliefMap's probability mass toward the *wrong* region relative to the
+cop's actual position, while ScentField's decay proceeds correctly and
+independently underneath it. No Orchestrator, no network, no subprocess —
+pure function calls over memory/ + reasoning/hint.py, matching PRD 3's
+reasoning/subgame.py precedent (Design Question 4).
+"""
+
+from __future__ import annotations
+
+import random
+
+from cop.domain.board import Board, Position
+from cop.memory.belief import BeliefMap
+from cop.memory.scent import ScentField
+from cop.reasoning.hint import decide_intent, generate_hint, interpret_hint
+from cop.tools.hint_providers import TemplateHintProvider
+
+
+def test_a_known_false_hint_measurably_shifts_belief_toward_the_wrong_region(config):
+    board = Board(size=config.board_size)
+    true_pos = Position(0, 0)  # the cop's real position: unambiguously north-west
+    belief = BeliefMap.uniform(board)
+    provider = TemplateHintProvider()
+    rng = random.Random(20260806)
+
+    # Force the lie deterministically — the milestone needs Intent=False on
+    # demand, not "sometimes."
+    intent = decide_intent(lie_probability=1.0, rng=rng)
+    assert intent is False
+
+    hint_text = generate_hint(true_pos, provider, config, intent)
+    focal_point = interpret_hint(hint_text, board)
+    belief.update_from_hint(focal_point, board)
+
+    # A truthful hint about (0, 0) would point north-west; the lie points
+    # south-east instead — belief should shift toward the region *opposite*
+    # the cop's real position, not toward it.
+    true_quadrant_probability = belief.probability(Position(0, 0))
+    lied_quadrant_probability = belief.probability(focal_point)
+    assert lied_quadrant_probability > true_quadrant_probability
+    assert focal_point.row > board.size / 2
+    assert focal_point.col > board.size / 2
+
+
+def test_scent_decay_proceeds_correctly_and_independently_of_what_the_hint_said(config):
+    # Same scenario as above, but proving the *other* half of the
+    # milestone's "independent" claim: scent's own decay math doesn't care
+    # what the belief map did, or what the hint said.
+    board = Board(size=config.board_size)
+    true_pos = Position(0, 0)
+    belief = BeliefMap.uniform(board)
+    scent = ScentField.from_config(config)
+    provider = TemplateHintProvider()
+    rng = random.Random(20260806)
+
+    scent.emit(true_pos)
+    intent = decide_intent(lie_probability=1.0, rng=rng)
+    hint_text = generate_hint(true_pos, provider, config, intent)
+    focal_point = interpret_hint(hint_text, board)
+    belief.update_from_hint(focal_point, board)  # deception applied to belief
+
+    levels = [scent.sample(true_pos, board)[true_pos]]
+    for _ in range(5):
+        scent.decay()
+        levels.append(scent.sample(true_pos, board)[true_pos])
+
+    for before, after in zip(levels[:-1], levels[1:], strict=True):
+        expected = before * (1 - config.scent_decay_rate)
+        assert abs(after - expected) < 1e-9
+
+    # The belief map's own deception-induced shift never touches scent.
+    assert scent.sample(true_pos, board)[true_pos] == levels[-1]

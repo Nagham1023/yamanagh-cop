@@ -45,7 +45,18 @@ def _start_server(config, tmp_path, name: str) -> tuple[Orchestrator, int]:
     return server, port
 
 
-def test_take_turn_sends_the_brains_computed_position_not_a_caller_supplied_one(config, tmp_path):
+def _sent_hint_text(trace_path) -> str:
+    events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    (sending_event,) = [e for e in events if e["event"] == "sending_hint"]
+    return sending_event["text"]
+
+
+def test_take_turn_moves_according_to_the_brains_own_decision_not_a_fixed_position(config, tmp_path):
+    # The ack (`{"accepted": bool, "word_count": int}`) no longer echoes back
+    # enough to distinguish outcomes by content — PRD 4's wire protocol is
+    # language, not a position round-trip. Observe the client's own state
+    # and trace log instead, same as PRD 3's discipline, adapted to what's
+    # actually observable now.
     _, port = _start_server(config, tmp_path, "server")
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
     client.game_state.own_pos = Position(3, 3)
@@ -53,16 +64,16 @@ def test_take_turn_sends_the_brains_computed_position_not_a_caller_supplied_one(
 
     result = asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
 
-    assert result == {"accepted": True, "col": 3, "row": 2}
+    assert result == {"accepted": True, "word_count": len(_sent_hint_text(tmp_path / "client_trace.jsonl").split())}
     assert client.game_state.own_pos == Position(3, 2)
     assert client.state_machine.state == "WAITING_FOR_OPPONENT"
 
 
 def test_take_turn_with_a_different_target_produces_a_different_outgoing_position(config, tmp_path):
     # The wiring-is-real proof: two otherwise-identical orchestrators with
-    # different targets must send different coordinates — if take_turn()
-    # silently ignored self.brain and sent a fixed position instead, this
-    # would fail.
+    # different targets must apply different moves and send different hint
+    # text — if take_turn() silently ignored self.brain and sent a fixed
+    # position instead, this would fail.
     _, port = _start_server(config, tmp_path, "server")
 
     north_client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "north_trace.jsonl"))
@@ -73,12 +84,14 @@ def test_take_turn_with_a_different_target_produces_a_different_outgoing_positio
     east_client.game_state.own_pos = Position(3, 3)
     east_client.game_state.target_pos = Position(6, 3)
 
-    north_result = asyncio.run(north_client.take_turn(f"http://127.0.0.1:{port}/mcp"))
-    east_result = asyncio.run(east_client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+    asyncio.run(north_client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+    asyncio.run(east_client.take_turn(f"http://127.0.0.1:{port}/mcp"))
 
-    assert north_result != east_result
-    assert north_result == {"accepted": True, "col": 3, "row": 2}
-    assert east_result == {"accepted": True, "col": 4, "row": 3}
+    assert north_client.game_state.own_pos == Position(3, 2)
+    assert east_client.game_state.own_pos == Position(4, 3)
+    north_text = _sent_hint_text(tmp_path / "north_trace.jsonl")
+    east_text = _sent_hint_text(tmp_path / "east_trace.jsonl")
+    assert north_text != east_text
 
 
 def test_take_turn_from_an_illegal_starting_state_raises_via_the_state_machine(config, tmp_path):
@@ -117,3 +130,29 @@ def test_take_turn_with_a_brain_that_proposes_an_illegal_action_reaches_technica
         for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert "technical_loss" in events
+
+
+def test_take_turn_updates_belief_map_and_scent_field_not_just_game_state(config, tmp_path):
+    _, port = _start_server(config, tmp_path, "server")
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    belief_before = client.belief_map.probability(client.game_state.own_pos)
+    scent_before = client.scent_field.sample(client.game_state.own_pos, client.board)
+
+    asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+
+    assert client.belief_map.probability(client.game_state.own_pos) != belief_before
+    assert client.scent_field.sample(client.game_state.own_pos, client.board) != scent_before
+
+
+def test_take_turn_logs_the_intent_flag(config, tmp_path):
+    _, port = _start_server(config, tmp_path, "server")
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+
+    asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "client_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    (hint_event,) = [e for e in events if e["event"] == "hint_generated"]
+    assert hint_event["intent"] in (True, False)
