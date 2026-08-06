@@ -14,16 +14,28 @@ def test_starts_waiting_for_opponent():
 
 def test_full_round_trip_cycle_is_legal():
     machine = PeerStateMachine()
+    assert machine.transition("COMPUTING_MOVE") == "COMPUTING_MOVE"
     assert machine.transition("SENDING") == "SENDING"
     assert machine.transition("AWAITING_RESPONSE") == "AWAITING_RESPONSE"
     assert machine.transition("TURN_RESOLVED") == "TURN_RESOLVED"
     assert machine.transition("WAITING_FOR_OPPONENT") == "WAITING_FOR_OPPONENT"
 
 
-@pytest.mark.parametrize("state", ["WAITING_FOR_OPPONENT", "SENDING", "AWAITING_RESPONSE", "TURN_RESOLVED"])
+@pytest.mark.parametrize(
+    "state", ["WAITING_FOR_OPPONENT", "COMPUTING_MOVE", "SENDING", "AWAITING_RESPONSE", "TURN_RESOLVED"]
+)
 def test_technical_loss_reachable_from_every_non_terminal_state(state):
     machine = PeerStateMachine(state=state)
     assert machine.transition("TECHNICAL_LOSS") == "TECHNICAL_LOSS"
+
+
+def test_sending_directly_from_waiting_is_rejected_now_that_computing_move_exists():
+    # The old PRD 2 shortcut — legal before PRD 3 gave COMPUTING_MOVE
+    # something real to represent, illegal now that it does.
+    machine = PeerStateMachine()
+    with pytest.raises(ValueError, match="Illegal transition"):
+        machine.transition("SENDING")
+    assert machine.state == "WAITING_FOR_OPPONENT"
 
 
 def test_technical_loss_is_terminal():

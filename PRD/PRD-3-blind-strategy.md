@@ -1,0 +1,87 @@
+# PRD 3 — Blind Strategy
+
+Status: **Done.** Built via `TODO3.md`, verified by `tests/unit/`, the milestone (`reasoning/subgame.py`) and wiring (`orchestrator.take_turn`) tests, a live run of `scripts/watch_prd3_brain.py`, and a clean `rule-auditor` pass (rules 1–5, 25, I2, I7 all CLEAN, no fatal/non-fatal violations). 128 tests + 1 deliberate `xfail`, 100% coverage, `ruff check .` clean, `check_config.py` 31/31.
+
+## Built & verified
+
+The milestone (given a known target, `CopBrain` computes and executes a legal move sequence that closes on or captures it, no manual intervention) is proven by `reasoning/subgame.py`'s `run_local_subgame`, exercised against both a static target and the `greedy_thief_mover` fixture — both converge to `Outcome.CAPTURE`, watched live via `scripts/watch_prd3_brain.py`. A separate, small test suite (`tests/unit/test_orchestrator_take_turn.py`) proves `Orchestrator.take_turn()` is genuinely wired to the same brain over a real localhost round-trip, kept deliberately apart from the algorithm-correctness tests (Design Question 3).
+
+**Two real bugs found and fixed via actual reproduction, not review alone** — the same discipline `TODO1.md`/`TODO2.md` established:
+
+1. **The barrier heuristic could block the cop's own best path.** Running the static-target milestone for the first time (before any test existed to catch it) showed the cop placing a barrier one cell in front of itself — its own single best next step — then oscillating forever between its two next-best options, since the greedy heuristic has no lookahead to route around its own obstacle. Fixed by excluding the cop's own preferred next step from barrier candidates in `CopBrain._decide_move`. Regression test: `test_decide_move_never_barricades_its_own_preferred_next_step`.
+2. **A self-trap check became dead code.** The fix above turned out to structurally subsume the original `_would_self_trap` check (which reused `domain.capture.thief_has_no_legal_move`): any candidate that could zero out the cop's legal moves must be its *only* open neighbour, which is always also the preferred destination already excluded. Coverage analysis (a line dropped from 100% after the fix) proved the `True` branch was unreachable, not just hard to hit — so `_would_self_trap` was removed rather than kept as untested dead code, per this repo's own coverage discipline.
+
+**One gap found in my own retrospective pass** (mirroring `TODO1.md`/`TODO2.md`'s discipline, this time on `take_turn()` rather than the watchdog): unlike `send_to_peer`, `take_turn()` didn't catch exceptions from `self.brain._decide_move`/`GameState.apply` — a brain bug (an illegal action) would strand the state machine in `COMPUTING_MOVE` with nothing logged, uncaught. Fixed by wrapping the decide-and-apply step in the same catch-log-transition-reraise shape `send_to_peer` already uses. Regression test: `test_take_turn_with_a_brain_that_proposes_an_illegal_action_reaches_technical_loss`. This addition pushed `orchestrator.py` to 162 lines, over the 150-line house cap — `take_turn()` was extracted into `orchestrator_turn.py`'s `BrainTurnMixin` (the "extract a mixin" split strategy CLAUDE.md names), bringing both files back under cap (123 and 53 lines).
+
+**Milestone sanity check** (same exercise as PRD 2's concurrency check): `CopBrain._pick_move` was temporarily hardcoded to always return `"STAY"`, ignoring `target_pos` entirely. The milestone test failed as predicted (`Outcome.SURVIVAL` instead of `Outcome.CAPTURE`), confirming the test genuinely depends on the heuristic working, not a coincidental pass. Reverted immediately; file confirmed to match the pre-sabotage version by direct re-read (not yet committed, so `git diff` wasn't available as a check); full suite re-confirmed green afterward.
+
+## Build
+
+The first real brain: a `BrainBase` contract, and a `CopBrain` that overrides it — pure Python, perfect information, no scent and no language yet ("blind" means blind to the *uncertainty* PRD 4 introduces, not blind to the board). Concretely:
+
+- `reasoning/brain_base.py` — the `BrainBase` contract: `_pick_move(...)` (movement only) and `_decide_move(...)` (the full per-turn decision; the base implementation just calls `_pick_move`).
+- `reasoning/cop_brain.py` — `CopBrain(BrainBase)`. `_pick_move` is greedy Manhattan-distance descent toward the target, using `domain/movement.DELTAS` and `domain/board.Board.in_bounds` so it can never propose an illegal or off-board move. `_decide_move` overrides the base to add the barrier choice (Table 22's "in the cop's `_decide_move` the barrier choice is also made") — deciding whether to forgo movement this turn and place a barrier instead, via `domain/barriers.BarrierSet`.
+- `reasoning/state.py` — the per-turn mutable state a brain reasons over (own position, the currently-known target position, barriers placed, steps taken so far). See Design Question 1.
+- `reasoning/subgame.py` — a pure-Python local turn loop (`run_local_subgame(cop_brain, thief_mover, board, config) -> Outcome`) that drives the brain and `domain/` functions directly, no `Orchestrator`, no network. This is what the milestone runs against. See Design Question 3.
+- `orchestrator.py` gains the brain as its fifth wire (Ch.8, Fig. 12's Decision Module, left unwired in PRD 2 — see PRD 2 Design Question 3); its `take_turn()` method (asks the brain to decide, applies the result to local state, sends it to the peer) lives in `orchestrator_turn.py`'s `BrainTurnMixin`, split out to stay under the 150-line house cap — proving the wiring is real, kept deliberately separate from algorithm-correctness testing. See Design Question 3.
+- The state machine gains a `COMPUTING_MOVE` state ahead of `SENDING`, now that there is an actual decision being computed instead of a hardcoded test coordinate. See Design Question 2.
+- Closes the barrier "forgo move" item carried since `TODO1.md` (`TODO.md`'s PRD 2 row): a cop that places a barrier this turn does not also move, because `_decide_move` is now the single place that choice is made. Not a numbered rule — a Ch.3 mechanic that had no turn-state to attach to until this layer.
+
+## Explicitly out of scope
+
+- A `ThiefBrain` production class living in this repo — see Design Question 4. `thief_class` is the teammate's own repo's concern (Table 22: "private per peer, not negotiated").
+- Natural language, scent, hints, an LLM call, or the belief map (PRD 4) — the brain reads a position, not a probability distribution.
+- Tunneling/public exposure (PRD 5) — localhost only, unchanged from PRD 2.
+- Commit-Reveal, nonces, hashing, or Step-0 (PRD 6) — the state machine still doesn't gain `COMMITTING`/`AWAITING_REVEAL`.
+- Reinforcement learning / Q-learning. The book states a fully competitive agent is buildable from heuristics alone, and the course didn't teach RL — treat it as optional, later-if-time, not a PRD 3 deliverable.
+- Truthful *declaration* of a barrier placement to the peer (rules 15/16) — that needs a peer to lie to over a real exchange, which still doesn't meaningfully exist until PRD 6's audit gives declarations something to be checked against. PRD 3 only builds the *placement law itself* being turn-correct, not the wire-level honesty of it.
+
+## Rules owned
+
+| Rule | What it requires |
+|---|---|
+| 25 | (SHOULD) Do not delegate the movement decision to the language model. No mandatory sanction on its own, but this layer is also what makes invariant **I7** ("Python decides the move, always") concretely true for the first time — there was no move-deciding code to check this against before PRD 3. |
+
+## Milestone
+
+Given the thief's true position as a known target, the cop's `CopBrain` — driven by a local turn loop in `reasoning/subgame.py`, over `reasoning/` and `domain/` only, no network — computes and executes a legal move sequence that closes on the target (or captures it) with no manual intervention, respecting the step ceiling and barrier quota throughout. A second, separate proof (not the milestone itself) confirms `Orchestrator.take_turn()` correctly wires that same brain into one real localhost round-trip, so the subsystem is never left dormant (the PRD 2 watchdog lesson) without conflating algorithm correctness with network correctness.
+
+## Design questions answered here (not left for code-time guessing)
+
+**1. Where does per-turn mutable state live, given `memory/` is reserved for PRD 4's belief map and scent field?** `GameConfig` only holds the *initial* `cop_start`/`thief_start` — nothing anywhere currently tracks a position across turns. A new, deliberately small `reasoning/state.py` holds it for this layer: own position, the currently-known target position, a `BarrierSet`, and a step counter. This is **not** `memory/`'s territory (that module is specifically the *uncertain* belief/scent apparatus PRD 4 introduces) — PRD 3's state is ground truth, held in the reasoning layer that consumes it. PRD 4 does not replace this container; it replaces *where the target position value comes from* (see Design Question 4), which is a one-line change at the call site, not a redesign.
+
+`reasoning/state.py` and `reasoning/cop_brain.py` both import `domain/` (`movement.apply_move`, `barriers.blocks`, `capture.thief_has_no_legal_move`) directly, not through `Orchestrator`. `PLAN.md`'s I2 ("every subsystem is reached through the Orchestrator; nothing calls into the domain layer directly") could read as forbidding this, but `tools/mcp_server.py` already imports `domain.board` directly today, and two separate `rule-auditor` passes confirmed rule 3/I2 compliance without flagging it. The working, precedented reading: I2 is about external callers not bypassing `Orchestrator` to reach *stateful* subsystems (the live MCP connection, the state machine, the watchdog, the trace log) — pure, stateless `domain/` functions are a shared library any module may call directly.
+
+Heuristic implementation constants — `CopBrain`'s and the thief fixture's tie-break direction order — are not I6 "magic numbers." I6 governs Appendix F game-rule quantities (board size, quotas, thresholds); tie-break order is an algorithm implementation choice, the same category `movement.DELTAS` already occupies as a fixed, non-config dict. Nothing here should get promoted into `GameConfig` just because it's a hardcoded value.
+
+**2. Does the state machine gain a `COMPUTING_MOVE` state?** Yes. The book's Fig. 11 example is `WAITING_FOR_OPPONENT → COMPUTING_MOVE → COMMITTING → AWAITING_REVEAL → VERIFYING → TECHNICAL_LOSS`; PRD 2 deliberately built only `WAITING_FOR_OPPONENT → SENDING → AWAITING_RESPONSE → TURN_RESOLVED` because there was nothing to *compute* yet — `send_to_peer` took a hardcoded position as an argument. Now that a brain genuinely computes the outgoing move, the gap between "my turn starts" and "I know what I'm sending" is real and worth its own state: `WAITING_FOR_OPPONENT → COMPUTING_MOVE → SENDING → AWAITING_RESPONSE → TURN_RESOLVED → WAITING_FOR_OPPONENT`, with `TECHNICAL_LOSS` still reachable from every state. `COMMITTING`/`AWAITING_REVEAL` remain PRD 6's addition, unchanged.
+
+Given Design Question 3's split, `COMPUTING_MOVE` is only ever exercised by `take_turn()`'s own (deliberately small) test, not by the bulk of algorithm testing — so its test burden should be proportionate: one full-cycle test including the new state, one confirming the old PRD 2 shortcut (`WAITING_FOR_OPPONENT → SENDING` direct) is now correctly rejected. `TECHNICAL_LOSS`-from-`COMPUTING_MOVE` folds into the existing parametrized "every non-terminal state" test rather than becoming its own task.
+
+**3. Does the milestone run through the real `Orchestrator`, or does algorithm testing stay local?** Split, deliberately. `PLAN.md`'s own PRD 3 "Also verify" line is exhaustively algorithmic — barrier policy never self-trapping, the thief-fixture preferring escape routes, both respecting the step ceiling — and never mentions a network round-trip. Requiring the milestone and every multi-turn convergence test to go through `Orchestrator.take_turn()` would mean spinning up a real `subprocess.Popen` peer for every algorithm test: slower, flakier, and it reintroduces exactly the "one-variable bug hunt becomes multi-variable" risk `PLAN.md`'s own house rules warn against — a `CopBrain` bug and a networking hiccup would look identical in a failing test.
+
+So: `reasoning/subgame.py` is a pure-Python local turn loop (`run_local_subgame`) that calls the brain and `domain/` functions directly — this is what the milestone and the step-ceiling/convergence tests run against, fast and isolated to `reasoning/`+`domain/` bugs only.
+
+`Orchestrator` still gains a `brain: BrainBase` constructor argument and a `take_turn()` method — leaving `CopBrain` fully built but never referenced by `orchestrator.py` would repeat the exact mistake PRD 2 made with the watchdog (`PRD-2-fastmcp-infra.md`'s "Built & verified" section): correct in isolation, dormant where it's supposed to run. But `take_turn()`'s own test burden is deliberately small — one proof that a real round-trip's outgoing `(col, row)` is traceably the brain's decision, not the whole multi-turn game. It asks the brain to decide via `reasoning/state.py`'s current state, applies the result locally, then calls the existing `send_to_peer`. This changes *who computes* the two integers `send_to_peer` sends — it does not change the wire format. Bare coordinates are still the PRD 2 carve-out (rule 27), still temporary, still removed at PRD 4; nothing about that changes here.
+
+**4. Perfect-information carve-out — where does the target position actually come from, and what has to change later?** For this layer, `reasoning/state.py`'s target position is fed the ground-truth opponent position directly (from a test fixture or a locally-known value for the milestone demo) — that's what "blind strategy... a world of perfect information" (`PLAN.md` §5) means concretely. This is a second, smaller instance of the same pattern as PRD 2's bare-coordinate carve-out: legal and correct for this layer, but scaffolding that must not survive into a real match. **PRD 4 must replace the target-position *source*** (swap "read the ground-truth position" for "read the belief map's most likely cell") **without changing the brain's interface** — `_pick_move`/`_decide_move` take a target `Position`, and stay agnostic to whether that position is truth or a best guess. If PRD 4 ends up needing to change the brain's signature to consume a full probability distribution instead of a point estimate, that is itself worth flagging loudly at that time, not assumed away here.
+
+**5. Does this repo build a `ThiefBrain`?** No — and this is a rule-1 question, not just a scope question. Table 22 is explicit that `thief_class` and `police_class` are "private per peer, not negotiated": each side builds only its own brain, in its own repo. A real, strategic `ThiefBrain(BrainBase)` living in `src/cop/reasoning/` would be reasoning/strategy code, not "board logic" — outside the narrow exception CLAUDE.md's rule 1 carves out ("never instantiate both brains in one interpreter outside pure board-logic unit tests"). What the milestone and `PLAN.md`'s "also verify" line actually need is *something* for `CopBrain` to chase locally, since real cross-repo integration with the teammate's thief doesn't exist until PRD 5+. That's built as a **test/demo fixture only** — `tests/support/greedy_thief_mover.py`, a simple, explicitly-not-a-brain function (prefers the neighbour with the most open orthogonal neighbours) that lives outside `src/cop/` entirely, is never imported by `orchestrator.py`, and is never confused for a shipped `police_class`/`thief_class` competitor.
+
+## Also verify (acceptance criteria, checked once built)
+
+- The cop's barrier policy never reduces the cop's own legal-move count to zero — it must never wall itself off
+- A barrier placement correctly forgoes movement that turn (closes the deferred `TODO1.md`/`TODO.md` item)
+- `CopBrain` never proposes an illegal move (diagonal, off-board, over-quota) — `domain/`'s existing rejection logic is the backstop, but the brain itself should not be relying on it to catch mistakes it could avoid making
+- Given the greedy-thief test fixture, `CopBrain` measurably closes the distance to it over successive turns, not just on the first move
+- The turn loop correctly calls `domain/end_conditions.determine_outcome` every turn and stops at the right `Outcome` — capture, survival at `step_ceiling`, or still-in-progress — not just on the happy path where capture happens first
+- `Orchestrator.take_turn()` genuinely drives `CopBrain`, proven by a test that would fail if the wiring were dropped (same discipline as PRD 2's watchdog-heartbeat test), not just a construction-doesn't-raise test
+- No new magic numbers: if the barrier-placement heuristic needs a threshold, it comes from `GameConfig`, not a hardcoded constant (I6)
+
+## New dependency
+
+None expected. `reasoning/` is pure Python over `domain/`'s existing pure-Python primitives — no new package.
+
+## Builds on
+
+PRD 1's `domain/` (board, movement, barriers, capture, end_conditions) is reused as-is — the brain proposes moves; `domain/` still validates them, unchanged. PRD 2's `orchestrator.py`, state machine, and `tools/mcp_client.send_position` are extended, not replaced, per Design Questions 2 and 3.

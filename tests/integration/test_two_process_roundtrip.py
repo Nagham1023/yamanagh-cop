@@ -16,6 +16,7 @@ from _helpers import wait_for_port as _wait_for_port
 
 from cop.orchestrator import Orchestrator
 from cop.planner.state_machine import PeerStateMachine
+from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
 from cop.tools.mcp_client import send_position
 
@@ -69,7 +70,8 @@ def test_killing_the_peer_produces_a_clean_technical_loss_not_a_hang(tmp_path):
 
     config = GameConfig.from_file(REPO_CONFIG)
     fast_config = config.__class__(**{**config.__dict__, "response_timeout_seconds": 1.0})
-    orchestrator = Orchestrator(fast_config, log_path=str(tmp_path / "a_trace.jsonl"))
+    orchestrator = Orchestrator(fast_config, CopBrain(), log_path=str(tmp_path / "a_trace.jsonl"))
+    orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
 
     start = time.monotonic()
     try:
@@ -94,7 +96,8 @@ def test_watchdog_fires_and_extracts_data_on_a_forced_crash(tmp_path):
     """Simulates the watchdog noticing its own process's main loop has
     stalled (rule 7) — a stale heartbeat, not an external kill, since the
     watchdog's job is to detect *this* process freezing, not the peer's."""
-    orchestrator = Orchestrator(GameConfig.from_file(REPO_CONFIG), log_path=str(tmp_path / "trace.jsonl"))
+    config = GameConfig.from_file(REPO_CONFIG)
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     orchestrator.watchdog._last_heartbeat = -10_000.0  # force staleness deterministically
 
     status = orchestrator.watchdog.check()

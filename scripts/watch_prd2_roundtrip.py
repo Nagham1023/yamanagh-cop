@@ -22,6 +22,7 @@ from pathlib import Path
 
 from cop.orchestrator import Orchestrator
 from cop.planner.state_machine import PeerStateMachine
+from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
 from cop.tools.mcp_client import send_position
 
@@ -89,7 +90,8 @@ def main() -> None:
 
         config = GameConfig.from_file(CONFIG_PATH)
         fast_config = config.__class__(**{**config.__dict__, "response_timeout_seconds": 1.0})
-        orchestrator = Orchestrator(fast_config, log_path=str(log_path))
+        orchestrator = Orchestrator(fast_config, CopBrain(), log_path=str(log_path))
+        orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
 
         start = time.monotonic()
         try:

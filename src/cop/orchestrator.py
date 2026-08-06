@@ -1,17 +1,22 @@
-"""Single entry point to every PRD 2 subsystem (rule 3).
+"""Single entry point to every PRD 2/3 subsystem (rule 3).
 
-Wires four of the book's five Orchestrator subsystems (Ch.8, Fig. 12): MCP
+Wires all five of the book's Orchestrator subsystems (Ch.8, Fig. 12): MCP
 Connector (`tools/`), Log Manager (`observability/trace.py`), Deadline
-Tracker, Watchdog. The fifth, the Decision Module, is deliberately not
-wired here — that's PRD 3's rule 25 and `BrainBase` contract (see
-`PRD-2-fastmcp-infra.md`, Design Question 3). Nothing outside this module
-reaches those four subsystems directly.
+Tracker, Watchdog, and — as of PRD 3 — the Decision Module (`reasoning/`).
+Nothing outside this module reaches those subsystems directly.
 
 The watchdog is doubly wired: every `receive_position` call feeds it a
 heartbeat (`build_server(..., on_receive=self.watchdog.heartbeat)`), and a
 daemon thread started in `run_as_server` polls `watchdog.check()` so a
 frozen process actually gets caught while serving, not just when a test
 calls `.check()` directly.
+
+`take_turn()` is deliberately small — it proves the brain is genuinely
+wired, not that the algorithm works. Algorithm correctness is
+`reasoning/subgame.py`'s job, entirely offline (PRD-3-blind-strategy.md,
+Design Question 3). `take_turn()` itself lives in `orchestrator_turn.py`'s
+`BrainTurnMixin` — this file grew past the 150-line house cap once that
+method landed.
 """
 
 from __future__ import annotations
@@ -22,18 +27,30 @@ import time
 
 from fastmcp import FastMCP
 
+from .domain.barriers import BarrierSet
+from .domain.board import Board, Position
 from .observability.trace import Trace
+from .orchestrator_turn import BrainTurnMixin
 from .planner.deadline import await_with_deadline
 from .planner.state_machine import PeerStateMachine
 from .planner.watchdog import Watchdog
+from .reasoning.brain_base import BrainBase
+from .reasoning.state import GameState
 from .shared.config import GameConfig
 from .tools.mcp_client import send_position
 from .tools.mcp_server import build_server
 
 
-class Orchestrator:
-    def __init__(self, config: GameConfig, log_path: str = "logs/trace.jsonl") -> None:
+class Orchestrator(BrainTurnMixin):
+    def __init__(self, config: GameConfig, brain: BrainBase, log_path: str = "logs/trace.jsonl") -> None:
         self.config = config
+        self.brain = brain
+        self.board = Board(size=config.board_size)
+        self.game_state = GameState(
+            own_pos=Position(*config.cop_start),
+            target_pos=Position(*config.thief_start),
+            barriers=BarrierSet(quota=config.barrier_quota),
+        )
         self.trace = Trace(log_path)
         self.state_machine = PeerStateMachine()
         self.watchdog = Watchdog(

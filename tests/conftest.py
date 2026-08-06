@@ -1,10 +1,22 @@
-"""Shared fixtures across layers — one config, reused instead of rebuilt per test."""
+"""Shared fixtures across layers — one config, reused instead of rebuilt per test.
+
+Also puts `tests/support/` on `sys.path`: it holds test/demo scaffolding
+(e.g. `greedy_thief_mover.py`, PRD 3 Design Question 5) that unit tests in
+other directories need to import, unlike `tests/integration/`'s own
+same-directory helpers which pytest's default rootdir insertion already
+covers.
+"""
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 import pytest
 
 from cop.shared.config import GameConfig
+
+sys.path.insert(0, str(Path(__file__).parent / "support"))
 
 
 @pytest.fixture

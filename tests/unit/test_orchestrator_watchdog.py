@@ -15,10 +15,11 @@ from fastmcp import Client
 
 from cop import orchestrator as orchestrator_module
 from cop.orchestrator import Orchestrator
+from cop.reasoning.cop_brain import CopBrain
 
 
 def test_watchdog_persist_and_shutdown_write_to_the_orchestrator_trace_log(config, tmp_path):
-    orchestrator = Orchestrator(config, log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     # Force staleness deterministically rather than sleeping past the real
     # threshold — Watchdog doesn't expose a public "force stale" hook, so
     # this reaches into its private state directly (same package, pragmatic).
@@ -38,7 +39,7 @@ def test_receiving_a_position_feeds_the_orchestrators_watchdog_heartbeat(config,
     # Proves the on_receive wiring, not just that build_server accepts the
     # kwarg: a real call through orchestrator.server must move the
     # orchestrator's own watchdog off a forced-stale timestamp.
-    orchestrator = Orchestrator(config, log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     orchestrator.watchdog._last_heartbeat = -10_000.0
 
     async def _call():
@@ -61,7 +62,7 @@ def test_run_as_server_starts_a_watchdog_monitor_that_shuts_down_on_staleness(
     exited = threading.Event()
     monkeypatch.setattr(orchestrator_module.os, "_exit", lambda code: exited.set())
 
-    orchestrator = Orchestrator(config, log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     orchestrator._start_watchdog_monitor(poll_interval_seconds=0.05)
 
     orchestrator.watchdog._last_heartbeat = -10_000.0
@@ -88,7 +89,7 @@ def test_watchdog_monitor_stays_alive_while_heartbeats_keep_arriving(config, tmp
     exited = threading.Event()
     monkeypatch.setattr(orchestrator_module.os, "_exit", lambda code: exited.set())
 
-    orchestrator = Orchestrator(config, log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     orchestrator._start_watchdog_monitor(poll_interval_seconds=0.05)
 
     for _ in range(5):

@@ -1,9 +1,11 @@
 """End-of-subgame determination: turns capture/step-count signals into one Outcome.
 
-This module owns no state — PRD 2's turn loop will call `determine_outcome`
-once per turn with whatever capture check already ran and the current step
-count. It never touches the board or barriers directly, so it stays testable
-with plain booleans and integers.
+This module owns no state — PRD 2 never built a turn loop (it was scoped to
+round-trip message plumbing only); `reasoning/subgame.py`'s
+`run_local_subgame` (PRD 3) is the first thing that actually calls
+`determine_outcome` once per turn, with whatever capture check already ran
+and the current step count. It never touches the board or barriers
+directly, so it stays testable with plain booleans and integers.
 """
 
 from __future__ import annotations

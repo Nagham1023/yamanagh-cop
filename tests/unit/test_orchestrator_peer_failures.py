@@ -19,6 +19,7 @@ import pytest
 
 from cop.orchestrator import Orchestrator
 from cop.planner.deadline import DeadlineExceededError
+from cop.reasoning.cop_brain import CopBrain
 
 
 def _free_port() -> int:
@@ -34,7 +35,8 @@ def test_send_to_peer_against_a_dead_port_reaches_technical_loss_without_hanging
     # `except DeadlineExceededError` would have missed this entirely, leaving
     # the state machine stuck in AWAITING_RESPONSE and nothing logged.
     port = _free_port()  # never bound to any server — guaranteed refused
-    orchestrator = Orchestrator(config, log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
 
     start = time.monotonic()
     with pytest.raises(Exception):  # noqa: B017 - deliberately broad: any connection failure counts
@@ -71,7 +73,8 @@ def test_send_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error
     threading.Thread(target=_accept_and_stay_silent, daemon=True).start()
 
     fast_config = config.__class__(**{**config.__dict__, "response_timeout_seconds": 0.2})
-    orchestrator = Orchestrator(fast_config, log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator = Orchestrator(fast_config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator.state_machine.transition("COMPUTING_MOVE")
 
     start = time.monotonic()
     try:

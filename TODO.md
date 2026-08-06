@@ -55,7 +55,7 @@ uv run python scripts/watch_prd1.py                  # the full PRD 1 milestone 
 - [x] build: watchdog process (`planner/`)
 - [x] build: `observability/trace.py` log manager (Fig. 12's fifth wire, added mid-layer per PRD Design Question 4)
 - [x] build: two-process local test harness (spawn both roles, localhost)
-- [ ] carried from PRD 1: enforce barrier "forgo move" once turn state exists (still deferred — turn state is PRD 3's territory)
+- [x] carried from PRD 1: enforce barrier "forgo move" once turn state exists — closed in PRD 3, `reasoning/state.py`'s `GameState.apply`
 - [x] test: geometric message from A decoded correctly by B (milestone)
 - [x] test: illegal state transition is rejected, not absorbed
 - [x] test: killing one peer causes the other to hit its deadline and exit cleanly with a log
@@ -70,20 +70,28 @@ uv run python scripts/watch_prd1.py                  # the full PRD 1 milestone 
 uv run python scripts/watch_prd2_roundtrip.py   # two OS processes, round-trip, illegal transition rejected, killed-peer -> clean technical loss with log
 ```
 
-## PRD 3 — Blind strategy
+## PRD 3 — Blind strategy — **DONE**
 
-- [ ] rule 25 — move decision is never delegated to the LLM
-- [ ] build: `BrainBase` extension contract (`_pick_move`, `_decide_move`)
-- [ ] build: Manhattan-distance heuristic for the cop
-- [ ] build: thief `_pick_move` — prefers cells with more escape routes
-- [ ] build: cop `_decide_move` — barrier policy, never walls the cop off from the thief
-- [ ] build: step-ceiling respected by both brains
-- [ ] test: given a known target, shortest path computed and executed unattended (milestone)
-- [ ] test: cop's barrier policy never traps the cop itself
-- [ ] test: thief measurably prefers higher-escape-route cells
-- [ ] milestone watched end-to-end by a human
-- [ ] `rule-auditor` run, zero fatal violations
-- [ ] `PRD/PRD-3-blind-strategy.md` written; commit
+- [x] rule 25 / invariant I7 — move decision is never delegated to the LLM (first move-deciding code in the repo — nothing to check this against before now)
+- [x] build: `BrainBase` extension contract (`_pick_move`, `_decide_move`) — `reasoning/brain_base.py`
+- [x] build: Manhattan-distance heuristic for the cop — `reasoning/cop_brain.py`
+- [x] build: `greedy_thief_move` — prefers cells with more escape routes; deliberately a **test/demo fixture**, not a `ThiefBrain` (Table 22: `thief_class` is the teammate's own repo's concern) — `tests/support/greedy_thief_mover.py`, outside `src/cop/`
+- [x] build: cop `_decide_move` — barrier policy, never walls the cop off from the thief
+- [x] build: step-ceiling respected via `reasoning/subgame.py`'s local turn loop calling `domain/end_conditions.determine_outcome` every round
+- [x] build: `COMPUTING_MOVE` state added to the state machine ahead of `SENDING`
+- [x] build: `Orchestrator.take_turn()` — wires the brain into the real peer connection (kept deliberately separate from algorithm-correctness testing)
+- [x] test: given a known target, shortest path computed and executed unattended (milestone) — `reasoning/subgame.py`'s `run_local_subgame`, no network
+- [x] test: cop's barrier policy never traps the cop itself
+- [x] test: thief fixture measurably prefers higher-escape-route cells
+- [x] found + fixed a real bug: the barrier heuristic could block the cop's own best path, causing a permanent oscillation — fixed by excluding the cop's own preferred next step from barrier candidates (which also made a separate self-trap check provably-dead code, removed rather than kept untested)
+- [x] milestone watched end-to-end by a human
+- [x] `rule-auditor` run, zero fatal violations
+- [x] `PRD/PRD-3-blind-strategy.md` written; commit
+
+**Demo script (run from repo root):**
+```bash
+uv run python scripts/watch_prd3_brain.py   # local pursuit (static + moving target) + one real take_turn() round-trip
+```
 
 ## PRD 4 — Language and scent
 
