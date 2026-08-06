@@ -7,44 +7,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-import socket
-import subprocess
-import sys
 import time
-from pathlib import Path
+
+from _helpers import REPO_CONFIG
+from _helpers import free_port as _free_port
+from _helpers import spawn_server as _spawn_server
+from _helpers import wait_for_port as _wait_for_port
 
 from cop.orchestrator import Orchestrator
 from cop.planner.state_machine import PeerStateMachine
 from cop.shared.config import GameConfig
 from cop.tools.mcp_client import send_position
-
-HELPER = Path(__file__).parent / "_server_process.py"
-REPO_CONFIG = str(Path(__file__).resolve().parent.parent.parent / "config" / "shared" / "config_dev_g01.json")
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _spawn_server(port: int, log_path: Path) -> subprocess.Popen:
-    return subprocess.Popen(
-        [sys.executable, str(HELPER), "--port", str(port), "--log-path", str(log_path), "--config", REPO_CONFIG],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
-def _wait_for_port(port: int, timeout: float = 5.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise TimeoutError(f"server on port {port} never came up")
 
 
 def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):

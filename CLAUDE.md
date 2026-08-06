@@ -84,6 +84,8 @@ Any one of these scores nothing regardless of match results. Full list with sanc
 
 PRD 2 deliberately sends bare coordinates over localhost. That is legal only while the language layer does not exist. **PRD 4 must remove it** — rule 27 is fatal, and this is exactly the kind of scaffolding that survives quietly into a real match. Grep the wire before the first counted game.
 
+The scaffolding is marked at both ends with the literal string `RULE-27-REMOVE-AT-PRD-4` — `grep -rn RULE-27-REMOVE-AT-PRD-4 src/ tests/` finds the tool definition in `src/cop/tools/mcp_server.py` and its guard test in `tests/unit/test_mcp_server.py` (a `strict=True` `xfail` asserting `receive_position` is absent from the tool surface). That test currently fails as expected; PRD 4 must delete both the tool and the xfail marker together — leaving the xfail behind after the tool is actually gone turns it into an XPASS, which `strict=True` turns into a hard suite failure, so it can't be missed.
+
 ## Where the numbers live
 
 `.claude/skills/spec-guard/references/PARAMETERS.md` is the only source of truth for quantitative values. Never copy a number from the book body, from a figure, or from the reference repo. Defaults: 7×7 board, 14 barriers, 35-step ceiling, 35-step survival threshold, scent 0.9 / 0.10 decay / 5×5 window, capture 20-5, survival 5-10, 6 sub-games per series.

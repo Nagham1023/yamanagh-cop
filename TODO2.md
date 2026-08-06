@@ -81,3 +81,12 @@ Book Ch.8 Fig. 12: the Orchestrator wires to five subsystems, one of which is th
 - [x] Update `TODO.md` — PRD 2 row to done, demo script command added
 - [x] Own critical pass, `TODO2.md`-style but retrospective (only if something's actually found — don't manufacture findings for the sake of the ritual)
 - [x] Commit
+
+## 10. Three additional scenario tests (requested after wrap-up)
+
+- [x] Overlapping exchange: two real OS processes each send and receive within the same window (`tests/integration/test_concurrent_exchange.py`), via a new `--peer-port` option on `_server_process.py`
+- [x] Silent peer: accepts the connection, never responds/closes — proves the deadline tracker catches it, not a socket error (`tests/unit/test_orchestrator_peer_failures.py`)
+- [x] Rule 27 removal guard: `strict=True` `xfail` asserting the coordinate tool is absent, plus a `RULE-27-REMOVE-AT-PRD-4` grep marker on both the tool and the test, documented in `CLAUDE.md`
+- [x] Extracted `tests/integration/_helpers.py`; split `test_orchestrator.py` three ways to stay under the 150-line cap
+- [x] `uv run pytest` (98 passed, 1 xfailed), `uv run ruff check .` clean, `check_config.py` 31/31, `rule-auditor` delta pass, all files under 150 lines
+- [x] Commit

@@ -65,3 +65,25 @@ def test_on_receive_hook_is_optional(config):
     mcp = build_server(config)
     data = _call(mcp, {"col": 1, "row": 1})
     assert data == {"accepted": True, "col": 1, "row": 1}
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "RULE-27-REMOVE-AT-PRD-4: receive_position's bare-coordinate protocol "
+        "is legal only until PRD 4 ships the natural-language hint tool. Once "
+        "PRD 4 removes it, this assertion starts passing (XPASS) — strict=True "
+        "turns that into a hard failure, forcing this marker's own deletion in "
+        "the same commit instead of quietly surviving into a real match."
+    ),
+)
+def test_the_numeric_position_tool_is_gone_once_prd4_lands(config):
+    # RULE-27-REMOVE-AT-PRD-4
+    mcp = build_server(config)
+
+    async def _tool_names() -> set[str]:
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+            return {tool.name for tool in tools}
+
+    assert "receive_position" not in asyncio.run(_tool_names())

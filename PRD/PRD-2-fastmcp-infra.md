@@ -1,6 +1,6 @@
 # PRD 2 — FastMCP Infrastructure over Localhost
 
-Status: **Done.** Built via `TODO2.md`, verified by `tests/unit/`, `tests/integration/test_two_process_roundtrip.py`, a clean `rule-auditor` pass (rules 1–7, I6, I9, I10 all CLEAN, no fatal/non-fatal violations), and a live run of `scripts/watch_prd2_roundtrip.py`. 96 tests, 100% coverage, `ruff check .` clean, `check_config.py` 31/31.
+Status: **Done.** Built via `TODO2.md`, verified by `tests/unit/`, `tests/integration/`, a clean `rule-auditor` pass (rules 1–7, I6, I9, I10 all CLEAN, no fatal/non-fatal violations), and a live run of `scripts/watch_prd2_roundtrip.py`. 98 tests + 1 deliberate `xfail`, 100% coverage, `ruff check .` clean, `check_config.py` 31/31.
 
 ## Built & verified
 
@@ -13,6 +13,14 @@ One gap surfaced during my own retrospective pass (mirroring `TODO1.md`'s discip
 - `run_as_server()` starts a daemon thread (`_start_watchdog_monitor`) that polls `watchdog.check()` every second; on `"SHUTDOWN"` (which has already run `persist_state`/`controlled_shutdown`), it force-exits the process with `os._exit(1)` — the frozen process actually ends, not just logs that it should have
 
 Covered by `test_receiving_a_position_feeds_the_orchestrators_watchdog_heartbeat`, `test_run_as_server_starts_a_watchdog_monitor_that_shuts_down_on_staleness`, `test_watchdog_monitor_stays_alive_while_heartbeats_keep_arriving`, and `test_on_receive_hook_fires_on_every_successful_call`.
+
+## Three additional scenario tests (requested, added after the layer was otherwise closed)
+
+- **Overlapping exchange** (`tests/integration/test_concurrent_exchange.py`): two real OS processes each send AND receive within the same wall-clock window, not a one-way round-trip — `_server_process.py` gained an optional `--peer-port` so a spawned process can act as client and server in the same run. Proves no cross-talk between the two independent processes even under concurrent inbound/outbound activity (rule 2).
+- **Silent peer** (`tests/unit/test_orchestrator_peer_failures.py::test_send_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error`): a raw socket that accepts the TCP connection and then never responds, closes, or resets — no socket-level error ever arrives, so only the deadline tracker can end it. Distinct from the existing dead-port test (immediate connection-refused) and slow-peer test (a late-but-real response).
+- **Rule 27 removal guard** (`tests/unit/test_mcp_server.py::test_the_numeric_position_tool_is_gone_once_prd4_lands`): a `pytest.mark.xfail(strict=True)` asserting `receive_position` is absent from the tool surface. It fails as expected today (the tool is still there, correctly, per PRD 2's carve-out); the moment PRD 4 removes the tool, this flips to an unexpected pass, and `strict=True` turns that XPASS into a hard suite failure — so the marker can't be forgotten. Both the tool and the test carry the literal grep string `RULE-27-REMOVE-AT-PRD-4` (documented in `CLAUDE.md`'s "Known trap" section) so `rule-auditor` or a human can find both ends with one grep.
+
+`tests/integration/_helpers.py` was extracted to hold the shared spawn/wait logic now used by both integration test files and `_server_process.py` itself, avoiding a third copy. `test_orchestrator.py` was split three ways (construction/happy-path, peer-failure modes, watchdog wiring) to stay under the 150-line house cap after these additions.
 
 ## Build
 

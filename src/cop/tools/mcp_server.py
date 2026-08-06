@@ -32,6 +32,11 @@ def build_server(
     board = Board(size=config.board_size)
     mcp = FastMCP(name)
 
+    # RULE-27-REMOVE-AT-PRD-4: bare coordinates are a fatal protocol violation
+    # (rule 27) everywhere except this deliberate, temporary PRD 2 carve-out.
+    # Delete this tool — and tests/unit/test_mcp_server.py's matching xfail
+    # marker — together, in the same PRD 4 commit that adds the real
+    # natural-language hint tool.
     @mcp.tool
     def receive_position(col: int, row: int) -> dict:
         """Accept a peer's announced position; ack, or flag it as off-board."""
