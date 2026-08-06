@@ -22,6 +22,8 @@ Covered by `test_receiving_a_position_feeds_the_orchestrators_watchdog_heartbeat
 
 `tests/integration/_helpers.py` was extracted to hold the shared spawn/wait logic now used by both integration test files and `_server_process.py` itself, avoiding a third copy. `test_orchestrator.py` was split three ways (construction/happy-path, peer-failure modes, watchdog wiring) to stay under the 150-line house cap after these additions.
 
+**Overlap sanity check.** To confirm `test_concurrent_exchange.py` is actually exercising concurrency and not incidentally passing under sequential round-tripping, `_server_process.py`'s send was temporarily changed from a background daemon thread to a synchronous call *before* `run_as_server()` — the naive-looking alternative. That change reintroduces a genuine circular deadlock (A waits for B's port before sending, and won't start its own server until that send returns; B does the same waiting on A), and the test failed with `TimeoutError` at the 5-second `wait_for_port` bound, not a hang or a false pass. Reverted immediately after (`git diff` confirms the file is byte-identical to the committed version); full suite re-confirmed green (98 passed, 1 xfailed, ruff clean).
+
 ## Build
 
 Split into two processes. Stand up each peer's FastMCP server, define the tool surface, connect this peer's client to the other's server. Introduce the Orchestrator, the state machine, the deadline tracker, the watchdog, and a minimal operational log manager (see Design Question 3) — the book's own Orchestrator diagram (Ch.8, Fig. 12) wires the Orchestrator to five subsystems; PRD 2 builds four of them (MCP Connector, Log Manager, Deadline Tracker, Watchdog) and leaves the fifth (Decision Module) to PRD 3, see Design Question 3.
