@@ -6,25 +6,23 @@ Tracker, Watchdog, and — as of PRD 3 — the Decision Module (`reasoning/`).
 Nothing outside this module reaches those subsystems directly.
 
 The watchdog is doubly wired: every `receive_hint` call feeds it a
-heartbeat (`build_server(..., on_receive=self.watchdog.heartbeat)`), and a
-daemon thread started in `run_as_server` polls `watchdog.check()` so a
-frozen process actually gets caught while serving, not just when a test
-calls `.check()` directly.
+heartbeat (via `self._on_connection_received`, wired as `build_server`'s
+`on_receive`), and a daemon thread started in `run_as_server` polls
+`watchdog.check()` so a frozen process actually gets caught while serving,
+not just when a test calls `.check()` directly.
 
 `take_turn()` is deliberately small — it proves the brain is genuinely
 wired, not that the algorithm works. Algorithm correctness is
 `reasoning/subgame.py`'s job, entirely offline (PRD-3-blind-strategy.md,
 Design Question 3). `take_turn()` itself lives in `orchestrator_turn.py`'s
-`BrainTurnMixin` — this file grew past the 150-line house cap once that
-method landed.
+`BrainTurnMixin`, and `run_as_server`/the watchdog poll loop live in
+`orchestrator_server.py`'s `ServerLifecycleMixin` — this file grew past the
+150-line house cap twice, once at each landing.
 """
 
 from __future__ import annotations
 
-import os
 import random
-import threading
-import time
 
 from fastmcp import FastMCP
 
@@ -33,6 +31,7 @@ from .domain.board import Board, Position
 from .memory.belief import BeliefMap
 from .memory.scent import ScentField
 from .observability.trace import Trace
+from .orchestrator_server import ServerLifecycleMixin
 from .orchestrator_turn import BrainTurnMixin
 from .planner.deadline import await_with_deadline
 from .planner.state_machine import PeerStateMachine
@@ -48,7 +47,7 @@ from .tools.mcp_server import build_server
 _DEFAULT_PRIVATE_CONFIG_PATH = "config/private/trash_talk_dev.json"
 
 
-class Orchestrator(BrainTurnMixin):
+class Orchestrator(BrainTurnMixin, ServerLifecycleMixin):
     def __init__(
         self,
         config: GameConfig,
@@ -82,29 +81,15 @@ class Orchestrator(BrainTurnMixin):
             ),
         )
         self.server: FastMCP = build_server(
-            config, on_receive=self.watchdog.heartbeat, on_hint=self._on_hint_received
+            config, on_receive=self._on_connection_received, on_hint=self._on_hint_received
         )
 
-    def _watch_loop(self, poll_interval_seconds: float) -> None:
-        """Background daemon thread: rule 7 says "run" a watchdog, not merely
-        construct one. `check()` already runs `persist_state`/`controlled_shutdown`
-        on staleness; this loop's only remaining job is to end the frozen
-        process once that has happened, so the OS-level crash/hang is real."""
-        while True:
-            time.sleep(poll_interval_seconds)
-            if self.watchdog.check() == "SHUTDOWN":
-                os._exit(1)
-
-    def _start_watchdog_monitor(self, poll_interval_seconds: float = 1.0) -> None:
-        threading.Thread(
-            target=self._watch_loop, args=(poll_interval_seconds,), daemon=True
-        ).start()
-
-    def run_as_server(self, host: str = "127.0.0.1", port: int = 8800) -> None:
-        """Start listening — blocking, meant to be this process's main loop."""
-        self.trace.log("server_starting", host=host, port=port)
-        self._start_watchdog_monitor()
-        self.server.run(transport="http", host=host, port=port, show_banner=False)
+    def _on_connection_received(self, ip: str | None) -> None:
+        """Fires on every successful `receive_hint` call (PRD 5): feeds the
+        watchdog heartbeat (rule 7) and logs who connected (rule 10's
+        milestone — confirm a genuinely remote peer, not 127.0.0.1/LAN)."""
+        self.watchdog.heartbeat()
+        self.trace.log("connection_received", ip=ip)
 
     async def send_to_peer(self, peer_url: str, text: str, scent_report: str) -> dict:
         """Client role: send a natural-language hint to the peer, deadline-guarded,

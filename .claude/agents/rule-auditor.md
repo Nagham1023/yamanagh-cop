@@ -37,6 +37,8 @@ Read the skill for the full list. The patterns that matter most, because each on
 - a hard-coded number that should come from config (I6)
 - LLM output being parsed into a move (25, I7)
 - Gmail scope wider than send-only (30)
+- `X-Forwarded-For` (or any peer-supplied header) trusted for anything beyond logging/display (I9) — it's attacker-controllable; a real violation is it gating any decision, not just being logged
+- `host="0.0.0.0"` binding present without a corresponding `use_tunnel` justification (PRD 5) — silently wider exposure than intended
 
 ## Reporting format
 

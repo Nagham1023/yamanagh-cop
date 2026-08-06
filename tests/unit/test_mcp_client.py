@@ -21,6 +21,8 @@ import threading
 import time
 
 import pytest
+from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 
 from cop.tools.mcp_client import send_hint
 from cop.tools.mcp_server import build_server
@@ -32,10 +34,9 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
-@pytest.fixture
-def running_server(config):
+def _start_server(config, **build_kwargs) -> str:
     port = _free_port()
-    mcp = build_server(config)
+    mcp = build_server(config, **build_kwargs)
     thread = threading.Thread(
         target=mcp.run,
         kwargs={"transport": "http", "host": "127.0.0.1", "port": port, "show_banner": False},
@@ -43,7 +44,12 @@ def running_server(config):
     )
     thread.start()
     time.sleep(0.5)  # give uvicorn a moment to bind before the test calls it
-    yield f"http://127.0.0.1:{port}/mcp"
+    return f"http://127.0.0.1:{port}/mcp"
+
+
+@pytest.fixture
+def running_server(config):
+    yield _start_server(config)
 
 
 def test_send_hint_round_trips_over_real_http(running_server):
@@ -56,3 +62,33 @@ def test_send_hint_reports_an_over_limit_hint(running_server, config):
     data = asyncio.run(send_hint(running_server, over_limit_text, "Scent strongest to the north west."))
     assert data["accepted"] is False
     assert data["word_count"] == config.hint_word_limit + 1
+
+
+def test_on_receive_gets_the_loopback_address_over_real_http_with_no_forwarding_header(config):
+    received_ips = []
+    url = _start_server(config, on_receive=lambda ip: received_ips.append(ip))
+
+    asyncio.run(send_hint(url, "quiet by the river", "Scent strongest to the north west."))
+
+    assert received_ips == ["127.0.0.1"]
+
+
+def test_on_receive_prefers_x_forwarded_for_over_the_raw_loopback_address(config):
+    # The actual proof the milestone's IP-logging depends on: a tunnel
+    # inserts this header with the true remote caller, which must win over
+    # the raw ASGI client address (always 127.0.0.1 once a tunnel is in
+    # front — see mcp_server.py's _caller_ip docstring).
+    received_ips = []
+    url = _start_server(config, on_receive=lambda ip: received_ips.append(ip))
+
+    async def _call_with_forwarded_header():
+        transport = StreamableHttpTransport(url, headers={"X-Forwarded-For": "203.0.113.7"})
+        async with Client(transport) as client:
+            await client.call_tool(
+                "receive_hint",
+                {"text": "quiet by the river", "scent_report": "Scent strongest to the north west."},
+            )
+
+    asyncio.run(_call_with_forwarded_header())
+
+    assert received_ips == ["203.0.113.7"]

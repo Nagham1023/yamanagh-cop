@@ -21,7 +21,8 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from cop.tools.mcp_server import build_server
+import cop.tools.mcp_server as mcp_server_module
+from cop.tools.mcp_server import _caller_ip, build_server
 
 
 def _call(mcp, arguments: dict):
@@ -69,12 +70,23 @@ def test_receive_hint_rejects_a_missing_argument(config):
 
 def test_on_receive_hook_fires_on_every_successful_call(config):
     calls = []
-    mcp = build_server(config, on_receive=lambda: calls.append(1))
+    mcp = build_server(config, on_receive=lambda ip: calls.append(ip))
 
     _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the north west."})
     _call(mcp, {"text": "south of the bridge", "scent_report": "Scent strongest to the south east."})
 
     assert len(calls) == 2
+
+
+def test_on_receive_hook_gets_none_over_the_in_process_test_transport(config):
+    # No real HTTP layer at all in this transport — IP capture must
+    # degrade to None, not raise.
+    calls = []
+    mcp = build_server(config, on_receive=lambda ip: calls.append(ip))
+
+    _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the north west."})
+
+    assert calls == [None]
 
 
 def test_on_receive_hook_is_optional(config):
@@ -92,6 +104,28 @@ def test_on_hint_hook_receives_both_fields(config):
     _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the south east."})
 
     assert received == [("north of the market", "Scent strongest to the south east.")]
+
+
+def test_caller_ip_prefers_the_x_forwarded_for_header_over_request_client_host(monkeypatch):
+    # Isolated from any real HTTP transport, deliberately: uvicorn's own
+    # ProxyHeadersMiddleware (trusted_hosts=127.0.0.1 by default) already
+    # rewrites request.client.host to match X-Forwarded-For for any
+    # locally-originating connection — every connection in this test suite,
+    # and every real ngrok connection too (the tunnel's local forwarding
+    # agent connects via loopback). A real-HTTP test alone can't distinguish
+    # this function's own preference order from that middleware's, since
+    # both produce the same answer — found while sanity-checking this exact
+    # claim (see the reverted sabotage note in PRD-5-cloud-exposure.md).
+    class _FakeClient:
+        host = "127.0.0.1"
+
+    class _FakeRequest:
+        client = _FakeClient()
+
+    monkeypatch.setattr(mcp_server_module, "get_http_headers", lambda: {"x-forwarded-for": "203.0.113.7"})
+    monkeypatch.setattr(mcp_server_module, "get_http_request", lambda: _FakeRequest())
+
+    assert _caller_ip() == "203.0.113.7"
 
 
 def test_the_numeric_position_tool_is_gone(config):

@@ -120,17 +120,24 @@ uv run python scripts/watch_prd3_brain.py   # local pursuit (static + moving tar
 uv run python scripts/watch_prd4_language.py   # local truthful/lying hints + belief shift, scent decay, one real round-trip with the actual wire text printed
 ```
 
-## PRD 5 — Cloud exposure and tunneling
+## PRD 5 — Cloud exposure and tunneling — **BUILT, one step pending**
 
-- [ ] rule 10 — tunneling tool exposes the local server to the public internet
-- [ ] hardening of rules 6/7 under real network latency/loss
-- [ ] build: ngrok/Localtonet integration
-- [ ] build: reconnect/disconnect handling
-- [ ] test: agent on a genuinely different network connects and plays a full round (milestone) — verify via connection-log IP, not localhost/LAN
-- [ ] test: a mid-game tunnel drop produces a clean technical loss with an intact log
-- [ ] milestone watched end-to-end by a human
-- [ ] `rule-auditor` run, zero fatal violations
-- [ ] `PRD/PRD-5-cloud-exposure.md` written; commit
+- [x] rule 10 — tunneling tool exposes the local server to the public internet (`tools/tunnel.py`, ngrok — real binary confirmed absent in this sandbox, so wiring/parsing is tested against a local admin-API stand-in; the tool itself is a real, non-fake subprocess wrapper)
+- [x] hardening of rules 6/7 under real network conditions — no new production mechanism needed; new tests prove realistic non-zero latency doesn't falsely trip the deadline, and a connection that worked once then drops still reaches `TECHNICAL_LOSS` cleanly
+- [x] build: ngrok integration (Localtonet deliberately not built — book permits either, building both is undocumented scope creep; documented choice, not a silent narrowing)
+- [x] build: caller-IP capture (`X-Forwarded-For` preferred over the raw ASGI `request.client.host`, which is always `127.0.0.1` behind a tunnel) + `run_as_server`'s `use_tunnel`-gated `0.0.0.0` host binding (book's own ch. 2.3 FastMCP example binds this specifically "so a tunnel can expose it publicly")
+- [x] test: a mid-game tunnel drop (connection worked once, then stops being reachable) produces a clean technical loss with an intact log — `tests/integration/test_tunnel_drop_mid_game.py`
+- [x] found + fixed a real gap via sanity-check sabotage: uvicorn's own `ProxyHeadersMiddleware` (default-trusted for `127.0.0.1`) already rewrites `request.client.host` to match `X-Forwarded-For`, masking a real-HTTP test's ability to prove `_caller_ip()`'s own preference order — added an isolated test that monkeypatches the FastMCP dependency functions directly instead
+- [x] `.claude/agents/adversary.md` written (hostile-peer simulator, read-only-verdict posture like `rule-auditor.md`) and run live once (via a general-purpose-agent stand-in — the registered subagent type isn't available until a fresh session): all three scenarios (drop mid-turn, delay past deadline, malformed payload) genuinely HELD against a real spawned peer process
+- [ ] test: agent on a genuinely different network connects and plays a full round (milestone) — verify via connection-log IP, not localhost/LAN — **not yet run, needs a human with a real ngrok account and a second network**
+- [ ] milestone watched end-to-end by a human — pending the above
+- [x] `rule-auditor` run against rule 10, hardened 6/7, and I6/I9 — zero fatal violations; one non-fatal documentation-honesty finding (`TODO5.md` §7's checkboxes caught mid-edit by a race with the audit's own concurrent read) already fixed
+- [x] `PRD/PRD-5-cloud-exposure.md` written; commit
+
+**Demo script (run from repo root):**
+```bash
+uv run python scripts/watch_prd5_tunnel.py   # tunnel wrapper parsed against a local admin-API stand-in + caller-IP capture over real HTTP with a manually-set X-Forwarded-For header
+```
 
 ## PRD 6 — Security and cryptography
 

@@ -13,7 +13,7 @@ import time
 
 from fastmcp import Client
 
-from cop import orchestrator as orchestrator_module
+from cop import orchestrator_server as orchestrator_server_module
 from cop.orchestrator import Orchestrator
 from cop.reasoning.cop_brain import CopBrain
 
@@ -54,6 +54,21 @@ def test_receiving_a_hint_feeds_the_orchestrators_watchdog_heartbeat(config, tmp
     assert orchestrator.watchdog.check() == "ALIVE"
 
 
+def test_on_connection_received_feeds_the_heartbeat_and_logs_the_ip(config, tmp_path):
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator.watchdog._last_heartbeat = -10_000.0
+
+    orchestrator._on_connection_received("203.0.113.7")
+
+    assert orchestrator.watchdog._last_heartbeat > -10_000.0
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    (connection_event,) = [e for e in events if e["event"] == "connection_received"]
+    assert connection_event["ip"] == "203.0.113.7"
+
+
 def test_run_as_server_starts_a_watchdog_monitor_that_shuts_down_on_staleness(
     config, tmp_path, monkeypatch
 ):
@@ -62,7 +77,7 @@ def test_run_as_server_starts_a_watchdog_monitor_that_shuts_down_on_staleness(
     # runs, and reacts to staleness — without letting a real os._exit(1) end
     # the test process.
     exited = threading.Event()
-    monkeypatch.setattr(orchestrator_module.os, "_exit", lambda code: exited.set())
+    monkeypatch.setattr(orchestrator_server_module.os, "_exit", lambda code: exited.set())
 
     orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     orchestrator._start_watchdog_monitor(poll_interval_seconds=0.05)
@@ -89,7 +104,7 @@ def test_run_as_server_starts_a_watchdog_monitor_that_shuts_down_on_staleness(
 
 def test_watchdog_monitor_stays_alive_while_heartbeats_keep_arriving(config, tmp_path, monkeypatch):
     exited = threading.Event()
-    monkeypatch.setattr(orchestrator_module.os, "_exit", lambda code: exited.set())
+    monkeypatch.setattr(orchestrator_server_module.os, "_exit", lambda code: exited.set())
 
     orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     orchestrator._start_watchdog_monitor(poll_interval_seconds=0.05)
