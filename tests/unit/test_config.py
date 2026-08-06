@@ -17,6 +17,8 @@ def test_loads_the_dev_config_from_disk():
     assert cfg.barrier_quota == 14
     assert cfg.thief_start == (3, 3)
     assert cfg.cop_start == (0, 0)
+    assert cfg.response_timeout_seconds == 30.0
+    assert cfg.watchdog_threshold_seconds == 60.0
 
 
 def test_missing_required_field_raises(tmp_path):
@@ -36,6 +38,7 @@ def _full_config(**overrides):
         "step_ceiling": 35, "survival_threshold": 35,
         "score_capture_cop": 20, "score_capture_thief": 5,
         "score_survival_cop": 5, "score_survival_thief": 10, "score_draw": 2,
+        "response_timeout_seconds": 30, "watchdog_threshold_seconds": 60,
     }
     base.update(overrides)
     return base
@@ -70,3 +73,22 @@ def test_default_origin_and_index_base_are_accepted():
     config = GameConfig.from_dict(_full_config())
     assert config.origin == "top-left"
     assert config.index_base == 0
+
+
+def test_negative_response_timeout_is_rejected():
+    # PRD 2 (§0): a nonsensical deadline must fail at load time, same
+    # pattern as PRD 1's numeric validation.
+    with pytest.raises(ValueError, match="response_timeout_seconds"):
+        GameConfig.from_dict(_full_config(response_timeout_seconds=-5))
+
+
+def test_zero_watchdog_threshold_is_rejected():
+    with pytest.raises(ValueError, match="watchdog_threshold_seconds"):
+        GameConfig.from_dict(_full_config(watchdog_threshold_seconds=0))
+
+
+def test_fractional_timeout_is_accepted():
+    # Unlike board_size/quota/score fields, timeouts may be sub-second —
+    # useful for keeping the test suite itself fast.
+    config = GameConfig.from_dict(_full_config(response_timeout_seconds=0.5))
+    assert config.response_timeout_seconds == 0.5

@@ -38,31 +38,37 @@ uv run python scripts/watch_capture_ends_game.py     # cop lands on thief -> GAM
 uv run python scripts/watch_prd1.py                  # the full PRD 1 milestone checklist, all in one
 ```
 
-## PRD 2 — FastMCP infra over localhost
+## PRD 2 — FastMCP infra over localhost — **DONE**
 
-- [ ] rule 1 — cop and thief run in two completely separate processes
-- [ ] rule 2 — no shared memory/variables between the two sides, ever
-- [ ] rule 3 — `Orchestrator` as the single entry point to every subsystem
-- [ ] rule 4 — proper state machine manages game states
-- [ ] rule 5 — illegal state transitions rejected, not absorbed
-- [ ] rule 6 — deadline tracker on every wait for the opponent
-- [ ] rule 7 — watchdog monitors the process, extracts data on crash
-- [ ] build: `tools/mcp_server.py` — FastMCP server, `@mcp.tool` surface
-- [ ] build: `tools/mcp_client.py` — calls into the peer's server
-- [ ] build: `orchestrator.py` skeleton wiring config/domain/tools together
-- [ ] build: state machine states + transition table (`planner/`)
-- [ ] build: deadline tracker (`planner/`)
-- [ ] build: watchdog process (`planner/`)
-- [ ] build: two-process local test harness (spawn both roles, localhost)
-- [ ] carried from PRD 1: enforce barrier "forgo move" once turn state exists (see `TODO1.md`, only remaining deferred item — off-board bounds-checking was fixed inside PRD 1 itself)
-- [ ] test: geometric message from A decoded correctly by B (milestone)
-- [ ] test: illegal state transition is rejected, not absorbed
-- [ ] test: killing one peer causes the other to hit its deadline and exit cleanly with a log
-- [ ] test: watchdog fires and extracts data on a forced crash
-- [ ] test: the two processes share no importable live state
-- [ ] milestone watched end-to-end by a human
-- [ ] `rule-auditor` run, zero fatal violations
-- [ ] `PRD/PRD-2-fastmcp-infra.md` written; commit
+- [x] rule 1 — cop and thief run in two completely separate processes
+- [x] rule 2 — no shared memory/variables between the two sides, ever
+- [x] rule 3 — `Orchestrator` as the single entry point to every subsystem
+- [x] rule 4 — proper state machine manages game states
+- [x] rule 5 — illegal state transitions rejected, not absorbed
+- [x] rule 6 — deadline tracker on every wait for the opponent
+- [x] rule 7 — watchdog monitors the process, extracts data on crash — fixed a real gap found in retrospective review: the watchdog object existed and was unit-tested but nothing drove `.check()` during real server operation; `run_as_server()` now runs a daemon poll loop, and `receive_position` feeds it real heartbeats
+- [x] build: `tools/mcp_server.py` — FastMCP server, `@mcp.tool` surface
+- [x] build: `tools/mcp_client.py` — calls into the peer's server
+- [x] build: `orchestrator.py` skeleton wiring config/domain/tools together
+- [x] build: state machine states + transition table (`planner/`)
+- [x] build: deadline tracker (`planner/`)
+- [x] build: watchdog process (`planner/`)
+- [x] build: `observability/trace.py` log manager (Fig. 12's fifth wire, added mid-layer per PRD Design Question 4)
+- [x] build: two-process local test harness (spawn both roles, localhost)
+- [ ] carried from PRD 1: enforce barrier "forgo move" once turn state exists (still deferred — turn state is PRD 3's territory)
+- [x] test: geometric message from A decoded correctly by B (milestone)
+- [x] test: illegal state transition is rejected, not absorbed
+- [x] test: killing one peer causes the other to hit its deadline and exit cleanly with a log
+- [x] test: watchdog fires and extracts data on a forced crash
+- [x] test: the two processes share no importable live state
+- [x] milestone watched end-to-end by a human
+- [x] `rule-auditor` run, zero fatal/non-fatal violations (rules 1–7, I6, I9, I10 all CLEAN)
+- [x] `PRD/PRD-2-fastmcp-infra.md` written; commit
+
+**Demo script (run from repo root):**
+```bash
+uv run python scripts/watch_prd2_roundtrip.py   # two OS processes, round-trip, illegal transition rejected, killed-peer -> clean technical loss with log
+```
 
 ## PRD 3 — Blind strategy
 

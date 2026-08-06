@@ -1,4 +1,4 @@
-"""Shared fixtures for PRD 1 tests — one config, reused instead of rebuilt per test."""
+"""Shared fixtures across layers — one config, reused instead of rebuilt per test."""
 
 from __future__ import annotations
 
@@ -24,4 +24,6 @@ def config() -> GameConfig:
         score_survival_cop=5,
         score_survival_thief=10,
         score_draw=2,
+        response_timeout_seconds=30.0,
+        watchdog_threshold_seconds=60.0,
     )

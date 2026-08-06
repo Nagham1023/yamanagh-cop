@@ -37,6 +37,7 @@ def test_barrier_quota_from_config_drives_quota_rejection(tmp_path):
         "step_ceiling": 35, "survival_threshold": 35,
         "score_capture_cop": 20, "score_capture_thief": 5,
         "score_survival_cop": 5, "score_survival_thief": 10, "score_draw": 2,
+        "response_timeout_seconds": 30, "watchdog_threshold_seconds": 60,
     }
     path = tmp_path / "config_quota_one.json"
     path.write_text(json.dumps(custom), encoding="utf-8")

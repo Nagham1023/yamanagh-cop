@@ -3,7 +3,9 @@ name = "cop"
 version = "0.1.0"
 description = "Cop peer for the Distributed Cops-and-Robbers P2P game (Orchestration of AI Agents, University of Haifa)"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastmcp>=3.4.6",
+]
 
 [dependency-groups]
 dev = [

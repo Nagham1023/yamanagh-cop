@@ -14,6 +14,10 @@ silent bad behaviour surfacing three modules downstream:
     coordinate transforms actually exist.
   - Every numeric field is range/type-checked, not just presence-checked, so
     a malformed config fails at load time.
+
+PRD 2 extends this dataclass with `response_timeout_seconds`/
+`watchdog_threshold_seconds` (Table 19) — same pattern as PRD 1: each layer
+adds the fields it needs rather than every module parsing the raw JSON.
 """
 
 from __future__ import annotations
@@ -41,6 +45,17 @@ def _non_negative_int(data: dict[str, Any], key: str) -> int:
     return value
 
 
+def _positive_number(data: dict[str, Any], key: str) -> float:
+    """Like `_positive_int`, but accepts a float too — timeouts (Table 19) are
+    seconds, and a sub-second value is a legitimate thing to negotiate for a
+    faster test suite, unlike board_size/quota/score fields which are always
+    whole counts."""
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ValueError(f"{key} must be a positive number, got {value!r}")
+    return float(value)
+
+
 @dataclass(frozen=True)
 class GameConfig:
     board_size: int
@@ -57,6 +72,8 @@ class GameConfig:
     score_survival_cop: int
     score_survival_thief: int
     score_draw: int
+    response_timeout_seconds: float
+    watchdog_threshold_seconds: float
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GameConfig:
@@ -92,6 +109,8 @@ class GameConfig:
             score_survival_cop=_non_negative_int(data, "score_survival_cop"),
             score_survival_thief=_non_negative_int(data, "score_survival_thief"),
             score_draw=_non_negative_int(data, "score_draw"),
+            response_timeout_seconds=_positive_number(data, "response_timeout_seconds"),
+            watchdog_threshold_seconds=_positive_number(data, "watchdog_threshold_seconds"),
         )
 
     @classmethod
