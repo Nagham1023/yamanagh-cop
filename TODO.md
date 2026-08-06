@@ -27,7 +27,7 @@ Running task list, per rule 50. Full project roadmap, not just the current layer
 - [x] `PRD/PRD-1-base-logic.md` written
 - [x] `TODO1.md` — critical re-review, found and fixed a real bug (off-board barrier silently consumed quota) plus 3 coverage/validation gaps; 44→52 tests
 - [x] four narrated demo scripts + 2 backing tests (52→54); run commands below
-- [ ] commit PRD 1 to git (pending — see "Before PRD 2 starts" below)
+- [x] commit PRD 1 to git — standalone repo initialized, first commit `d95381b`
 
 **Demo scripts (run from repo root):**
 ```bash
