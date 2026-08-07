@@ -118,13 +118,17 @@ def test_round_trip_from_emitted_field_through_language_recovers_the_correct_dir
     # The full pipeline the corroboration mechanic depends on: a real trail
     # is emitted into ScentField, translated into natural language, parsed
     # back out on the receiving side, and folded into a fresh BeliefMap —
-    # the recovered belief must land within one cell of the true direction,
-    # not just "somewhere plausible."
+    # the recovered belief must land within one cell of own_pos's true
+    # absolute quadrant (Revision 2), not just "somewhere plausible," and
+    # specifically not the direction the trail leads away from (Revision
+    # 2's bug — own_pos here is north-east while the immediately preceding
+    # position was the diagonally opposite south-west corner, an ordinary
+    # "just arrived" trajectory that the pre-fix relative semantics would
+    # have reported backwards).
     board = Board(size=config.board_size)
-    own_pos = Position(2, 4)  # clear of every edge
+    own_pos = Position(5, 1)  # north-east, clear of every edge
     scent = ScentField.from_config(config)
-    scent.advance(Position(4, 2), board)  # a real trail, north-east of own_pos
-    scent.advance(Position(3, 3), board)  # still north-east, closer
+    scent.advance(Position(2, 4), board)  # a real trail, from the opposite (south-west) corner
     scent.advance(own_pos, board)
 
     scent_text = generate_scent_report(scent.sample(own_pos, board), own_pos, config)

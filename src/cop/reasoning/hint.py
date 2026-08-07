@@ -57,39 +57,43 @@ def choose_provider(
     return template_provider
 
 
-def dominant_scent_direction(sampled: dict[Position, float], own_pos: Position) -> tuple[str, str] | None:
-    """The (vertical, horizontal) compass pair with the most residual scent
-    around `own_pos`, excluding `own_pos` itself (Revision 1, Design
-    Question 1). Figure 4's kernel is perfectly symmetric at the centre —
-    any directional lean in `sampled` comes entirely from older, still-
-    decaying residue from earlier positions, not this turn's fresh deposit.
-    Each axis judged independently (same north/south x west/east vocabulary
-    `tools/hint_providers.py`'s `_quadrant` uses); a *nonzero* tie — e.g.
-    turn 1's still-symmetric fresh kernel, no history yet — defaults to
-    north-west, matching `interpret_hint`'s own default rather than an
-    arbitrary pick.
+def dominant_scent_direction(
+    sampled: dict[Position, float], own_pos: Position, board_size: int
+) -> tuple[str, str] | None:
+    """The (vertical, horizontal) **absolute board quadrant** where the
+    sender's own scent mass — fresh deposit plus residual history,
+    `own_pos` included — is concentrated (Revision 2). Same north/south x
+    west/east convention `tools/hint_providers.py::_quadrant` uses (row/col
+    compared against `board_size / 2`), which is exactly why this needed
+    fixing: `interpret_hint` decodes direction words into that same
+    absolute convention regardless of who sent them, and Revision 1's
+    original version here summed neighbours *relative to* `own_pos`
+    (excluding it) — a lagging trail-direction indicator, not an absolute
+    region. "Scent strongest to my north-east" and "I am in the board's
+    north-east" are different claims; ch. 4.4's own worked example reasons
+    entirely over absolute cell coordinates ("south-east cell (1,4):
+    τ=0.81... cells in the board's north: τ=0.00"), confirming the
+    absolute reading is the book-correct one, not an invented fix.
 
-    Returns `None` when `sampled` carries no scent at all outside `own_pos`
-    itself — genuinely no information (a position the agent has never been
-    near, or whose trail has fully decayed away), as opposed to a real but
-    tied signal. Collapsing that distinction into the same north-west
-    default would make "I have no information" silently masquerade as a
-    directional claim every time it occurs — a weak, wrong signal reaching
-    the belief map instead of no signal at all.
+    The fresh kernel deposit (0.9 at centre) usually dominates, so this
+    reduces in practice to "the sender's own true quadrant, reported
+    honestly" — but near a quadrant boundary, residual history can still
+    outvote the fresh deposit, a real edge case kept rather than
+    collapsed into a copy of `generate_hint`'s truthful branch.
+
+    Returns `None` when `sampled` is genuinely all-zero — no scent
+    anywhere, not even at `own_pos` — matching Revision 1's sentinel.
     """
+    half = board_size / 2
     north = south = west = east = 0.0
     for cell, value in sampled.items():
-        if cell == own_pos:
-            continue
-        d_row = cell.row - own_pos.row
-        d_col = cell.col - own_pos.col
-        if d_row < 0:
+        if cell.row < half:
             north += value
-        elif d_row > 0:
+        else:
             south += value
-        if d_col < 0:
+        if cell.col < half:
             west += value
-        elif d_col > 0:
+        else:
             east += value
     if north == south == west == east == 0.0:
         return None
@@ -118,7 +122,7 @@ def generate_scent_report(sampled: dict[Position, float], own_pos: Position, con
     nondeterministic model would undermine the one property
     ("uncorruptible") the whole corroboration mechanic depends on. Same
     hard backstop-truncation discipline as `generate_hint`."""
-    direction = dominant_scent_direction(sampled, own_pos)
+    direction = dominant_scent_direction(sampled, own_pos, config.board_size)
     text = _NO_SCENT_REPORT if direction is None else f"Scent strongest to the {direction[0]} {direction[1]}."
     words = text.split()
     if len(words) > config.hint_word_limit:

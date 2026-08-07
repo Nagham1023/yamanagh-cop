@@ -136,33 +136,33 @@ def test_choose_provider_always_returns_configured_when_every_n_steps_is_one(eve
         )
 
 
-def test_dominant_scent_direction_on_an_asymmetric_window_finds_the_true_lean():
-    own_pos = Position(3, 3)
-    # All residual scent to the north-east of own_pos; nothing elsewhere.
-    sampled = {
-        Position(4, 2): 0.62,
-        Position(5, 1): 0.20,
-        own_pos: 0.90,
-    }
+def test_dominant_scent_direction_on_an_asymmetric_window_finds_the_true_absolute_quadrant():
+    # Revision 2: the reported quadrant is absolute (board-relative), not
+    # relative to own_pos — own_pos itself is in the board's north-east
+    # here, and every other cell in the window reinforces that same
+    # absolute quadrant, matching ch. 4.4's own absolute-cell-coordinate
+    # worked example rather than a "trail direction" abstraction.
+    board_size = 7
+    own_pos = Position(5, 1)  # north-east: row=1<3.5, col=5>=3.5
+    sampled = {own_pos: 0.90, Position(4, 2): 0.62, Position(6, 0): 0.20}
 
-    vertical, horizontal = dominant_scent_direction(sampled, own_pos)
+    vertical, horizontal = dominant_scent_direction(sampled, own_pos, board_size)
 
     assert (vertical, horizontal) == ("north", "east")
 
 
-def test_dominant_scent_direction_on_a_fresh_symmetric_window_defaults_to_north_west():
-    own_pos = Position(3, 3)
-    # A freshly-advanced field is radially symmetric around its own centre —
-    # no real lean yet (e.g. turn 1). Every direction ties.
-    sampled = {
-        own_pos: 0.90,
-        Position(4, 3): 0.62, Position(2, 3): 0.62,
-        Position(3, 4): 0.62, Position(3, 2): 0.62,
-        Position(4, 4): 0.42, Position(2, 2): 0.42,
-        Position(4, 2): 0.42, Position(2, 4): 0.42,
-    }
+def test_dominant_scent_direction_on_an_exact_tie_defaults_to_north_west():
+    # A genuine, hand-constructed absolute tie: own_pos and an
+    # equal-weight mirror cell in the exact opposite quadrant. (A fresh
+    # kernel symmetric *around own_pos* no longer naturally produces a tie
+    # under Revision 2's absolute-quadrant semantics, since own_pos's own
+    # quadrant membership is generally decisive — ties now have to be
+    # constructed deliberately, which is itself worth pinning down.)
+    board_size = 7
+    own_pos = Position(1, 1)  # north-west
+    sampled = {own_pos: 0.90, Position(5, 5): 0.90}  # south-east, equal weight
 
-    vertical, horizontal = dominant_scent_direction(sampled, own_pos)
+    vertical, horizontal = dominant_scent_direction(sampled, own_pos, board_size)
 
     assert (vertical, horizontal) == ("north", "west")
 
@@ -170,15 +170,14 @@ def test_dominant_scent_direction_on_a_fresh_symmetric_window_defaults_to_north_
 def test_dominant_scent_direction_outside_the_window_returns_no_signal(config):
     # A position the agent has never been near — sample() reads every cell
     # as 0.0 (never emitted), so there is genuinely nothing to report, not
-    # a real-but-tied lean (contrast with the fresh-symmetric-window case
-    # above, whose values are nonzero and legitimately default north-west).
+    # a real-but-tied lean.
     board = Board(size=config.board_size)
     field = ScentField.from_config(config)
     own_pos = Position(3, 3)  # field never advanced anywhere
 
     sampled = field.sample(own_pos, board)
 
-    assert dominant_scent_direction(sampled, own_pos) is None
+    assert dominant_scent_direction(sampled, own_pos, config.board_size) is None
 
 
 def test_generate_scent_report_outside_the_window_produces_the_no_signal_sentinel(config):
@@ -192,19 +191,24 @@ def test_generate_scent_report_outside_the_window_produces_the_no_signal_sentine
     assert not _COORDINATE_PATTERN.search(text)
 
 
-def test_dominant_scent_direction_inside_the_window_argmax_lands_in_the_correct_quadrant(config):
-    # A real trail: two prior positions strictly north-east of the agent's
-    # current position, through a real ScentField (not a hand-built dict) —
-    # the argmax of the resulting gradient must point back the way the
-    # agent actually came from.
+def test_dominant_scent_direction_inside_the_window_argmax_lands_in_the_true_absolute_quadrant(config):
+    # Revision 2's actual fix, demonstrated with a real ScentField trail
+    # (not a hand-built dict): own_pos sits in the board's north-east, and
+    # the agent's *immediately preceding* position was in the diagonally
+    # opposite corner (south-west) — an ordinary "just arrived here"
+    # trajectory. Under the pre-fix relative semantics this would have
+    # reported "south-west" (the direction the trail leads away from) —
+    # exactly backwards. The argmax must land in own_pos's own true
+    # quadrant, north-east, regardless of which direction the trail came
+    # from — that's the whole point of reading absolute cell coordinates
+    # (ch. 4.4) instead of a relative lean.
     board = Board(size=config.board_size)
     field = ScentField.from_config(config)
-    own_pos = Position(2, 4)  # clear of every edge
-    field.advance(Position(4, 2), board)  # north-east of own_pos
-    field.advance(Position(3, 3), board)  # still north-east, closer
+    own_pos = Position(5, 1)  # north-east: row=1<3.5, col=5>=3.5, clear of every edge
+    field.advance(Position(2, 4), board)  # south-west — the opposite corner
     field.advance(own_pos, board)
 
-    direction = dominant_scent_direction(field.sample(own_pos, board), own_pos)
+    direction = dominant_scent_direction(field.sample(own_pos, board), own_pos, config.board_size)
 
     assert direction == ("north", "east")
 

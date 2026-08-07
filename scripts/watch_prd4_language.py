@@ -66,9 +66,11 @@ def section_1_local_language(config: GameConfig, board: Board) -> None:
         print(f"    step {step}: {level:.4f}")
         scent.advance(far_pos, board)
 
-    print("\n  Revision 1 — the corroboration mechanic: a lying claim vs the always-truthful scent report")
-    corroboration_true_pos = Position(2, 2)  # north-west, clear of every board edge
-    previous_pos = Position(1, 1)  # a real trail, further north-west still
+    print("\n  Revision 2 — the corroboration mechanic: a lying claim vs the always-truthful scent report")
+    corroboration_true_pos = Position(1, 5)  # south-west
+    previous_pos = Position(5, 1)  # the opposite (north-east) corner — Revision 2's own counterexample:
+    # under Revision 1's relative-direction bug this would have been misread as "north-east" (the
+    # direction the trail leads away from); the absolute-quadrant fix correctly reads it as south-west.
     intent = decide_intent(lie_probability=1.0, rng=rng)
     lie_text = generate_hint(corroboration_true_pos, provider, config, intent)
     lie_focal_point = interpret_hint(lie_text, board)
