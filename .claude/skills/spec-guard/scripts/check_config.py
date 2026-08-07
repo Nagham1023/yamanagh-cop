@@ -54,12 +54,15 @@ class Param:
 
 TABLE: list[Param] = [
     # Table 13 — board, coordinate system, start positions
+    # Aliases include Appendix B's actual nested-schema leaf names
+    # (grid_size, axis_origin_corner, ...) alongside this skill's own
+    # internal canonical names — todoFullFix.md §A4, PARAMETERS.md.
     Param("board_size", 7, "MINIMUM", "13 board",
           ("board", "grid_size", "size", "n", "board_side")),
     Param("agent_count", 2, "FIXED", "13 board",
           ("agents", "num_agents", "players")),
     Param("origin", "top-left", "NEGOTIABLE", "13 board",
-          ("coordinate_origin", "axis_origin")),
+          ("coordinate_origin", "axis_origin", "axis_origin_corner")),
     Param("index_base", 0, "NEGOTIABLE", "13 board",
           ("axis_start_index", "start_index", "base_index")),
     Param("thief_start", [3, 3], "NEGOTIABLE", "13 board",
@@ -69,11 +72,13 @@ TABLE: list[Param] = [
 
     # Table 14 — arena and verbal hints
     Param("arena", "New York", "NEGOTIABLE", "14 arena",
-          ("game_arena", "region", "city")),
+          ("game_arena", "region", "city", "map_area")),
     Param("hint_word_limit", 15, "NEGOTIABLE", "14 arena",
           ("max_hint_words", "word_limit", "hint_max_words")),
 
     # Table 15 — movement and barriers
+    Param("move_set", ["N", "S", "E", "W", "STAY"], "FIXED", "15 movement",
+          ("moves", "legal_moves")),
     Param("barrier_quota", 14, "MINIMUM", "15 movement",
           ("max_barriers", "barriers", "barrier_limit", "walls")),
     Param("step_ceiling", 35, "MINIMUM", "15 movement",
@@ -83,11 +88,13 @@ TABLE: list[Param] = [
 
     # Table 16 — pheromones  (all FIXED and cryptographically locked, rule 23)
     Param("scent_source_strength", 0.9, "FIXED", "16 scent",
-          ("scent_strength", "pheromone_strength", "scent_max", "emission")),
+          ("scent_strength", "pheromone_strength", "scent_max", "emission",
+           "pheromone_center_intensity")),
     Param("scent_decay_rate", 0.10, "FIXED", "16 scent",
           ("decay_rate", "scent_decay", "pheromone_decay", "decay")),
     Param("scent_field_size", 5, "FIXED", "16 scent",
-          ("scent_window", "emission_window", "field_size", "scent_radius_window")),
+          ("scent_window", "emission_window", "field_size", "scent_radius_window",
+           "pheromone_grid_size")),
 
     # Table 17 — scoring
     Param("score_capture_cop", 20, "FIXED", "17 scoring",
@@ -100,16 +107,18 @@ TABLE: list[Param] = [
           ("survival_thief", "thief_survival_score")),
     Param("score_draw", 2, "FIXED", "17 scoring",
           ("draw", "draw_score", "tie_score")),
+    Param("technical_loss", 0, "FIXED", "17 scoring",
+          ("technical_loss_score",)),
 
     # Table 18 — network and league
     Param("sub_games_per_series", 6, "FIXED", "18 league",
-          ("sub_games", "rounds", "games_per_series", "num_sub_games")),
+          ("sub_games", "rounds", "games_per_series", "num_sub_games", "num_games")),
     Param("diversity_reward", 10, "FIXED", "18 league",
           ("new_opponent_bonus", "diversity_bonus")),
     Param("min_games_to_pass", 2, "FIXED", "18 league",
           ("min_games", "minimum_games")),
     Param("token_estimate_per_series", 200000, "NEGOTIABLE", "18 league",
-          ("token_budget", "max_tokens", "token_estimate")),
+          ("token_budget", "max_tokens", "token_estimate", "token_budget_per_series")),
     Param("max_games_per_team", 10, "FIXED", "18 league",
           ("max_games", "game_cap")),
 
@@ -117,17 +126,17 @@ TABLE: list[Param] = [
     Param("requests_per_minute", 30, "MINIMUM", "19 gatekeeper",
           ("rpm", "rate_limit", "max_rpm")),
     Param("parallel_requests", 2, "MINIMUM", "19 gatekeeper",
-          ("concurrency", "max_parallel", "max_concurrent")),
+          ("concurrency", "max_parallel", "max_concurrent", "concurrent_requests")),
     Param("retry_delay_seconds", 5, "MINIMUM", "19 gatekeeper",
-          ("retry_delay", "backoff", "backoff_seconds")),
+          ("retry_delay", "backoff", "backoff_seconds", "retry_backoff_sec")),
     Param("retries", 3, "MINIMUM", "19 gatekeeper",
           ("max_retries", "retry_count", "attempts")),
     Param("queue_depth", 100, "MINIMUM", "19 gatekeeper",
           ("queue_size", "max_queue")),
     Param("response_timeout_seconds", 30, "NEGOTIABLE", "19 gatekeeper",
-          ("timeout", "response_timeout", "request_timeout")),
+          ("timeout", "response_timeout", "request_timeout", "response_timeout_sec")),
     Param("watchdog_threshold_seconds", 60, "NEGOTIABLE", "19 gatekeeper",
-          ("watchdog", "watchdog_timeout", "watchdog_threshold")),
+          ("watchdog", "watchdog_timeout", "watchdog_threshold", "watchdog_timeout_sec")),
 ]
 
 

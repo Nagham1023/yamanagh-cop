@@ -43,4 +43,6 @@ def config() -> GameConfig:
         scent_source_strength=0.9,
         scent_decay_rate=0.10,
         scent_field_size=5,
+        schema_version="1.2",
+        agreed_between=("group-a", "group-b"),
     )

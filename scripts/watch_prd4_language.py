@@ -1,7 +1,7 @@
 """Watch PRD 4's milestone run live: two sections, matching the split
 between the language/deception algorithm (local, no network) and wiring
 correctness (one real round-trip) — see PRD-4-language-and-scent.md,
-Design Questions 3/4, and Revision 1's opponent-scent corroboration.
+Design Questions 3/4, and Revision 3's Tool-based scent-map corroboration.
 
 Reuses tests/integration/_helpers.py to launch the second peer for section
 2, same helper the automated integration tests use.
@@ -27,12 +27,7 @@ from cop.memory.belief import BeliefMap  # noqa: E402
 from cop.memory.scent import ScentField  # noqa: E402
 from cop.orchestrator import Orchestrator  # noqa: E402
 from cop.reasoning.cop_brain import CopBrain  # noqa: E402
-from cop.reasoning.hint import (  # noqa: E402
-    decide_intent,
-    generate_hint,
-    generate_scent_report,
-    interpret_hint,
-)
+from cop.reasoning.hint import decide_intent, generate_hint, interpret_hint  # noqa: E402
 from cop.shared.config import GameConfig  # noqa: E402
 from cop.tools.hint_providers import TemplateHintProvider  # noqa: E402
 
@@ -66,11 +61,15 @@ def section_1_local_language(config: GameConfig, board: Board) -> None:
         print(f"    step {step}: {level:.4f}")
         scent.advance(far_pos, board)
 
-    print("\n  Revision 2 — the corroboration mechanic: a lying claim vs the always-truthful scent report")
+    print("\n  Revision 3 — the corroboration mechanic: a lying claim vs the peer's own real scent map")
     corroboration_true_pos = Position(1, 5)  # south-west
-    previous_pos = Position(5, 1)  # the opposite (north-east) corner — Revision 2's own counterexample:
-    # under Revision 1's relative-direction bug this would have been misread as "north-east" (the
-    # direction the trail leads away from); the absolute-quadrant fix correctly reads it as south-west.
+    previous_pos = Position(3, 4)  # nearby, an ordinary "just arrived here" trajectory —
+    # deliberately NOT interpret_hint's own north-east decode cell (5, 1): found via
+    # reproduction (a live run of this script) that reusing that exact cell here made
+    # the lie's boost and the scent map's own boost at that cell stack on top of each
+    # other, letting the lie win through fixture coincidence, not a mechanism bug — the
+    # old language-based scent_report never asserted a boost at that exact cell (only
+    # at a whole quadrant), so this coincidence was invisible before Revision 3.
     intent = decide_intent(lie_probability=1.0, rng=rng)
     lie_text = generate_hint(corroboration_true_pos, provider, config, intent)
     lie_focal_point = interpret_hint(lie_text, board)
@@ -78,24 +77,23 @@ def section_1_local_language(config: GameConfig, board: Board) -> None:
     trail = ScentField.from_config(config)
     trail.advance(previous_pos, board)
     trail.advance(corroboration_true_pos, board)
-    scent_text = generate_scent_report(trail.sample(corroboration_true_pos, board), corroboration_true_pos, config)
-    truth_focal_point = interpret_hint(scent_text, board)
 
     corroborated_belief = BeliefMap.uniform(board)
     corroborated_belief.update_from_hint(lie_focal_point, board)
-    corroborated_belief.update_from_scent_report(truth_focal_point, board)
+    corroborated_belief.update_from_scent_map(trail.full_field(), board)
     print(f"    true position: {corroboration_true_pos}  (recent trail from {previous_pos})")
     print(f"    lying claim:   {lie_text!r} -> focal point {lie_focal_point}")
-    print(f"    scent report:  {scent_text!r} -> focal point {truth_focal_point}")
+    print(f"    scent map:     {len(trail.full_field())} real cells -> argmax {corroborated_belief.most_likely_cell()}")
+    lie_p = corroborated_belief.probability(lie_focal_point)
+    truth_p = corroborated_belief.probability(corroboration_true_pos)
     print(
-        f"    net belief: lie's region={corroborated_belief.probability(lie_focal_point):.4f}, "
-        f"truth's region={corroborated_belief.probability(truth_focal_point):.4f} "
-        f"-> {'truth wins' if corroborated_belief.probability(truth_focal_point) > corroborated_belief.probability(lie_focal_point) else 'lie wins (unexpected)'}"
+        f"    net belief: lie's region={lie_p:.4f}, true position={truth_p:.4f} "
+        f"-> {'truth wins' if truth_p > lie_p else 'lie wins (unexpected)'}"
     )
 
 
 def section_2_one_real_round_trip(config: GameConfig) -> None:
-    print("\n2. One real round-trip — proving take_turn() sends language, not coordinates")
+    print("\n2. One real round-trip — proving take_turn() pulls a real scent map and sends language, not coordinates")
     port = free_port()
     log_path = Path("/tmp/watch_prd4_trace.jsonl")
     log_path.unlink(missing_ok=True)
@@ -112,14 +110,13 @@ def section_2_one_real_round_trip(config: GameConfig) -> None:
 
         result = asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
 
-        events = [
-            line
-            for line in client_log.read_text(encoding="utf-8").splitlines()
-            if '"sending_hint"' in line
-        ]
+        lines = client_log.read_text(encoding="utf-8").splitlines()
+        hint_events = [line for line in lines if '"sending_hint"' in line]
+        scent_events = [line for line in lines if '"scent_map_received"' in line]
         print(f"  after:  state={client.state_machine.state}, own_pos={client.game_state.own_pos}")
         print(f"  peer received and acked: {result}")
-        print(f"  actual text that crossed the wire: {events[0]}")
+        print(f"  actual text that crossed the wire: {hint_events[0]}")
+        print(f"  scent-map pull trace event: {scent_events[0]}")
     finally:
         peer.terminate()
         peer.wait(timeout=5)

@@ -31,9 +31,7 @@ def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly
         _wait_for_port(port)
 
         # First attempt: the connection genuinely works.
-        first_result = asyncio.run(
-            send_hint(f"http://127.0.0.1:{port}/mcp", "a test hint", "Scent strongest to the north west.")
-        )
+        first_result = asyncio.run(send_hint(f"http://127.0.0.1:{port}/mcp", "a test hint"))
         assert first_result["accepted"] is True
 
         # The "tunnel dropped mid-game" shape: kill the peer that just
@@ -48,11 +46,7 @@ def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly
 
         start = time.monotonic()
         try:
-            asyncio.run(
-                client.send_to_peer(
-                    f"http://127.0.0.1:{port}/mcp", "a test hint", "Scent strongest to the north west."
-                )
-            )
+            asyncio.run(client.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
             raised = False
         except Exception:
             raised = True

@@ -44,9 +44,7 @@ def test_receiving_a_hint_feeds_the_orchestrators_watchdog_heartbeat(config, tmp
 
     async def _call():
         async with Client(orchestrator.server) as client:
-            await client.call_tool(
-                "receive_hint", {"text": "a test hint", "scent_report": "Scent strongest to the north west."}
-            )
+            await client.call_tool("receive_hint", {"text": "a test hint"})
 
     asyncio.run(_call())
 

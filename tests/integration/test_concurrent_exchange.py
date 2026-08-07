@@ -34,8 +34,8 @@ def test_two_processes_send_and_receive_in_the_same_overlapping_exchange(tmp_pat
         # Each process's own trace logs the ack for *its own send*: A sent
         # "hint from a" to B, B sent "hint from b" to A — the echoed payload
         # matches what that process itself sent, not what it received.
-        assert events_a["result"] == {"accepted": True, "word_count": 3, "scent_word_count": 6}
-        assert events_b["result"] == {"accepted": True, "word_count": 3, "scent_word_count": 6}
+        assert events_a["result"] == {"accepted": True, "word_count": 3}
+        assert events_b["result"] == {"accepted": True, "word_count": 3}
 
         # Both sends landed within the same short window — genuine overlap,
         # not one process finishing long before the other even started.

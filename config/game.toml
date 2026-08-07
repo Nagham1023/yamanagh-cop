@@ -1,0 +1,35 @@
+# config/game.toml — private, per-team, hand-edited, never negotiated,
+# never crosses the network, never hashed (Appendix B, p.130-132).
+# Overlaid by config/shared/config_dev_g01.json on any key both files touch
+# (the shared file always wins — this file can never weaken a signed term).
+
+version = "1.10"
+
+[game]
+group_name = "dev-team"
+group_id = "dev-team"
+sub_game_number = 1
+members = ["dev-1"]
+repos = { cop = "https://github.com/dev-team/cop-repo", thief = "https://github.com/dev-team/thief-repo" }
+
+[network]
+my_port = 8801               # this peer's own MCP server port
+opponent_url = "http://127.0.0.1:8802/mcp"   # the only thing I know about the opponent
+turn_timeout_seconds = 180
+
+# [strategy] — optional: point at your own brain subclass (else the shipped
+# heuristic runs). Not built yet (PRD 4's "Explicitly out of scope" note).
+# thief_class = "dev_team.strategy:MyThiefBrain"
+# police_class = "dev_team.strategy:MyPoliceBrain"
+
+[trash_talk]
+provider = "template"        # template (0 tokens, default) | ollama | claude_api | claude_cli
+every_n_steps = 1
+
+[llm]
+model = "claude-sonnet-5"    # this peer's own choice; the opponent may differ
+step_deadline_seconds = 30   # hard cap on LLM thinking per step
+
+[email]
+recipient = "rmisegal+uoh26finalgame@gmail.com"
+mode = "draft"

@@ -102,3 +102,50 @@ def test_unvisited_cells_read_as_zero_not_missing(config):
 def test_window_size_other_than_5_is_rejected():
     with pytest.raises(ValueError, match="5x5"):
         ScentField(source_strength=0.9, decay_rate=0.10, window_size=3)
+
+
+def test_full_field_matches_internal_state_after_several_advances(config):
+    # todoFullFix.md §C1: full_field() is the new scent-map tool's data
+    # source — must expose everything sample()'s window would (and more:
+    # cells far from any one center), not a lossy subset.
+    field = _field(config)
+    board = Board(size=7)
+    field.advance(Position(1, 1), board)
+    field.advance(Position(5, 5), board)  # far from the first deposit
+
+    full = field.full_field()
+
+    # Every cell the near-(1,1) kernel touched...
+    for (d_col, d_row) in _KERNEL_VALUES:
+        pos = Position(1 + d_col, 1 + d_row)
+        if board.in_bounds(pos):
+            assert full[pos] == field.sample(pos, board)[pos]
+    # ...and the far deposit, both present in the same full-field snapshot —
+    # sample() windowed around (1,1) would never show (5,5) at all.
+    assert full[Position(5, 5)] == pytest.approx(0.90)
+
+
+def test_full_field_never_holds_a_cell_never_advanced_near(config):
+    field = _field(config)
+    board = Board(size=7)
+    field.advance(Position(0, 0), board)
+
+    full = field.full_field()
+
+    assert Position(6, 6) not in full  # far corner, never touched
+
+
+def test_full_field_is_a_defensive_copy_not_the_live_internal_dict(config):
+    field = _field(config)
+    board = Board(size=7)
+    field.advance(Position(3, 3), board)
+
+    full = field.full_field()
+    full[Position(3, 3)] = 999.0  # mutate the returned copy
+
+    assert field.sample(Position(3, 3), board)[Position(3, 3)] != 999.0
+
+
+def test_full_field_is_empty_before_any_advance(config):
+    field = _field(config)
+    assert field.full_field() == {}

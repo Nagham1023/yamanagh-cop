@@ -1,29 +1,25 @@
 """Config loading — the single place quantitative values leave the JSON file.
 
-Invariant I6 (CLAUDE.md/PLAN.md): every quantitative rule in the game is data,
-not code. Nothing outside this module may hard-code a board size, a barrier
-quota, or a score. `GameConfig` only exposes the fields PRD 1's domain layer
-actually reads; later PRDs extend it rather than having every module parse
-the raw JSON itself.
+Invariant I6: every quantitative rule in the game is data, not code. Nothing
+outside this module may hard-code a board size, a barrier quota, or a score.
 
-Two review findings (TODO1.md #3, #4) live here as loud failures instead of
-silent bad behaviour surfacing three modules downstream:
-  - `origin`/`index_base` are NEGOTIABLE (Table 13), but `Position`/`Board`
-    only ever implement top-left/index-0. A config negotiating anything else
-    would otherwise be silently misinterpreted, so it's rejected here until
-    coordinate transforms actually exist.
-  - Every numeric field is range/type-checked, not just presence-checked, so
-    a malformed config fails at load time.
+`origin`/`index_base` are NEGOTIABLE (Table 13), but `Position`/`Board` only
+implement top-left/index-0 — negotiating anything else is rejected here
+loudly rather than silently misinterpreted three modules downstream
+(TODO1.md #3). Every numeric field is range/type-checked, not just
+presence-checked (TODO1.md #4). `arena` may legitimately be `""` (Table 14's
+"generic landmarks" carve-out), so it's type-checked only, not non-empty.
 
-PRD 2 extends this dataclass with `response_timeout_seconds`/
-`watchdog_threshold_seconds` (Table 19) — same pattern as PRD 1: each layer
-adds the fields it needs rather than every module parsing the raw JSON.
-
-PRD 4 extends it again with `arena`/`hint_word_limit` (Table 14) and
-`scent_source_strength`/`scent_decay_rate`/`scent_field_size` (Table 16).
-`arena` may legitimately be `""` (Table 14 #1's own "generic landmarks"
-carve-out), so it's type-checked only, not non-empty-checked — a stricter
-validator here would reject a value the book explicitly allows.
+`todoFullFix.md` §A2: `from_dict()` reads Appendix B's actual nested schema
+(`board_and_agents`/`world`/`movement_and_barriers`/`scoring`/`pheromones`/
+`network_and_league`, plus top-level `schema_version`/`agreed_between`) —
+confirmed by reading Appendix B directly (p.126-132), not the flat, invented
+shape earlier PRDs used. This dataclass's own attribute names stay
+unchanged: Appendix B governs the negotiated *file* schema, not either
+team's internal naming, and every other module reads fields via
+`config.<attr>`, name-agnostic to the JSON's shape — `from_dict()` is the
+one translation point. `PARAMETERS.md`'s mapping table cross-references the
+two naming schemes.
 """
 
 from __future__ import annotations
@@ -92,18 +88,27 @@ class GameConfig:
     scent_source_strength: float
     scent_decay_rate: float
     scent_field_size: int
+    schema_version: str
+    agreed_between: tuple[str, ...]
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GameConfig:
-        """Pull PRD 1's fields out of the full config dict.
+        """Pull PRD 1-4's fields out of the full, Appendix-B-shaped config dict.
 
-        Two independent failure modes, deliberately not collapsed into one:
-        `KeyError` means the config is *incomplete* (Appendix F rule 1 —
-        every value must be defined); `ValueError` means a value is present
-        but nonsensical or unsupported (TODO1.md #3, #4).
+        `KeyError` means the config is *incomplete* — a missing nested group
+        (e.g. no `board_and_agents` at all) fails loudly rather than
+        defaulting quietly. `ValueError` means a value is present but
+        nonsensical or unsupported (TODO1.md #3, #4).
         """
-        origin = data["origin"]
-        index_base = data["index_base"]
+        board_and_agents = data["board_and_agents"]
+        world = data["world"]
+        movement_and_barriers = data["movement_and_barriers"]
+        scoring = data["scoring"]
+        pheromones = data["pheromones"]
+        network_and_league = data["network_and_league"]
+
+        origin = board_and_agents["axis_origin_corner"]
+        index_base = board_and_agents["axis_start_index"]
         if origin != _SUPPORTED_ORIGIN or index_base != _SUPPORTED_INDEX_BASE:
             raise ValueError(
                 f"origin={origin!r}/index_base={index_base!r} is a legal Table 13 "
@@ -113,27 +118,29 @@ class GameConfig:
             )
 
         return cls(
-            board_size=_positive_int(data, "board_size"),
-            agent_count=data["agent_count"],
+            board_size=_positive_int(board_and_agents, "grid_size"),
+            agent_count=_positive_int(board_and_agents, "num_agents"),
             origin=origin,
             index_base=index_base,
-            thief_start=tuple(data["thief_start"]),
-            cop_start=tuple(data["cop_start"]),
-            barrier_quota=_non_negative_int(data, "barrier_quota"),
-            step_ceiling=_positive_int(data, "step_ceiling"),
-            survival_threshold=_positive_int(data, "survival_threshold"),
-            score_capture_cop=_non_negative_int(data, "score_capture_cop"),
-            score_capture_thief=_non_negative_int(data, "score_capture_thief"),
-            score_survival_cop=_non_negative_int(data, "score_survival_cop"),
-            score_survival_thief=_non_negative_int(data, "score_survival_thief"),
-            score_draw=_non_negative_int(data, "score_draw"),
-            response_timeout_seconds=_positive_number(data, "response_timeout_seconds"),
-            watchdog_threshold_seconds=_positive_number(data, "watchdog_threshold_seconds"),
-            arena=_string(data, "arena"),
-            hint_word_limit=_positive_int(data, "hint_word_limit"),
-            scent_source_strength=_positive_number(data, "scent_source_strength"),
-            scent_decay_rate=_positive_number(data, "scent_decay_rate"),
-            scent_field_size=_positive_int(data, "scent_field_size"),
+            thief_start=tuple(board_and_agents["thief_start"]),
+            cop_start=tuple(board_and_agents["cop_start"]),
+            barrier_quota=_non_negative_int(movement_and_barriers, "max_barriers"),
+            step_ceiling=_positive_int(movement_and_barriers, "max_moves"),
+            survival_threshold=_positive_int(movement_and_barriers, "survival_threshold"),
+            score_capture_cop=_non_negative_int(scoring, "capture_cop"),
+            score_capture_thief=_non_negative_int(scoring, "capture_thief"),
+            score_survival_cop=_non_negative_int(scoring, "survival_cop"),
+            score_survival_thief=_non_negative_int(scoring, "survival_thief"),
+            score_draw=_non_negative_int(scoring, "tie_score"),
+            response_timeout_seconds=_positive_number(network_and_league, "response_timeout_sec"),
+            watchdog_threshold_seconds=_positive_number(network_and_league, "watchdog_timeout_sec"),
+            arena=_string(world, "map_area"),
+            hint_word_limit=_positive_int(world, "hint_max_words"),
+            scent_source_strength=_positive_number(pheromones, "pheromone_center_intensity"),
+            scent_decay_rate=_positive_number(pheromones, "pheromone_decay"),
+            scent_field_size=_positive_int(pheromones, "pheromone_grid_size"),
+            schema_version=_string(data, "schema_version"),
+            agreed_between=tuple(data["agreed_between"]),
         )
 
     @classmethod

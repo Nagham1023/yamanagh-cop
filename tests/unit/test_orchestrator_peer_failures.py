@@ -16,6 +16,7 @@ import threading
 import time
 
 import pytest
+from fastmcp import FastMCP
 
 from cop.orchestrator import Orchestrator
 from cop.planner.deadline import DeadlineExceededError
@@ -40,11 +41,7 @@ def test_send_to_peer_against_a_dead_port_reaches_technical_loss_without_hanging
 
     start = time.monotonic()
     with pytest.raises(Exception):  # noqa: B017 - deliberately broad: any connection failure counts
-        asyncio.run(
-            orchestrator.send_to_peer(
-                f"http://127.0.0.1:{port}/mcp", "a test hint", "Scent strongest to the north west."
-            )
-        )
+        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
     elapsed = time.monotonic() - start
 
     assert elapsed < 5.0, "must fail fast, not hang toward the full response_timeout_seconds"
@@ -83,11 +80,7 @@ def test_send_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error
     start = time.monotonic()
     try:
         with pytest.raises(DeadlineExceededError):
-            asyncio.run(
-            orchestrator.send_to_peer(
-                f"http://127.0.0.1:{port}/mcp", "a test hint", "Scent strongest to the north west."
-            )
-        )
+            asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
         elapsed = time.monotonic() - start
 
         assert elapsed < 2.0, "silence must be caught by the deadline, not hang indefinitely"
@@ -102,3 +95,40 @@ def test_send_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error
         listener.close()
         for conn in held_connections:
             conn.close()
+
+
+def test_request_scent_map_from_peer_against_a_malformed_response_degrades_gracefully_not_a_technical_loss(
+    config, tmp_path
+):
+    # rule-auditor finding (rule 9 — everything a peer sends is untrusted):
+    # a malformed share_scent_map response must not become OUR OWN
+    # technical loss on an otherwise-healthy connection — that would let a
+    # hostile or buggy peer force our forfeit just by returning garbage.
+    malformed = FastMCP("malformed_scent_peer")
+
+    @malformed.tool
+    def share_scent_map() -> dict:
+        return {"not_cells": "garbage"}  # missing the mandatory "cells" key
+
+    port = _free_port()
+    threading.Thread(
+        target=malformed.run,
+        kwargs={"transport": "http", "host": "127.0.0.1", "port": port, "show_banner": False},
+        daemon=True,
+    ).start()
+    time.sleep(0.5)
+
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+
+    result = asyncio.run(orchestrator.request_scent_map_from_peer(f"http://127.0.0.1:{port}/mcp"))
+
+    assert result == {}
+    assert orchestrator.state_machine.state == "WAITING_FOR_OPPONENT", (
+        "a malformed payload on an otherwise-working connection must not force a technical loss"
+    )
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "scent_map_malformed" in events
+    assert "technical_loss" not in events

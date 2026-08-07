@@ -124,7 +124,7 @@ Keep every module short — 150 lines is a hard cap (`software_submission_guidel
 `software_submission_guidelines-V3.pdf` mandates two things this tree needs to answer explicitly, not leave implicit:
 
 1. **SDK architecture (guide §4.1, §17.2, §20.9).** The guide requires all business logic reachable through a single `sdk.py` facade. `orchestrator.py` (rule 3, I2) *is* that facade for this project — it is already the single entry point every external consumer (GUI, CLI, MCP tool handlers) goes through. No separate `sdk.py` is needed; the submission checklist's "SDK architecture" line is satisfied by `orchestrator.py`, and the academic README should say so explicitly rather than leaving a grader to guess.
-2. **Gatekeeper numeric precedence.** The guide's illustrative `ApiGatekeeper` config (§5.2: `concurrent_max: 5`, `retry_after_seconds: 30`) does not match Table 19 (`parallel_requests: 2`, `retry_delay_seconds: 5`). Table 19 is a locked MINIMUM under Appendix F and wins for every value it defines — the guide's numbers are illustrating the pattern's *shape* (the `execute()` / `get_queue_status()` interface, queue-and-retry behaviour), not proposing different values for this project. `policy/gatekeeper.py` must expose that interface shape while reading its numeric limits from `config/game.json`'s `rate_limiter_gatekeeper` block.
+2. **Gatekeeper numeric precedence.** The guide's illustrative `ApiGatekeeper` config (§5.2: `concurrent_max: 5`, `retry_after_seconds: 30`) does not match Table 19 (`concurrent_requests: 2`, `retry_backoff_sec: 5` — Appendix B's actual nested field names, `todoFullFix.md` §A). Table 19 is a locked MINIMUM under Appendix F and wins for every value it defines — the guide's numbers are illustrating the pattern's *shape* (the `execute()` / `get_queue_status()` interface, queue-and-retry behaviour), not proposing different values for this project. `policy/gatekeeper.py` must expose that interface shape while reading its numeric limits from the negotiated config's `rate_limiter_gatekeeper` block (`config/shared/config_<game_id>_g<NN>.json`).
 
 ### Two honest deviations, both worth documenting
 
@@ -227,13 +227,15 @@ A layer is finished when its milestone is **observed end-to-end**, not when its 
 
 **Note:** the course did not teach reinforcement learning, and the book states plainly that a fully competitive agent can be built from heuristics alone. Treat RL as optional and only if time permits after PRD 7.
 
+**Rule 25's negotiated exception (`todoFullFix.md` §F, ch. 6.5 p.65-66), verbatim:** "as part of the negotiable rule system, both sides may agree in advance — in the negotiation stage before the game — to allow an LLM-based tactic to also influence the move decision, instead of exclusive reliance on the algorithm... not valid unless explicitly and mutually agreed, documented between the groups; one side may not unilaterally adopt such tactic... the local algorithm must still enforce move legality and reject any illegal move the model proposes." Documentation only — this repo does not currently exercise the exception: `CopBrain`/`_pick_move`/`_decide_move` stay algorithmic-only by default, exactly as `PLAN.md`'s own default and the book's own recommended posture both already are. Adopting the exception later would need the same explicit, written, mutual agreement `WIRE-CONTRACT.md` already requires for everything else negotiated between the two repos — not something either side introduces unilaterally by just wiring an LLM into its own `_decide_move`.
+
 ---
 
 ### PRD 4 — Language and scent
 
 The step change, and the most delicate layer in the project.
 
-**Build:** replace the coordinate messages with free natural language. Implement pheromone emission and decay. Build the Bayesian belief heatmap. Wire in the LLM for hint generation, including the `Intent` truth/lie flag.
+**Build:** replace the coordinate messages with free natural language for the tactical hint. Implement pheromone emission and decay. Build the Bayesian belief heatmap, fed from two channels — the natural-language hint (rule 26/27, may lie) and a separate Tool-call data channel exposing the opponent's own scent field as structured numeric data (ch. 6.4/6.5 — PRD 4 "Revision 3," `todoFullFix.md` §C; not natural language, and not the same channel as the hint). Wire in the LLM for hint generation, including the `Intent` truth/lie flag.
 
 **Rules owned:** 23, 26, 27, plus Tables 14 and 16.
 
@@ -267,11 +269,15 @@ The step change, and the most delicate layer in the project.
 
 **Also verify:** the SHA-256 of our locked config matches the opponent's, byte for byte, before the first move (`check_config.py --identical`); nonces come from `secrets`, never `random`; the commit payload is canonical JSON (`sort_keys=True, separators=(",", ":")`) so both peers hash identical bytes; the nonce is not transmitted until the final reveal; hash comparison uses `secrets.compare_digest`; a deliberately tampered log **fails** the audit — write that test, because a verifier that never rejects anything is worthless; Step-0 carries the exact commit hash being played.
 
+**Flagged explicitly, found during pre-PRD-6 hardening (not a surprise to discover at PRD 6 time):** "Rules owned" above lists 15/16/21/22, but as of PRD 5 there is still no wire channel at all for any of them — `tools/mcp_server.py`'s surface is exactly `receive_hint(text, scent_report)`. Barrier declaration (15/16) has been a documented, un-delivered gap since PRD 1's own `domain/barriers.py` docstring; capture claim/response (21/22) has no channel either. `PRD-6-prep-commit-payload-spec.md` and `tests/unit/test_prd6_missing_wire_channels_guard.py` (`RULE-15-16-BARRIER-DECLARATION-AT-PRD-6`, `RULE-21-22-CAPTURE-CLAIM-AT-PRD-6`) name this precisely — PRD 6's Build line needs an explicit "add the barrier-declaration and capture-claim/response tools" item, not just "the enforcement half," since the delivery mechanism itself doesn't exist yet either.
+
+**A second, more urgent flag from the same hardening pass:** none of the *existing* wire surface has ever been negotiated with the thief repo either — `WIRE-CONTRACT.md` (repo root) is where that negotiation is supposed to happen, and as of this writing it hasn't. Ch. 3.2's "shared contract" discipline (config/game.json, "fixed before the exchange begins... mutually agreed by both sides") has only ever been applied to game *rules* in this repo, never to the MCP tool schema itself — and the book's own `receive_move` example (ch. 2.3) is explicitly illustrative, not a fixed standard, so nothing forces two independently-built teams to converge on the same shape by accident. Every one of PRD 6's new tools (barrier declaration, capture claim/response, commit/reveal) inherits this same gap the moment it's built. Send `WIRE-CONTRACT.md` to the teammate and get it confirmed *before* extending it with PRD 6's new tools, not after.
+
 ---
 
 ### PRD 7 — Reporting and visualization shell
 
-**Build:** the live GUI, the Replay/verifier app, Gmail over OAuth 2.0 with send-only scope, the token-bucket rate limiter, the DOS detector, the JSON report.
+**Build:** the live GUI, the Replay/verifier app, Gmail over OAuth 2.0 with send-only scope, the token-bucket rate limiter, the DOS detector, the JSON report. The pre-game declaration and the final result report use Table 20's own naming exactly: `declaration_<game_id>.json` and `result_<game_id>.json` (`todoFullFix.md` §G, `PARAMETERS.md`'s Table 20) — don't invent a different name for either when this layer starts.
 
 **Rules owned:** 8, 9, 20, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 41, 42, 43, 44, 45, 49, 50, 51, 52, 54, 55, 39, 40.
 
@@ -367,6 +373,8 @@ Two repos (rule 49), cross-linked in both READMEs. Each contains at minimum READ
 ├── CLAUDE.md                        ← auto-loaded context for Claude Code
 ├── PLAN.md                          ← this file                        (rule 50)
 ├── TODO.md                          ← running state                    (rule 50)
+├── FULLFIX.md / todoFullFix.md      ← cross-cutting correction pass, five foundational findings — rationale + 150+-item checklist
+├── WIRE-CONTRACT.md                 ← MCP tool schema, negotiated with the opponent team — send this, not just config/shared/config_<game_id>_g<NN>.json
 ├── .gitignore                       ← credentials.json, token.json, .env (rules 39,40)
 │
 ├── PRD/                                                                (rule 50)
@@ -386,7 +394,7 @@ Two repos (rule 49), cross-linked in both READMEs. Each contains at minimum READ
 │
 ├── config/                                                             (rule 50)
 │   ├── shared/   config_<game_id>_g<NN>.json   ← negotiated, locked, committed
-│   └── private/  peer.json                     ← strategy + trash_talk, never negotiated
+│   └── game.toml                                ← private, TOML, six sections incl. [network].opponent_url — hand-edited, never negotiated, never crosses the network (Appendix B, todoFullFix.md §B)
 │
 ├── src/<role>/
 │   ├── orchestrator.py              single entry point                 (rule 3)
@@ -402,10 +410,12 @@ Two repos (rule 49), cross-linked in both READMEs. Each contains at minimum READ
 │
 ├── tests/                           mirrors src/, one rejection test per layer
 ├── logs/    log_<game_id>_g<NN>.json          ← needed for replay and audit (rule 20)
+├── declaration_<game_id>.json       ← pre-game declaration: teams, members, repos, hardware, model, tokens, times (Table 20 — PRD 7 territory, not built yet)
+├── result_<game_id>.json            ← final result report the lecturer weights the league score by (Table 20 — PRD 7 territory, not built yet)
 └── docs/    belief-map and "Verified OK" screenshots                    (rule 42)
 ```
 
-Config files are named per game so any match is reproducible, and every game's config is committed (Appendix F mandatory rules 3 and 4).
+Config files are named per game so any match is reproducible, and every game's config is committed (Appendix F mandatory rules 3 and 4). Table 20's full four-file naming convention (`todoFullFix.md` §G): `declaration_<game_id>.json`, `config_<game_id>_g<NN>.json`, `log_<game_id>_g<NN>.json`, `result_<game_id>.json` — the config/log names already match what this repo uses; `declaration_`/`result_` don't exist yet (PRD 7's job), recorded here now so the correct name is on record before that layer starts, not reinvented then.
 
 `src/<role>/` means `src/cop/` in one repo and `src/thief/` in the other — **one role per repo**, so there is no directory from which both could ever be imported together (rules 1, 2).
 

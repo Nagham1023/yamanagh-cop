@@ -34,9 +34,9 @@ def test_send_to_peer_tolerates_realistic_latency_within_the_deadline(config, tm
     slow = FastMCP("realistic_latency_peer")
 
     @slow.tool
-    def receive_hint(text: str, scent_report: str) -> dict:
+    def receive_hint(text: str) -> dict:
         time.sleep(2.0)
-        return {"accepted": True, "word_count": len(text.split()), "scent_word_count": len(scent_report.split())}
+        return {"accepted": True, "word_count": len(text.split())}
 
     port = _free_port()
     threading.Thread(
@@ -49,11 +49,7 @@ def test_send_to_peer_tolerates_realistic_latency_within_the_deadline(config, tm
     orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     orchestrator.state_machine.transition("COMPUTING_MOVE")
 
-    result = asyncio.run(
-        orchestrator.send_to_peer(
-            f"http://127.0.0.1:{port}/mcp", "a test hint", "Scent strongest to the north west."
-        )
-    )
+    result = asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
 
     assert result["accepted"] is True
     assert orchestrator.state_machine.state == "WAITING_FOR_OPPONENT"

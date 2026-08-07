@@ -5,6 +5,14 @@ here: this module can call an LLM (via `HintProvider`), but the actual
 belief update and move decision stay pure Python, unchanged from PRD 3.
 `interpret_hint` is simple, deterministic keyword matching — no LLM needed,
 which is what keeps PRD 4's milestone testable locally (Design Question 4).
+
+PRD 4 "Revision 3" (`todoFullFix.md` §C5): the scent-report language
+mechanism that used to live here (`dominant_scent_direction`,
+`generate_scent_report`, `is_no_scent_report`) is gone — the opponent's
+scent field now crosses the wire as structured numeric data via a dedicated
+MCP tool (`tools/mcp_server.py`'s `share_scent_map`), not a compass-
+direction sentence squeezed through this module's text pipeline. This
+module now only ever handles the natural-language tactical hint.
 """
 
 from __future__ import annotations
@@ -55,79 +63,6 @@ def choose_provider(
     if step_number % every_n_steps == 0:
         return configured_provider
     return template_provider
-
-
-def dominant_scent_direction(
-    sampled: dict[Position, float], own_pos: Position, board_size: int
-) -> tuple[str, str] | None:
-    """The (vertical, horizontal) **absolute board quadrant** where the
-    sender's own scent mass — fresh deposit plus residual history,
-    `own_pos` included — is concentrated (Revision 2). Same north/south x
-    west/east convention `tools/hint_providers.py::_quadrant` uses (row/col
-    compared against `board_size / 2`), which is exactly why this needed
-    fixing: `interpret_hint` decodes direction words into that same
-    absolute convention regardless of who sent them, and Revision 1's
-    original version here summed neighbours *relative to* `own_pos`
-    (excluding it) — a lagging trail-direction indicator, not an absolute
-    region. "Scent strongest to my north-east" and "I am in the board's
-    north-east" are different claims; ch. 4.4's own worked example reasons
-    entirely over absolute cell coordinates ("south-east cell (1,4):
-    τ=0.81... cells in the board's north: τ=0.00"), confirming the
-    absolute reading is the book-correct one, not an invented fix.
-
-    The fresh kernel deposit (0.9 at centre) usually dominates, so this
-    reduces in practice to "the sender's own true quadrant, reported
-    honestly" — but near a quadrant boundary, residual history can still
-    outvote the fresh deposit, a real edge case kept rather than
-    collapsed into a copy of `generate_hint`'s truthful branch.
-
-    Returns `None` when `sampled` is genuinely all-zero — no scent
-    anywhere, not even at `own_pos` — matching Revision 1's sentinel.
-    """
-    half = board_size / 2
-    north = south = west = east = 0.0
-    for cell, value in sampled.items():
-        if cell.row < half:
-            north += value
-        else:
-            south += value
-        if cell.col < half:
-            west += value
-        else:
-            east += value
-    if north == south == west == east == 0.0:
-        return None
-    vertical = "north" if north >= south else "south"
-    horizontal = "west" if west >= east else "east"
-    return vertical, horizontal
-
-
-_NO_SCENT_REPORT = "No scent detected."
-
-
-def is_no_scent_report(text: str) -> bool:
-    """True when `text` is `generate_scent_report`'s own no-signal sentinel.
-    The receiver must skip `BeliefMap.update_from_scent_report` entirely in
-    that case, not fall back to `interpret_hint`'s own north-west default —
-    that would manufacture a weak, wrong signal from genuine absence of
-    information (see `dominant_scent_direction`)."""
-    return text == _NO_SCENT_REPORT
-
-
-def generate_scent_report(sampled: dict[Position, float], own_pos: Position, config: GameConfig) -> str:
-    """A short, deterministic, always-truthful natural-language report of
-    the sender's own scent trail (Revision 1) — never routed through
-    `HintProvider`/`choose_provider`/any LLM, regardless of `[trash_talk]
-    provider`. A declared-truthful channel routed through a possibly-
-    nondeterministic model would undermine the one property
-    ("uncorruptible") the whole corroboration mechanic depends on. Same
-    hard backstop-truncation discipline as `generate_hint`."""
-    direction = dominant_scent_direction(sampled, own_pos, config.board_size)
-    text = _NO_SCENT_REPORT if direction is None else f"Scent strongest to the {direction[0]} {direction[1]}."
-    words = text.split()
-    if len(words) > config.hint_word_limit:
-        text = " ".join(words[: config.hint_word_limit])
-    return text
 
 
 def interpret_hint(text: str, board: Board) -> Position:

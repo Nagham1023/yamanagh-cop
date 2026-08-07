@@ -3,21 +3,15 @@ which grew past the 150-line house cap once this landed. A mixin, not a
 standalone class: reaches into `self.state_machine`, `self.game_state`,
 `self.trace`, `self.brain`, `self.board`, `self.belief_map`,
 `self.scent_field`, `self.hint_provider`, `self.template_provider`,
-`self.private_config`, `self._rng`, and `self.send_to_peer`, all of which
-`Orchestrator.__init__`/`send_to_peer` set up — this file only exists to
-keep `orchestrator.py` under the cap.
+`self.private_config`, `self._rng`, `self.send_to_peer`, and
+`self.request_scent_map_from_peer`, all of which `Orchestrator.__init__`/
+`orchestrator_peer.py` set up — this file only exists to keep
+`orchestrator.py` under the cap.
 """
 
 from __future__ import annotations
 
-from .reasoning.hint import (
-    choose_provider,
-    decide_intent,
-    generate_hint,
-    generate_scent_report,
-    interpret_hint,
-    is_no_scent_report,
-)
+from .reasoning.hint import choose_provider, decide_intent, generate_hint, interpret_hint
 
 # Not an Appendix F parameter — Table 21 defines the provider/cadence, not a
 # lying frequency. A fixed, conservative default (never lie) until a real
@@ -28,10 +22,30 @@ _DEFAULT_LIE_PROBABILITY = 0.0
 
 
 class BrainTurnMixin:
-    async def take_turn(self, peer_url: str) -> dict:
-        """Client role, brain-driven: ask `self.brain` to decide, apply the
-        result, update scent/belief from the cop's own move, generate and
-        send a hint (rule 26/27 — no coordinates cross the wire).
+    async def take_turn(self, peer_url: str | None = None) -> dict:
+        """Client role, brain-driven: gather the peer's own scent map, ask
+        `self.brain` to decide, apply the result, update scent/belief from
+        the cop's own move, generate and send a hint (rule 26/27 — no
+        coordinates cross the wire).
+
+        `peer_url` defaults to `self.private_config.opponent_url`
+        (`[network]` in `config/game.toml`, todoFullFix.md §B3) — the
+        book's own home for "the only thing I know about the opponent".
+        Still overridable explicitly, which is all tests need: passing a
+        `peer_url` never touches the private config file at all.
+
+        PRD 4 "Revision 3" (`todoFullFix.md` §C4): the peer's scent map is
+        pulled via a dedicated Tool call *before* deciding the move — ch.
+        6.5's own "gather data via Tool, then build [on it]" ordering — and
+        folded into belief immediately, so this turn's own move decision
+        already reflects it, not just the next one. RULE-19-SCENT-AUDIT-
+        AT-PRD-6: the peer's returned field is trusted on honest-by-
+        construction grounds only — no cryptographic check yet that it
+        matches their actual `ScentField` state. PRD 6's Commit-Reveal/
+        mutual-log-audit machinery is where a tampered scent map becomes a
+        catchable rule 19 hash mismatch. See
+        `tests/unit/test_prd6_scent_audit_guard.py` — delete it, in the
+        same commit, once PRD 6 makes it pass for real.
 
         One turn only — no internal loop, no `determine_outcome` call here;
         that's `reasoning/subgame.py`'s job.
@@ -43,6 +57,12 @@ class BrainTurnMixin:
         nothing logged — the same shape of gap PRD 2's `send_to_peer`
         already guards against for network failures.
         """
+        if peer_url is None:
+            peer_url = self.private_config.opponent_url
+
+        peer_scent_map = await self.request_scent_map_from_peer(peer_url)
+        self.belief_map.update_from_scent_map(peer_scent_map, self.board)
+
         self.state_machine.transition("COMPUTING_MOVE")
         try:
             action = self.brain._decide_move(
@@ -62,6 +82,7 @@ class BrainTurnMixin:
             self.state_machine.transition("TECHNICAL_LOSS")
             raise
         self.trace.log("computed_move", action=repr(action))
+        self.belief_map.zero_out_barriers(self.game_state.barriers)
 
         self.scent_field.advance(self.game_state.own_pos, self.board)
         self.belief_map.update_from_scent(self.scent_field, self.game_state.own_pos, self.board)
@@ -75,46 +96,32 @@ class BrainTurnMixin:
             self.private_config.every_n_steps,
         )
         text = generate_hint(self.game_state.own_pos, provider, self.config, intent)
-        sampled = self.scent_field.sample(self.game_state.own_pos, self.board)
-        scent_report = generate_scent_report(sampled, self.game_state.own_pos, self.config)
         self.trace.log("hint_generated", intent=intent, steps_taken=self.game_state.steps_taken)
 
-        return await self.send_to_peer(peer_url, text, scent_report)
+        return await self.send_to_peer(peer_url, text)
 
-    def _on_hint_received(self, text: str, scent_report: str) -> None:
+    def _on_hint_received(self, text: str) -> None:
         """Server-role counterpart to `take_turn`'s outgoing hint: interpret
-        the peer's tactical hint (possibly a lie) and always-truthful scent
-        report (Revision 1), folding both into the belief map at their own
-        trust weight. Injected into `build_server` as `on_hint` rather than
+        the peer's tactical hint (possibly a lie), folding it into the
+        belief map. Injected into `build_server` as `on_hint` rather than
         importing `reasoning.hint`/`memory.belief` there — `tools/` stays a
         thin transport layer (rule 3/I2), the Orchestrator owns wiring
         belief updates.
 
-        Each field is gated on `hint_word_limit` independently before it
-        touches belief state (rule-auditor finding, I9 — everything a peer
-        sends is untrusted): `receive_hint`'s ack already flags an over-limit
-        field to the sender, but the ack alone doesn't stop the *content*
-        from reaching this callback. A malformed one field must not also
-        block the other, still-valid field from updating belief. The scent
-        report's own no-signal sentinel (`is_no_scent_report`) is a second,
-        independent reason to skip its update — "no information" must not
-        silently become a weak, wrong directional claim on the receiving
-        side either.
+        Gated on `hint_word_limit` before it touches belief state
+        (rule-auditor finding, I9 — everything a peer sends is untrusted):
+        `receive_hint`'s ack already flags an over-limit hint to the
+        sender, but the ack alone doesn't stop the *content* from reaching
+        this callback.
 
-        RULE-19-SCENT-AUDIT-AT-PRD-6: `scent_report` is trusted here on
-        honest-by-construction grounds only (the sender's own code never
-        applies the Intent flag to it) — there is no cryptographic check
-        yet that the declared reading matches the sender's actual revealed
-        trail. PRD 6's Commit-Reveal/mutual-log-audit machinery is where a
-        tampered scent report becomes a real, catchable rule 19 hash
-        mismatch, not just an honesty convention. See the guard test in
-        `tests/unit/test_prd6_scent_audit_guard.py` — delete it, in the
-        same commit, once PRD 6 makes it pass for real.
+        PRD 4 "Revision 3" (`todoFullFix.md` §C4): the scent-map
+        corroboration data this callback used to also handle here moved to
+        a separate, pull-based Tool call — `take_turn`'s own
+        `request_scent_map_from_peer`/`update_from_scent_map`, not this
+        push-based hint callback. This callback now only ever sees the
+        tactical hint.
         """
         if len(text.split()) <= self.config.hint_word_limit:
             focal_point = interpret_hint(text, self.board)
             self.belief_map.update_from_hint(focal_point, self.board)
-        if len(scent_report.split()) <= self.config.hint_word_limit and not is_no_scent_report(scent_report):
-            scent_focal_point = interpret_hint(scent_report, self.board)
-            self.belief_map.update_from_scent_report(scent_focal_point, self.board)
-        self.trace.log("hint_received", text=text, scent_report=scent_report)
+        self.trace.log("hint_received", text=text)

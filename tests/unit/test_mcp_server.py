@@ -1,5 +1,7 @@
-"""FastMCP server tool surface: decodes valid hint+scent-report payloads,
-flags either field if it's over-limit (Revision 1's two-field shape).
+"""FastMCP server tool surface: `receive_hint` decodes a valid hint payload
+and flags it if over-limit; `share_scent_map` returns this peer's own
+scent field as structured numeric data (PRD 4 "Revision 3",
+`todoFullFix.md` §C3/§C8).
 
 Uses FastMCP's in-process `Client(mcp)` transport — a real client/server
 round-trip through the actual library, no mocking, just without opening a
@@ -22,13 +24,14 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 import cop.tools.mcp_server as mcp_server_module
+from cop.domain.board import Position
 from cop.tools.mcp_server import _caller_ip, build_server
 
 
-def _call(mcp, arguments: dict):
+def _call(mcp, tool: str, arguments: dict):
     async def run():
         async with Client(mcp) as client:
-            result = await client.call_tool("receive_hint", arguments)
+            result = await client.call_tool(tool, arguments)
             return result.data
 
     return asyncio.run(run())
@@ -36,44 +39,36 @@ def _call(mcp, arguments: dict):
 
 def test_receive_hint_decodes_a_valid_payload(config):
     mcp = build_server(config)
-    data = _call(mcp, {"text": "quiet by the river", "scent_report": "Scent strongest to the north west."})
-    assert data == {"accepted": True, "word_count": 4, "scent_word_count": 6}
+    data = _call(mcp, "receive_hint", {"text": "quiet by the river"})
+    assert data == {"accepted": True, "word_count": 4}
 
 
 def test_receive_hint_flags_a_hint_over_the_word_limit(config):
     mcp = build_server(config)
     over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))
-    data = _call(mcp, {"text": over_limit_text, "scent_report": "Scent strongest to the north west."})
+    data = _call(mcp, "receive_hint", {"text": over_limit_text})
     assert data["accepted"] is False
     assert data["word_count"] == config.hint_word_limit + 1
-
-
-def test_receive_hint_flags_a_scent_report_over_the_word_limit(config):
-    mcp = build_server(config)
-    over_limit_scent = " ".join(["word"] * (config.hint_word_limit + 1))
-    data = _call(mcp, {"text": "quiet by the river", "scent_report": over_limit_scent})
-    assert data["accepted"] is False
-    assert data["scent_word_count"] == config.hint_word_limit + 1
 
 
 def test_receive_hint_rejects_a_non_string_payload(config):
     mcp = build_server(config)
     with pytest.raises(ToolError):
-        _call(mcp, {"text": 12345, "scent_report": "Scent strongest to the north west."})
+        _call(mcp, "receive_hint", {"text": 12345})
 
 
 def test_receive_hint_rejects_a_missing_argument(config):
     mcp = build_server(config)
     with pytest.raises(ToolError):
-        _call(mcp, {"text": "quiet by the river"})
+        _call(mcp, "receive_hint", {})
 
 
-def test_on_receive_hook_fires_on_every_successful_call(config):
+def test_on_receive_hook_fires_on_every_successful_receive_hint_call(config):
     calls = []
     mcp = build_server(config, on_receive=lambda ip: calls.append(ip))
 
-    _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the north west."})
-    _call(mcp, {"text": "south of the bridge", "scent_report": "Scent strongest to the south east."})
+    _call(mcp, "receive_hint", {"text": "north of the market"})
+    _call(mcp, "receive_hint", {"text": "south of the bridge"})
 
     assert len(calls) == 2
 
@@ -84,7 +79,7 @@ def test_on_receive_hook_gets_none_over_the_in_process_test_transport(config):
     calls = []
     mcp = build_server(config, on_receive=lambda ip: calls.append(ip))
 
-    _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the north west."})
+    _call(mcp, "receive_hint", {"text": "north of the market"})
 
     assert calls == [None]
 
@@ -93,17 +88,17 @@ def test_on_receive_hook_is_optional(config):
     # build_server's default (no on_receive) must not raise — proves the
     # hook is genuinely optional, not just untested in the happy path.
     mcp = build_server(config)
-    data = _call(mcp, {"text": "near the old market", "scent_report": "Scent strongest to the north west."})
-    assert data == {"accepted": True, "word_count": 4, "scent_word_count": 6}
+    data = _call(mcp, "receive_hint", {"text": "near the old market"})
+    assert data == {"accepted": True, "word_count": 4}
 
 
-def test_on_hint_hook_receives_both_fields(config):
+def test_on_hint_hook_receives_the_text(config):
     received = []
-    mcp = build_server(config, on_hint=lambda text, scent_report: received.append((text, scent_report)))
+    mcp = build_server(config, on_hint=lambda text: received.append(text))
 
-    _call(mcp, {"text": "north of the market", "scent_report": "Scent strongest to the south east."})
+    _call(mcp, "receive_hint", {"text": "north of the market"})
 
-    assert received == [("north of the market", "Scent strongest to the south east.")]
+    assert received == ["north of the market"]
 
 
 def test_caller_ip_prefers_the_x_forwarded_for_header_over_request_client_host(monkeypatch):
@@ -139,3 +134,31 @@ def test_the_numeric_position_tool_is_gone(config):
     tool_names = asyncio.run(_tool_names())
     assert "receive_position" not in tool_names
     assert "receive_hint" in tool_names
+    assert "share_scent_map" in tool_names
+
+
+def test_share_scent_map_returns_the_wire_serialized_field(config):
+    field_data = {Position(1, 1): 0.9, Position(2, 2): 0.42}
+    mcp = build_server(config, get_scent_field=lambda: field_data)
+
+    data = _call(mcp, "share_scent_map", {})
+
+    assert set(data.keys()) == {"cells"}
+    assert sorted(tuple(entry) for entry in data["cells"]) == [(1, 1, 0.9), (2, 2, 0.42)]
+
+
+def test_share_scent_map_defaults_to_empty_when_no_hook_is_configured(config):
+    mcp = build_server(config)
+
+    data = _call(mcp, "share_scent_map", {})
+
+    assert data == {"cells": []}
+
+
+def test_share_scent_map_also_fires_on_receive(config):
+    calls = []
+    mcp = build_server(config, on_receive=lambda ip: calls.append(ip), get_scent_field=lambda: {})
+
+    _call(mcp, "share_scent_map", {})
+
+    assert len(calls) == 1

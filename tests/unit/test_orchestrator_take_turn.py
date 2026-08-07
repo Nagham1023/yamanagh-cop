@@ -1,6 +1,11 @@
 """Orchestrator.take_turn (PRD 3): proves the brain is genuinely wired, not that
 the algorithm works — algorithm correctness is reasoning/subgame.py's job
 (PRD-3-blind-strategy.md, Design Question 3).
+
+PRD 4 "Revision 3" (todoFullFix.md §C8): take_turn() now pulls the peer's
+scent map via a Tool call *before* computing the move — every test that
+calls take_turn() against a live peer now genuinely exercises that pull
+too, not just the hint exchange.
 """
 
 from __future__ import annotations
@@ -14,9 +19,10 @@ import time
 from cop.domain.board import Position
 from cop.memory.belief import BeliefMap
 from cop.orchestrator import Orchestrator
-from cop.reasoning.brain_base import BrainBase, Move
+from cop.reasoning.brain_base import BrainBase, Move, PlaceBarrier
 from cop.reasoning.cop_brain import CopBrain
 from cop.reasoning.hint import interpret_hint
+from cop.shared.private_config import PrivateConfig
 
 
 class _AlwaysProposesAnOffBoardMove(BrainBase):
@@ -29,6 +35,19 @@ class _AlwaysProposesAnOffBoardMove(BrainBase):
 
     def _decide_move(self, own_pos, target_pos, board, barriers) -> Move:
         return Move(direction="N")
+
+
+class _AlwaysPlacesABarrierOnItsOwnCell(BrainBase):
+    """todoFullFix.md §E1/§E2: a brain that always forgoes movement to
+    place a barrier on its own current cell — proves take_turn() re-syncs
+    BeliefMap's barrier-zero-belief after every placement, not just at
+    construction."""
+
+    def _pick_move(self, own_pos, target_pos, board, barriers) -> str:
+        return "STAY"
+
+    def _decide_move(self, own_pos, target_pos, board, barriers) -> PlaceBarrier:
+        return PlaceBarrier(target=own_pos)
 
 
 def _free_port() -> int:
@@ -51,12 +70,6 @@ def _sent_hint_text(trace_path) -> str:
     events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
     (sending_event,) = [e for e in events if e["event"] == "sending_hint"]
     return sending_event["text"]
-
-
-def _sent_scent_report(trace_path) -> str:
-    events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
-    (sending_event,) = [e for e in events if e["event"] == "sending_hint"]
-    return sending_event["scent_report"]
 
 
 def test_take_turn_moves_according_to_the_brains_own_decision_not_a_fixed_position(config, tmp_path):
@@ -121,13 +134,17 @@ def test_take_turn_with_a_brain_that_proposes_an_illegal_action_reaches_technica
     config, tmp_path
 ):
     # cop_start is (0, 0) — "N" is off-board, so GameState.apply raises.
-    # No live peer needed: this must fail before send_to_peer is ever called.
+    # A real live peer is needed here now: take_turn() pulls the peer's
+    # scent map *before* computing the move (todoFullFix.md §C4's
+    # ordering) — without one, the failure would be a network error, not
+    # this brain bug.
+    _, port = _start_server(config, tmp_path, "server")
     client = Orchestrator(
         config, _AlwaysProposesAnOffBoardMove(), log_path=str(tmp_path / "trace.jsonl")
     )
 
     try:
-        asyncio.run(client.take_turn("http://127.0.0.1:1/mcp"))
+        asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
         raised = False
     except ValueError:
         raised = True
@@ -141,6 +158,26 @@ def test_take_turn_with_a_brain_that_proposes_an_illegal_action_reaches_technica
     assert "technical_loss" in events
 
 
+def test_take_turn_against_an_unreachable_peer_reaches_technical_loss_before_computing_a_move(
+    config, tmp_path
+):
+    # The new failure mode PRD 4 "Revision 3" introduces: the scent-map
+    # pull happens first, so an unreachable peer must fail there, before
+    # the brain (a perfectly legal one here) ever gets a chance to run.
+    dead_url = f"http://127.0.0.1:{_free_port()}/mcp"  # nothing listens here
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+
+    try:
+        asyncio.run(client.take_turn(dead_url))
+        raised = False
+    except Exception:  # noqa: BLE001 - any connection failure counts
+        raised = True
+
+    assert raised
+    assert client.state_machine.state == "TECHNICAL_LOSS"
+    assert client.game_state.own_pos == Position(*config.cop_start), "must not have moved at all"
+
+
 def test_take_turn_updates_belief_map_and_scent_field_not_just_game_state(config, tmp_path):
     _, port = _start_server(config, tmp_path, "server")
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
@@ -151,6 +188,25 @@ def test_take_turn_updates_belief_map_and_scent_field_not_just_game_state(config
 
     assert client.belief_map.probability(client.game_state.own_pos) != belief_before
     assert client.scent_field.sample(client.game_state.own_pos, client.board) != scent_before
+
+
+def test_take_turn_zeroes_belief_at_a_newly_placed_barrier(config, tmp_path):
+    # todoFullFix.md §E1: "whenever the barrier set changes," not just at
+    # construction — placing a barrier this turn must immediately zero the
+    # belief map's own probability there, live, not only after a fresh
+    # BeliefMap gets built.
+    _, port = _start_server(config, tmp_path, "server")
+    client = Orchestrator(
+        config, _AlwaysPlacesABarrierOnItsOwnCell(), log_path=str(tmp_path / "client_trace.jsonl")
+    )
+    own_pos = client.game_state.own_pos
+    assert client.belief_map.probability(own_pos) > 0.0
+
+    asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+
+    assert own_pos in client.game_state.barriers.placed
+    assert client.belief_map.probability(own_pos) == 0.0
+    assert client.belief_map.most_likely_cell() != own_pos
 
 
 def test_take_turn_logs_the_intent_flag(config, tmp_path):
@@ -167,87 +223,80 @@ def test_take_turn_logs_the_intent_flag(config, tmp_path):
     assert hint_event["intent"] in (True, False)
 
 
-def test_take_turn_sends_the_generated_scent_report_alongside_the_claim(config, tmp_path):
-    # Revision 1: the scent report is a real, second field on the wire, not
-    # just an ack detail — proves take_turn() actually generates and sends
-    # it, not a fixed/placeholder string, same "wiring is real" discipline
-    # the tactical hint already gets.
-    _, port = _start_server(config, tmp_path, "server")
+def test_take_turn_pulls_and_applies_the_peers_real_scent_map(config, tmp_path):
+    # PRD 4 "Revision 3": take_turn() must genuinely call the peer's
+    # share_scent_map tool and fold real numeric data into belief — not a
+    # fixed placeholder or a skipped step. The server's own ScentField is
+    # primed with a real trail so there's something nonzero to pull and
+    # observe the effect of.
+    server, port = _start_server(config, tmp_path, "server")
+    server.scent_field.advance(Position(6, 6), server.board)
+
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    belief_before = client.belief_map.probability(Position(6, 6))
 
     asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
 
-    scent_report_text = _sent_scent_report(tmp_path / "client_trace.jsonl")
-    assert scent_report_text.startswith("Scent strongest to the")
+    assert client.belief_map.probability(Position(6, 6)) > belief_before
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "client_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "requesting_scent_map" in events
+    assert "scent_map_received" in events
 
 
-def test_on_hint_received_applies_both_the_claim_and_the_scent_report(config, tmp_path):
-    # The receiving side of Revision 1's corroboration mechanic: both
-    # channels measurably update belief, at their own trust weight — not
-    # just the tactical claim as PRD 4's original build did.
+def test_on_hint_received_applies_the_tactical_claim(config, tmp_path):
+    # PRD 4 "Revision 3": _on_hint_received now only ever sees the tactical
+    # hint — scent-map corroboration moved to take_turn's own pull.
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     claim_focal = interpret_hint("Near the south east side.", client.board)
-    scent_focal = interpret_hint("Scent strongest to the north west.", client.board)
     claim_before = client.belief_map.probability(claim_focal)
-    scent_before = client.belief_map.probability(scent_focal)
 
-    client._on_hint_received("Near the south east side.", "Scent strongest to the north west.")
+    client._on_hint_received("Near the south east side.")
 
     assert client.belief_map.probability(claim_focal) > claim_before
-    assert client.belief_map.probability(scent_focal) > scent_before
-    # The scent report's guaranteed-truthful boost outweighs the claim's.
-    assert client.belief_map.probability(scent_focal) > client.belief_map.probability(claim_focal)
 
 
 def test_on_hint_received_does_not_apply_an_over_limit_claim(config, tmp_path):
     # rule-auditor finding (I9): receive_hint's ack flags an over-limit
-    # field to the sender, but the ack alone doesn't stop the *content* from
-    # reaching this callback — each field must be gated independently
-    # before it touches belief state. Compared against a control BeliefMap
-    # that only ever received the (still-valid) scent-report update: if the
-    # over-limit claim contributed nothing, the two end up byte-identical —
-    # a stronger proof than checking one cell's probability, which the
-    # other field's renormalization would perturb regardless.
+    # hint to the sender, but the ack alone doesn't stop the *content* from
+    # reaching this callback — it must be gated before touching belief
+    # state. Compared against a control BeliefMap that's never updated at
+    # all: if the over-limit claim contributed nothing, the two end up
+    # byte-identical.
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
-    scent_text = "Scent strongest to the north west."
-    scent_focal = interpret_hint(scent_text, client.board)
     over_limit_text = " ".join(["south", "east"] * config.hint_word_limit)
 
     control = BeliefMap.uniform(client.board)
-    control.update_from_scent_report(scent_focal, client.board)
 
-    client._on_hint_received(over_limit_text, scent_text)
-
-    assert client.belief_map._probabilities == control._probabilities
-
-
-def test_on_hint_received_does_not_apply_an_over_limit_scent_report(config, tmp_path):
-    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
-    claim_text = "Near the south east side."
-    claim_focal = interpret_hint(claim_text, client.board)
-    over_limit_scent = " ".join(["north", "west"] * config.hint_word_limit)
-
-    control = BeliefMap.uniform(client.board)
-    control.update_from_hint(claim_focal, client.board)
-
-    client._on_hint_received(claim_text, over_limit_scent)
+    client._on_hint_received(over_limit_text)
 
     assert client.belief_map._probabilities == control._probabilities
 
 
-def test_on_hint_received_applies_no_belief_update_for_a_no_signal_scent_report(config, tmp_path):
-    # "A thief outside the sampling window produces an all-zero report":
-    # once dominant_scent_direction reports genuinely no information
-    # (is_no_scent_report), the receiver must skip update_from_scent_report
-    # entirely — no signal reaches the belief map, rather than a weak wrong
-    # one manufactured from interpret_hint's own north-west default.
-    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
-    claim_text = "Near the south east side."
-    claim_focal = interpret_hint(claim_text, client.board)
+def _private_config_pointing_at(port: int) -> PrivateConfig:
+    """todoFullFix.md §B3: a PrivateConfig whose [network].opponent_url
+    points at a real running peer, for proving take_turn() falls back to it."""
+    return PrivateConfig(
+        provider="template", every_n_steps=1,
+        opponent_url=f"http://127.0.0.1:{port}/mcp", my_port=0, turn_timeout_seconds=180.0,
+        group_name="dev-team", group_id="dev-team", sub_game_number=1, members=("dev-1",),
+        repos={"cop": "https://example.com/cop", "thief": "https://example.com/thief"},
+        model="claude-sonnet-5", step_deadline_seconds=30.0,
+        email_recipient="dev@example.com", email_mode="draft",
+    )
 
-    control = BeliefMap.uniform(client.board)
-    control.update_from_hint(claim_focal, client.board)
 
-    client._on_hint_received(claim_text, "No scent detected.")
+def test_take_turn_without_an_explicit_peer_url_uses_the_private_configs_opponent_url(config, tmp_path):
+    _, port = _start_server(config, tmp_path, "server")
+    client = Orchestrator(
+        config, CopBrain(),
+        log_path=str(tmp_path / "client_trace.jsonl"),
+        private_config=_private_config_pointing_at(port),
+    )
 
-    assert client.belief_map._probabilities == control._probabilities
+    result = asyncio.run(client.take_turn())  # no peer_url argument at all
+
+    assert result["accepted"] is True
+    assert client.state_machine.state == "WAITING_FOR_OPPONENT"

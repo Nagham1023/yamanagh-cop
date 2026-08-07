@@ -32,14 +32,23 @@ def test_barrier_quota_from_config_drives_quota_rejection(tmp_path):
     # A quota of 1, loaded from a file rather than passed as a literal, must
     # be the number that actually stops the second placement.
     custom = {
-        "board_size": 7, "agent_count": 2, "origin": "top-left", "index_base": 0,
-        "thief_start": [3, 3], "cop_start": [0, 0], "barrier_quota": 1,
-        "step_ceiling": 35, "survival_threshold": 35,
-        "score_capture_cop": 20, "score_capture_thief": 5,
-        "score_survival_cop": 5, "score_survival_thief": 10, "score_draw": 2,
-        "response_timeout_seconds": 30, "watchdog_threshold_seconds": 60,
-        "arena": "New York", "hint_word_limit": 15,
-        "scent_source_strength": 0.9, "scent_decay_rate": 0.10, "scent_field_size": 5,
+        "schema_version": "1.2",
+        "agreed_between": ["group-a", "group-b"],
+        "board_and_agents": {
+            "grid_size": 7, "num_agents": 2, "thief_start": [3, 3], "cop_start": [0, 0],
+            "axis_origin_corner": "top-left", "axis_start_index": 0,
+        },
+        "world": {"map_area": "New York", "hint_max_words": 15},
+        "movement_and_barriers": {
+            "move_set": ["N", "S", "E", "W", "STAY"],
+            "max_barriers": 1, "max_moves": 35, "survival_threshold": 35,
+        },
+        "scoring": {
+            "capture_cop": 20, "capture_thief": 5,
+            "survival_cop": 5, "survival_thief": 10, "tie_score": 2, "technical_loss": 0,
+        },
+        "pheromones": {"pheromone_center_intensity": 0.9, "pheromone_decay": 0.10, "pheromone_grid_size": 5},
+        "network_and_league": {"response_timeout_sec": 30, "watchdog_timeout_sec": 60},
     }
     path = tmp_path / "config_quota_one.json"
     path.write_text(json.dumps(custom), encoding="utf-8")

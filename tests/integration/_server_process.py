@@ -25,10 +25,10 @@ from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
 
 
-def _send_once_peer_is_up(orchestrator: Orchestrator, peer_port: int, text: str, scent_report: str) -> None:
+def _send_once_peer_is_up(orchestrator: Orchestrator, peer_port: int, text: str) -> None:
     wait_for_port(peer_port)
     orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
-    asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{peer_port}/mcp", text, scent_report))
+    asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{peer_port}/mcp", text))
 
 
 def main() -> None:
@@ -38,7 +38,6 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--peer-port", type=int, default=None)
     parser.add_argument("--peer-text", default="a test hint")
-    parser.add_argument("--peer-scent-report", default="Scent strongest to the north west.")
     args = parser.parse_args()
 
     config = GameConfig.from_file(args.config)
@@ -48,7 +47,7 @@ def main() -> None:
     if args.peer_port is not None:
         threading.Thread(
             target=_send_once_peer_is_up,
-            args=(orchestrator, args.peer_port, args.peer_text, args.peer_scent_report),
+            args=(orchestrator, args.peer_port, args.peer_text),
             daemon=True,
         ).start()
 

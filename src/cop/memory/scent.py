@@ -7,11 +7,11 @@ around the emitting cell, decayed and re-deposited once per full turn via
 deposit the original PRD 4 build used. `ScentField` still serves its
 original purpose (down-weighting the agent's own recently-searched cells,
 `memory/belief.py`'s `update_from_scent`) and now also serves as the honest
-source for the outgoing scent report (`reasoning/hint.py`'s
-`generate_scent_report`) that lets the receiver corroborate an incoming
-hint against real, always-truthful data — the mechanic PRD-4-language-and-
-scent.md's "Revision 1" section works out how to transmit legally under
-rule 26/27.
+source `full_field()` exposes over the `share_scent_map` MCP tool
+(`tools/mcp_server.py`), letting the receiver corroborate an incoming hint
+against real, always-truthful numeric data — PRD 4 "Revision 3"
+(`todoFullFix.md` §C1), which replaced Revision 1's natural-language
+`generate_scent_report` mechanic with this Tool-based one.
 """
 
 from __future__ import annotations
@@ -99,3 +99,25 @@ class ScentField:
                 if board.in_bounds(candidate):
                     result[candidate] = self._levels.get(candidate, 0.0)
         return result
+
+    def full_field(self) -> dict[Position, float]:
+        """The entire tracked field, every cell this instance has ever
+        deposited scent near — not windowed around any one position
+        (todoFullFix.md §C1, PRD 4 "Revision 3"). This is what the new
+        scent-map MCP tool exposes to the peer: ch. 4.4's own worked example
+        reads absolute per-cell values across the *whole* board, near cells
+        and far ones alike, not a local window — a windowed `sample()`
+        result would silently under-report exactly the far-cell zeros that
+        example treats as real, informative data.
+
+        Already sparse by construction: `_levels` only ever gains an entry
+        where `advance()` actually deposited or decayed something, and decay
+        is multiplicative (`level * (1-rho)`), so a once-touched cell keeps
+        an ever-shrinking but strictly positive value — it is never dropped,
+        only harder to notice than the fresh deposit. Cells never touched
+        simply aren't keys here; a receiver must treat an absent cell as
+        0.0, the same convention `sample()` already uses. A defensive copy,
+        not the live internal dict — the caller must not be able to mutate
+        this instance's state through the returned mapping.
+        """
+        return dict(self._levels)

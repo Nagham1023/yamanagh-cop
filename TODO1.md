@@ -28,7 +28,7 @@ barriers.place(cop, target)     # True  — placed
 
 ## 2. Untested — config values are never proven to drive behaviour end-to-end
 
-`rule-auditor` marked invariant I6 CLEAN because no module hardcodes a board size, quota, or score literal — that's a *structural* check. No test anywhere loads `GameConfig` and then proves changing a config value actually changes domain behaviour. `test_barriers.py` constructs `BarrierSet(quota=2)` directly; `test_board.py` constructs `Board(size=7)` directly. If someone edits `config_dev_g01.json`'s `barrier_quota` to `5` tomorrow, nothing in the test suite would fail if the code silently ignored it and kept using some other number — because no test exercises that pipeline.
+`rule-auditor` marked invariant I6 CLEAN because no module hardcodes a board size, quota, or score literal — that's a *structural* check. No test anywhere loads `GameConfig` and then proves changing a config value actually changes domain behaviour. `test_barriers.py` constructs `BarrierSet(quota=2)` directly; `test_board.py` constructs `Board(size=7)` directly. If someone edits `config_dev_g01.json`'s `movement_and_barriers.max_barriers` to `5` tomorrow, nothing in the test suite would fail if the code silently ignored it and kept using some other number — because no test exercises that pipeline.
 
 - [x] Add one integration test: `GameConfig.from_file(...)` → `BarrierSet(quota=config.barrier_quota)` → confirm the *loaded* value, not a hardcoded one, gates the quota rejection.
 - [x] Same for `Board(size=config.board_size)`.

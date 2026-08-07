@@ -92,6 +92,8 @@ def test_capture_wins_even_on_the_exact_ceiling_turn():
         scent_source_strength=0.9,
         scent_decay_rate=0.10,
         scent_field_size=5,
+        schema_version="1.2",
+        agreed_between=("group-a", "group-b"),
     )
     board = Board(size=config.board_size)
 

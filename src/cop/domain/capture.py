@@ -2,6 +2,14 @@
 
 Pure predicates over positions/barriers — no I/O, no network — so every
 branch is directly unit-testable without a running game.
+
+RULE-21-22-CAPTURE-CLAIM-AT-PRD-6: detecting a capture locally (this
+module, rules 46/47, done since PRD 1) is a different concern from
+*declaring* it to the peer (rule 21, [FATAL]) and the peer being
+cryptographically obliged to answer truthfully (rule 22, [FATAL]) — neither
+exists yet; there is no capture-adjacent wire channel at all today. See the
+guard test in `tests/unit/test_prd6_missing_wire_channels_guard.py` —
+delete it, in the same commit, once PRD 6 makes it pass for real.
 """
 
 from __future__ import annotations

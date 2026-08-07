@@ -1,6 +1,6 @@
-# The Mandatory Parameter Table — Appendix F
+# The Mandatory Parameter Table — Appendix ו, read against Appendix B's schema
 
-Source: book v3.0.0, Appendix F (טבלת הפרמטרים המחייבת). **This appendix is the single source of truth for every quantitative value in the project.** No number appearing in the book body, in a figure, in a code sample, or in the reference repo overrides it.
+Source: book v3.0.0, Appendix ו — the final appendix, "the single source of truth for every quantitative value in the project" (its own words, p.151). No number appearing in the book body, in a figure, in a code sample, or in the reference repo overrides it. **The field *names* below are Appendix B's** (`config/game.json`'s schema, p.126-132) — nested, not flat. Earlier versions of this doc used invented flat names (`board_size`, `barrier_quota`, ...); those were never transcribed from the book and are now corrected. This file is the schema's source of truth; `src/cop/shared/config.py`'s internal Python attribute names are a separate, private implementation detail — see the mapping table at the end.
 
 ## Status semantics
 
@@ -12,78 +12,88 @@ Source: book v3.0.0, Appendix F (טבלת הפרמטרים המחייבת). **Th
 
 ---
 
-## Table 13 — Board, coordinate system, start positions
+## Top-level: `schema_version`, `agreed_between`
 
-| # | Parameter | Meaning | Value | Status |
+Wholly new entries — no prior art in this repo before this correction pass. Not one of Appendix ו's numeric parameters; they're the config file's own self-identification.
+
+| Field | Meaning | Example value | Status |
+|---|---|---|---|
+| `schema_version` | Version string of the config schema itself (Appendix B's own example: `"1.2"`) | `"1.2"` | FIXED — describes the schema, not negotiated between teams |
+| `agreed_between` | The two teams' identifiers, for a human/audit trail | `["group-a", "group-b"]` | Descriptive metadata, not a game parameter — not checked by `check_config.py`'s numeric-value logic |
+
+## `board_and_agents` — Table 13, board/coordinate system/start positions
+
+| # | Field (`board_and_agents.<field>`) | Meaning | Value | Status |
 |---|---|---|---|---|
-| 1 | board size | side of the square game grid | **7 × 7** | MINIMUM |
-| 2 | agent count | players in the race | **2** | FIXED |
-| 3 | coordinate origin | corner where cell (0,0) sits | top-left | NEGOTIABLE |
-| 4 | axis start index | number each axis counts from | **0** | NEGOTIABLE |
-| 5 | thief start position | thief's opening cell | centre (3,3) | NEGOTIABLE |
-| 6 | cop start position | cop's opening cell | corner (0,0) | NEGOTIABLE |
+| 1 | `grid_size` | side of the square game grid | **7 × 7** | MINIMUM |
+| 2 | `num_agents` | players in the race | **2** | FIXED |
+| 3 | `axis_origin_corner` | corner where cell (0,0) sits | `top-left` | NEGOTIABLE |
+| 4 | `axis_start_index` | number each axis counts from | **0** | NEGOTIABLE |
+| 5 | `thief_start` | thief's opening cell | `[3, 3]` | NEGOTIABLE |
+| 6 | `cop_start` | cop's opening cell | `[0, 0]` | NEGOTIABLE |
 
-> Origin and index base are negotiable but **must be identical on both sides**. If one side counts from 0 and the other from 1, `[3,3]` means two different cells and the race falls apart.
+> `axis_origin_corner` and `axis_start_index` are negotiable but **must be identical on both sides**. If one side counts from 0 and the other from 1, `[3,3]` means two different cells and the race falls apart.
 
-## Table 14 — Game arena and verbal hints
+## `world` — Table 14, game arena and verbal hints
 
-| # | Parameter | Meaning | Value | Status |
+| # | Field (`world.<field>`) | Meaning | Value | Status |
 |---|---|---|---|---|
-| 1 | game arena | real-world region feeding real landmarks into the verbal hints. Empty string `""` = generic landmarks | `New York` | NEGOTIABLE |
-| 2 | hint word limit | max words in any verbal hint sent over the network — applies to template mode **and** to the LLM (stated in its system prompt) | **15** | NEGOTIABLE |
+| 1 | `map_area` | real-world region feeding real landmarks into the verbal hints. Empty string `""` = generic landmarks | `"New York"` | NEGOTIABLE |
+| 2 | `hint_max_words` | max words in any verbal hint sent over the network — applies to template mode **and** to the LLM (stated in its system prompt) | **15** | NEGOTIABLE |
 
-## Table 15 — Movement and barriers
+## `movement_and_barriers` — Table 15
 
-| # | Parameter | Meaning | Value | Status |
+| # | Field (`movement_and_barriers.<field>`) | Meaning | Value | Status |
 |---|---|---|---|---|
-| 1 | movement set | 4 single orthogonal moves + stay; **no diagonals** | fixed set | FIXED |
-| 2 | barrier quota | max barriers the cop may place | **14** | MINIMUM |
-| 3 | step ceiling | max moves in a sub-game | **35** | MINIMUM |
-| 4 | survival threshold | steps the thief must survive to win | **35** | MINIMUM |
+| 1 | `move_set` | 4 single orthogonal moves + stay; **no diagonals** | `["N","S","E","W","STAY"]` | FIXED |
+| 2 | `max_barriers` | max barriers the cop may place | **14** | MINIMUM |
+| 3 | `max_moves` | max moves in a sub-game | **35** | MINIMUM |
+| 4 | `survival_threshold` | steps the thief must survive to win | **35** | MINIMUM |
 
-## Table 16 — Dynamic pheromones
+## `pheromones` — Table 16, dynamic pheromones
 
-| # | Parameter | Meaning | Value | Status |
+| # | Field (`pheromones.<field>`) | Meaning | Value | Status |
 |---|---|---|---|---|
-| 1 | scent strength at source | pheromone intensity in the emitting cell | **0.9** | FIXED |
-| 2 | scent decay rate | decay proportion per turn | **0.10** | FIXED |
-| 3 | scent field size | side of the emission window around the agent | **5 × 5** | FIXED |
+| 1 | `pheromone_center_intensity` | pheromone intensity in the emitting cell | **0.9** | FIXED |
+| 2 | `pheromone_decay` | decay proportion per turn | **0.10** | FIXED |
+| 3 | `pheromone_grid_size` | side of the emission window around the agent | **5 × 5** | FIXED |
 
-> All three are FIXED **and** must be cryptographically locked before the game starts (rule 23). A deviation in the decay formula voids the game.
+> All three are FIXED **and** must be cryptographically locked before the game starts (rule 23; ch. 4.5's negotiation ceremony — see `WIRE-CONTRACT.md`). A deviation in the decay formula voids the game.
 
-## Table 17 — Scoring
+## `scoring` — Table 17
 
-| # | Parameter | Meaning | Value | Status |
+| # | Field (`scoring.<field>`) | Meaning | Value | Status |
 |---|---|---|---|---|
-| 1 | capture score — cop | cop's score on a successful capture | **20** | FIXED |
-| 2 | capture score — thief | thief's score when captured | **5** | FIXED |
-| 3 | survival score — cop | cop's score when the thief survives | **5** | FIXED |
-| 4 | survival score — thief | thief's score on successful survival | **10** | FIXED |
-| 5 | draw score | score to each side when the aggregate across all sub-games against an opponent ends level | **2** | FIXED |
+| 1 | `capture_cop` | cop's score on a successful capture | **20** | FIXED |
+| 2 | `capture_thief` | thief's score when captured | **5** | FIXED |
+| 3 | `survival_cop` | cop's score when the thief survives | **5** | FIXED |
+| 4 | `survival_thief` | thief's score on successful survival | **10** | FIXED |
+| 5 | `tie_score` | score to each side when the aggregate across all sub-games against an opponent ends level | **2** | FIXED |
+| 6 | `technical_loss` | score to both sides on a technical loss (crash, timeout, cryptographic forgery) | **0** | FIXED |
 
-> Technical loss (crash, timeout, or cryptographic forgery) = **0 to both sides**.
+## `network_and_league` — Table 18
 
-## Table 18 — Network and league
-
-| # | Parameter | Meaning | Value | Status |
+| # | Field (`network_and_league.<field>`) | Meaning | Value | Status |
 |---|---|---|---|---|
-| 1 | sub-games per series | sub-games in a series against one opponent | **6** | FIXED |
-| 2 | diversity reward | score for a win against a **new** opponent | **10** | FIXED |
-| 3 | minimum games to pass | minimum games per team for a passing grade | **2** | FIXED |
-| 4 | token estimate per series | total LLM tokens a team may consume; actual consumption is reported by email | **~200,000** | NEGOTIABLE |
-| 5 | max games per team | max games any team may play | **10** | FIXED |
+| 1 | `response_timeout_sec` | timeout per network request | **30 s** | NEGOTIABLE |
+| 2 | `watchdog_timeout_sec` | idle time before the watchdog intervenes | **60 s** | NEGOTIABLE |
+| 3 | `num_games` | sub-games in a series against one opponent | **6** | FIXED |
+| 4 | `diversity_reward` | score for a win against a **new** opponent | **10** | FIXED |
+| 5 | `min_games_to_pass` | minimum games per team for a passing grade | **2** | FIXED |
+| 6 | `max_games_per_team` | max games any team may play | **10** | FIXED |
+| 7 | `token_budget_per_series` | total LLM tokens a team may consume; actual consumption is reported by email | **~200,000** | NEGOTIABLE |
 
-## Table 19 — Network, rate limiter and protection (the Gatekeeper pattern)
+## `rate_limiter_gatekeeper` — Table 19, the Gatekeeper pattern
 
-| # | Parameter | Meaning | Value | Status |
+| # | Field (`rate_limiter_gatekeeper.<field>`) | Meaning | Value | Status |
 |---|---|---|---|---|
-| 1 | requests per minute | max outgoing API request rate | **30** | MINIMUM |
-| 2 | parallel requests | max concurrent requests | **2** | MINIMUM |
-| 3 | retry delay | wait before retrying after an error | **5 s** | MINIMUM |
-| 4 | retries | attempts before declaring failure | **3** | MINIMUM |
-| 5 | queue depth | request queue size under load | **100** | MINIMUM |
-| 6 | response timeout | timeout per network request | **30 s** | NEGOTIABLE |
-| 7 | watchdog threshold | idle time before the watchdog intervenes | **60 s** | NEGOTIABLE |
+| 1 | `requests_per_minute` | max outgoing API request rate | **30** | MINIMUM |
+| 2 | `concurrent_requests` | max parallel requests | **2** | MINIMUM |
+| 3 | `retry_backoff_sec` | wait before retrying after an error | **5 s** | MINIMUM |
+| 4 | `max_retries` | attempts before declaring failure | **3** | MINIMUM |
+| 5 | `queue_depth` | request queue size under load | **100** | MINIMUM |
+
+> Not yet consumed anywhere in `src/` — correctly deferred to PRD 7's `policy/gatekeeper.py` (see `PLAN.md` §5). Present here and in the config file so the values are locked and ready when that layer lands.
 
 ---
 
@@ -97,6 +107,7 @@ Not part of the negotiated config and not negotiable. File names derive from `ga
 | config file | the agreed, cryptographically locked sub-game parameters | `config_<game_id>_g<NN>.json` |
 | log file | sub-game log for cryptographic verification in the replay simulator | `log_<game_id>_g<NN>.json` |
 | result file | final result report used by the lecturer to weight the league score | `result_<game_id>.json` |
+| private per-peer file | never negotiated, never crosses the network, hand-edited | `config/game.toml` |
 | reference repo | the book's reference implementation | `https://github.com/rmisegal/Game-P2P-Cop-Chase` |
 | lecturer address | general mail and GitHub repo sharing | `rmisegal@gmail.com` |
 | agent reporting address | destination for the JSON reports the agent sends automatically | `rmisegal+uoh26finalgame@gmail.com` |
@@ -133,42 +144,95 @@ Movement policy — **the core of the grade** — is selected in the private con
 4. **The config file of every game must be committed to the GitHub repo.**
 5. Teams may change code between games; therefore **for every game an email must be sent to the lecturer containing the GitHub commit hash used in that game**.
 
-## Quick reference — the default config in one block
+## Quick reference — the default config in one block, Appendix B's nested shape
 
 ```json
 {
-  "board_size": 7,
-  "agent_count": 2,
-  "origin": "top-left",
-  "index_base": 0,
-  "thief_start": [3, 3],
-  "cop_start": [0, 0],
-  "arena": "New York",
-  "hint_word_limit": 15,
-  "barrier_quota": 14,
-  "step_ceiling": 35,
-  "survival_threshold": 35,
-  "scent_source_strength": 0.9,
-  "scent_decay_rate": 0.10,
-  "scent_field_size": 5,
-  "score_capture_cop": 20,
-  "score_capture_thief": 5,
-  "score_survival_cop": 5,
-  "score_survival_thief": 10,
-  "score_draw": 2,
-  "sub_games_per_series": 6,
-  "diversity_reward": 10,
-  "min_games_to_pass": 2,
-  "token_estimate_per_series": 200000,
-  "max_games_per_team": 10,
-  "requests_per_minute": 30,
-  "parallel_requests": 2,
-  "retry_delay_seconds": 5,
-  "retries": 3,
-  "queue_depth": 100,
-  "response_timeout_seconds": 30,
-  "watchdog_threshold_seconds": 60
+  "schema_version": "1.2",
+  "agreed_between": ["group-a", "group-b"],
+  "board_and_agents": {
+    "grid_size": 7,
+    "num_agents": 2,
+    "thief_start": [3, 3],
+    "cop_start": [0, 0],
+    "axis_origin_corner": "top-left",
+    "axis_start_index": 0
+  },
+  "world": {
+    "map_area": "New York",
+    "hint_max_words": 15
+  },
+  "movement_and_barriers": {
+    "move_set": ["N", "S", "E", "W", "STAY"],
+    "max_barriers": 14,
+    "max_moves": 35,
+    "survival_threshold": 35
+  },
+  "scoring": {
+    "capture_cop": 20,
+    "capture_thief": 5,
+    "survival_cop": 5,
+    "survival_thief": 10,
+    "tie_score": 2,
+    "technical_loss": 0
+  },
+  "pheromones": {
+    "pheromone_center_intensity": 0.9,
+    "pheromone_decay": 0.10,
+    "pheromone_grid_size": 5
+  },
+  "network_and_league": {
+    "response_timeout_sec": 30,
+    "watchdog_timeout_sec": 60,
+    "num_games": 6,
+    "diversity_reward": 10,
+    "min_games_to_pass": 2,
+    "max_games_per_team": 10,
+    "token_budget_per_series": 200000
+  },
+  "rate_limiter_gatekeeper": {
+    "requests_per_minute": 30,
+    "concurrent_requests": 2,
+    "retry_backoff_sec": 5,
+    "max_retries": 3,
+    "queue_depth": 100
+  }
 }
 ```
 
-> Key names above are this skill's canonical names. If your implementation uses different names, keep the mapping in one place so the validator can still find them — the **values** are what bind you, not the spelling.
+## Mapping to this repo's internal code names
+
+`src/cop/shared/config.py`'s `GameConfig` dataclass keeps its own flat, private Python attribute names — Appendix B governs the negotiated **file** schema, not either team's internal variable naming, and `GameConfig.from_dict()` is the one function that translates between them. This mapping is the only place that translation needs to be legible end-to-end:
+
+| Appendix B nested path | Internal `GameConfig` attribute |
+|---|---|
+| `board_and_agents.grid_size` | `board_size` |
+| `board_and_agents.num_agents` | `agent_count` |
+| `board_and_agents.axis_origin_corner` | `origin` |
+| `board_and_agents.axis_start_index` | `index_base` |
+| `board_and_agents.thief_start` | `thief_start` |
+| `board_and_agents.cop_start` | `cop_start` |
+| `world.map_area` | `arena` |
+| `world.hint_max_words` | `hint_word_limit` |
+| `movement_and_barriers.max_barriers` | `barrier_quota` |
+| `movement_and_barriers.max_moves` | `step_ceiling` |
+| `movement_and_barriers.survival_threshold` | `survival_threshold` |
+| `pheromones.pheromone_center_intensity` | `scent_source_strength` |
+| `pheromones.pheromone_decay` | `scent_decay_rate` |
+| `pheromones.pheromone_grid_size` | `scent_field_size` |
+| `scoring.capture_cop` | `score_capture_cop` |
+| `scoring.capture_thief` | `score_capture_thief` |
+| `scoring.survival_cop` | `score_survival_cop` |
+| `scoring.survival_thief` | `score_survival_thief` |
+| `scoring.tie_score` | `score_draw` |
+| `network_and_league.response_timeout_sec` | `response_timeout_seconds` |
+| `network_and_league.watchdog_timeout_sec` | `watchdog_threshold_seconds` |
+| `schema_version`, `agreed_between` | `schema_version`, `agreed_between` (stored verbatim, new fields) |
+
+`movement_and_barriers.move_set`, `scoring.technical_loss`, every `network_and_league`/`rate_limiter_gatekeeper` league/gatekeeper field beyond the two timeouts above are validated by `check_config.py` and present in the file, but not yet read into `GameConfig` — correctly deferred (Table 18/19 league and rate-limiter fields are PRD 7 territory; `move_set`/`technical_loss` have no consuming code yet either). Not a gap introduced by this pass — confirmed pre-existing via the codebase audit that grounded this correction.
+
+> `check_config.py`'s alias table still uses the *internal* names above as its canonical validator keys (see that script directly) — this file's nested names are what the config **file** must use; the validator's `lookup()` matches by last path segment regardless of nesting, so it finds `grid_size` under `board_and_agents` the same way it would find a bare `grid_size` key.
+
+## Not on this table: the belief-map reliability coefficient
+
+`src/cop/memory/belief.py`'s `_HINT_RELIABILITY`/`_SCENT_MAP_BOOST_SCALE` constants (`todoFullFix.md` §E) are **not** Appendix F/B parameters and are deliberately absent from this table and from `check_config.py`'s validated set. The book (ch. 6.4) gives the *concept* of a reliability coefficient on hint evidence, never a specific number — any concrete value is each team's own algorithm tuning, the same category as `movement.DELTAS` or `CopBrain`'s tie-break order, not a negotiated game rule Appendix F/B locks between the two teams. `check_config.py` should never gain a check for these; if a future revision adds one anyway, that's the bug, not this note.

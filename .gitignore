@@ -22,11 +22,18 @@ secrets.json
 *.pem
 *.key
 
-# Private per-peer config, IF it holds an API key.
-# NOTE: the negotiated SHARED config MUST be committed (Appendix F mandatory
-# rule 4). Never ignore config/shared/. Keep keys out of config entirely and
-# read them from the environment instead — then nothing here needs excluding.
-config/private/*.local.json
+# Private per-peer config (config/game.toml, Appendix B p.130-132) IS
+# committed here, deliberately — todoFullFix.md §B5's decision: it's a dev
+# fixture (same precedent as config/shared/config_dev_g01.json), holds no
+# real secrets by design (LLM API keys come from the environment, never from
+# this file — Table 21's own framing). Table 20's four *graded* attached
+# files don't include it (it never crosses the network, never signed), but
+# nothing forbids committing it either, and a fresh clone needs it present
+# for the test suite/local dev workflow to work without a bootstrap step.
+# Before a REAL match, hand-edit [network].opponent_url and [game] to the
+# real values for that match; if a local copy ever needs to differ from what
+# should be shared (e.g. a throwaway experiment), use *.local.toml instead:
+config/*.local.toml
 
 # Python
 __pycache__/
