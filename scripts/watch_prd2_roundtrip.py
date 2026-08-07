@@ -22,9 +22,10 @@ from pathlib import Path
 
 from cop.orchestrator import Orchestrator
 from cop.planner.state_machine import PeerStateMachine
+from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
-from cop.tools.mcp_client import send_hint
+from cop.tools.mcp_client_prd6 import send_reveal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HELPER = REPO_ROOT / "tests" / "integration" / "_server_process.py"
@@ -72,16 +73,20 @@ def main() -> None:
         wait_for_port(port)
         print(f"  peer B is a separate OS process, pid={peer.pid}, listening on port {port}")
         data = asyncio.run(
-            send_hint(f"http://127.0.0.1:{port}/mcp", "quiet by the river", "Scent strongest to the north west.")
+            send_reveal(
+                f"http://127.0.0.1:{port}/mcp",
+                {"type": "move", "direction": "NORTH"},
+                "quiet by the river",
+            )
         )
         print(f"  agent A sends 'quiet by the river' -> agent B decodes: {data}")
 
         print("\n2. An illegal state transition is rejected, not absorbed (rule 5)")
         machine = PeerStateMachine()
         try:
-            machine.transition("TURN_RESOLVED")
+            machine.transition("VERIFYING")
         except ValueError as exc:
-            print(f"  WAITING_FOR_OPPONENT -> TURN_RESOLVED rejected: {exc}")
+            print(f"  WAITING_FOR_OPPONENT -> VERIFYING rejected: {exc}")
         print(f"  state after the rejected attempt: {machine.state} (unchanged)")
 
         print("\n3. Killing the peer produces a clean technical loss, not a hang (rules 6/7)")
@@ -93,18 +98,18 @@ def main() -> None:
         config = GameConfig.from_file(CONFIG_PATH)
         fast_config = config.__class__(**{**config.__dict__, "response_timeout_seconds": 1.0})
         orchestrator = Orchestrator(fast_config, CopBrain(), log_path=str(log_path))
-        orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
+        orchestrator.state_machine.transition("COMPUTING_MOVE")  # commit_and_reveal_to_peer owns COMMITTING onward
 
         start = time.monotonic()
         try:
             asyncio.run(
-                orchestrator.send_to_peer(
-                    f"http://127.0.0.1:{port}/mcp", "a test hint", "Scent strongest to the north west."
+                orchestrator.commit_and_reveal_to_peer(
+                    f"http://127.0.0.1:{port}/mcp", Move(direction="NORTH"), False, "a test hint"
                 )
             )
         except Exception as exc:
             elapsed = time.monotonic() - start
-            print(f"  send_to_peer raised {type(exc).__name__} after {elapsed:.2f}s — not a hang")
+            print(f"  commit_and_reveal_to_peer raised {type(exc).__name__} after {elapsed:.2f}s — not a hang")
         print(f"  orchestrator state: {orchestrator.state_machine.state}")
 
         print("\n4. The technical loss produced a real, readable log entry")

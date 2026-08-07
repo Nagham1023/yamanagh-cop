@@ -34,7 +34,7 @@ from _helpers import REPO_CONFIG  # noqa: E402
 from cop.orchestrator import Orchestrator  # noqa: E402
 from cop.reasoning.cop_brain import CopBrain  # noqa: E402
 from cop.shared.config import GameConfig  # noqa: E402
-from cop.tools.mcp_client import send_hint  # noqa: E402
+from cop.tools.mcp_client_prd6 import send_reveal  # noqa: E402
 from cop.tools.tunnel import start_tunnel, stop_tunnel  # noqa: E402
 
 
@@ -93,7 +93,11 @@ def section_2_ip_capture_over_real_http() -> None:
     print(f"  peer listening on 127.0.0.1:{port}")
 
     print("\n  a) no forwarding header (direct call, no tunnel in front):")
-    asyncio.run(send_hint(f"http://127.0.0.1:{port}/mcp", "quiet by the river", "Scent strongest to the north west."))
+    asyncio.run(
+        send_reveal(
+            f"http://127.0.0.1:{port}/mcp", {"type": "move", "direction": "NORTH"}, "quiet by the river"
+        )
+    )
 
     print("  b) with X-Forwarded-For set (what a real tunnel would insert):")
     from fastmcp import Client
@@ -105,8 +109,8 @@ def section_2_ip_capture_over_real_http() -> None:
         )
         async with Client(transport) as client:
             await client.call_tool(
-                "receive_hint",
-                {"text": "a test hint", "scent_report": "Scent strongest to the south east."},
+                "receive_reveal",
+                {"move": {"type": "move", "direction": "NORTH"}, "hint_text": "a test hint"},
             )
 
     asyncio.run(_call_with_forwarded_header())

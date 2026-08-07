@@ -17,6 +17,7 @@ import threading
 import time
 
 from cop.orchestrator import Orchestrator
+from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 
 
@@ -76,18 +77,21 @@ def test_a_failed_attempt_does_not_advance_one_sides_step_count_without_the_othe
     dead_url = f"http://127.0.0.1:{_free_port()}/mcp"  # nothing listens here
     peer_a.state_machine.transition("COMPUTING_MOVE")
     try:
-        asyncio.run(peer_a.send_to_peer(dead_url, "a test hint"))
+        asyncio.run(
+            peer_a.commit_and_reveal_to_peer(dead_url, Move(direction="NORTH"), False, "a test hint")
+        )
         raised = False
     except Exception:
         raised = True
 
     assert raised
     assert peer_a.state_machine.state == "TECHNICAL_LOSS"
-    # peer_a's own steps_taken is untouched by this failed send (send_to_peer
-    # doesn't call GameState.apply() at all — only take_turn() does, and it
-    # wasn't called here) — the counter only ever advances alongside a real,
-    # locally-applied move, confirming the risk is specifically about
-    # take_turn()'s own apply-then-maybe-fail-to-send ordering, not about
-    # send_to_peer somehow double-counting.
+    # peer_a's own steps_taken is untouched by this failed send
+    # (commit_and_reveal_to_peer doesn't call GameState.apply() at all —
+    # only take_turn() does, and it wasn't called here) — the counter only
+    # ever advances alongside a real, locally-applied move, confirming the
+    # risk is specifically about take_turn()'s own apply-then-maybe-fail-to-
+    # send ordering, not about commit_and_reveal_to_peer somehow
+    # double-counting.
     assert peer_a.game_state.steps_taken == 1
     assert peer_b.game_state.steps_taken == 1

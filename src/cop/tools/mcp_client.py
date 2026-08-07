@@ -7,24 +7,18 @@ cleanly with an async call in the first place.
 `request_scent_map` (PRD 4 "Revision 3", `todoFullFix.md` §C3) is the
 client half of `mcp_server.py`'s `share_scent_map` tool — deserializes the
 peer's own scent field back into `dict[Position, float]`, ready for
-`memory.belief.BeliefMap.update_from_scent_map`.
+`memory.belief.BeliefMap.update_from_scent_map`. PRD 6's six new client
+calls (`send_commit`, `send_reveal`, ...) live in `mcp_client_prd6.py` —
+`send_reveal` supersedes this module's old `send_hint`
+(`mcp_server_prd6.py`'s own docstring has the full reasoning).
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from fastmcp import Client
 
 from ..domain.board import Position
 from .scent_wire import deserialize_scent_field
-
-
-async def send_hint(url: str, text: str) -> dict[str, Any]:
-    """Call the peer's `receive_hint` tool over HTTP; return its ack dict."""
-    async with Client(url) as client:
-        result = await client.call_tool("receive_hint", {"text": text})
-        return result.data
 
 
 async def request_scent_map(url: str) -> dict[Position, float]:

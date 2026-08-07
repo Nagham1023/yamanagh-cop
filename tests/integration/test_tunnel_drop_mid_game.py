@@ -18,9 +18,10 @@ from _helpers import spawn_server as _spawn_server
 from _helpers import wait_for_port as _wait_for_port
 
 from cop.orchestrator import Orchestrator
+from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
-from cop.tools.mcp_client import send_hint
+from cop.tools.mcp_client_prd6 import send_reveal
 
 
 def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly(tmp_path):
@@ -31,7 +32,9 @@ def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly
         _wait_for_port(port)
 
         # First attempt: the connection genuinely works.
-        first_result = asyncio.run(send_hint(f"http://127.0.0.1:{port}/mcp", "a test hint"))
+        first_result = asyncio.run(
+            send_reveal(f"http://127.0.0.1:{port}/mcp", {"type": "move", "direction": "NORTH"}, "a test hint")
+        )
         assert first_result["accepted"] is True
 
         # The "tunnel dropped mid-game" shape: kill the peer that just
@@ -42,11 +45,15 @@ def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly
         config = GameConfig.from_file(REPO_CONFIG)
         fast_config = config.__class__(**{**config.__dict__, "response_timeout_seconds": 1.0})
         client = Orchestrator(fast_config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
-        client.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
+        client.state_machine.transition("COMPUTING_MOVE")  # commit_and_reveal_to_peer owns COMMITTING onward
 
         start = time.monotonic()
         try:
-            asyncio.run(client.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
+            asyncio.run(
+                client.commit_and_reveal_to_peer(
+                    f"http://127.0.0.1:{port}/mcp", Move(direction="NORTH"), False, "a test hint"
+                )
+            )
             raised = False
         except Exception:
             raised = True

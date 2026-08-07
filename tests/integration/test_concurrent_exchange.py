@@ -28,8 +28,8 @@ def test_two_processes_send_and_receive_in_the_same_overlapping_exchange(tmp_pat
         wait_for_port(port_a)
         wait_for_port(port_b)
 
-        events_a = _wait_for_event(log_a, "turn_resolved", timeout=5.0)
-        events_b = _wait_for_event(log_b, "turn_resolved", timeout=5.0)
+        events_a = _wait_for_event(log_a, "revealed", timeout=5.0)
+        events_b = _wait_for_event(log_b, "revealed", timeout=5.0)
 
         # Each process's own trace logs the ack for *its own send*: A sent
         # "hint from a" to B, B sent "hint from b" to A — the echoed payload

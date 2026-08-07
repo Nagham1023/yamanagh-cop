@@ -4,6 +4,8 @@
 
 **Changelog, for anyone re-reading an earlier draft:** the scent data used to ride as a second string field (`scent_report`) inside `receive_hint`. It's now a separate tool, `share_scent_map`, returning structured numeric data instead of a natural-language sentence — a correction to how this repo read ch. 6.4/6.5, not a stylistic change. If you reviewed a version of this file before that correction, re-read `receive_hint`/`share_scent_map` below; `receive_hint`'s shape narrowed too.
 
+**Second changelog entry, PRD 6:** `receive_hint(text)` is gone entirely, superseded by `receive_reveal(move, hint_text)` — ch. 5.3.2's own Step 3 payload is "Move + Hint" together, cryptographically bound to the same per-turn commit, not a channel that can travel un-bound to any specific commit. This is the largest wire-surface change yet: six new tools (`receive_commit`, `receive_reveal`, `receive_final_reveal`, `receive_barrier_declaration`, `receive_capture_claim`, `receive_capture_response`), documented in full below. Anyone reviewing a pre-PRD-6 draft of this file needs to treat this as a new proposal, not a formality.
+
 ## Why this exists
 
 `config/shared/config_<game_id>_g<NN>.json` (this project's negotiated, byte-identical, rule-11-locked config) is *the contract* for game rules — board size, quotas, scoring — per the book's own ch. 3.2 ("A Discrete Space and a Shared Contract"): "since both agents read the exact same file, both compute the same functions over the same win-condition tests, preventing a 'what are the rules' dispute before the game has even begun... the contract is fixed before the exchange begins... a necessary condition is that the contract be mutually agreed by both sides."
@@ -12,7 +14,7 @@ That same discipline has never been applied to the **MCP tool surface itself** �
 
 **You cannot negotiate the tool surface over the tool surface.** This has to be settled out-of-band — a shared document, agreed before the first connection attempt — exactly like the shared config already is.
 
-**Before any tool call can happen at all, each side needs the other's URL.** That's a separate, prior problem from the tool schema below — where to *send* a well-formed `receive_hint` call, not what it looks like. This repo's answer (`todoFullFix.md` §B, Appendix B p.130-132): `config/game.toml`'s `[network].opponent_url` — a private, hand-edited, never-negotiated, never-hashed field ("the only thing I know about the opponent," the book's own words). `Orchestrator.take_turn()` defaults to it when no explicit `peer_url` is passed. This is operational, not part of the schema negotiation itself — no need for the teammate to match this repo's exact config format, only to have *some* way of knowing where to point their own client.
+**Before any tool call can happen at all, each side needs the other's URL.** That's a separate, prior problem from the tool schema below — where to *send* a well-formed `receive_reveal` call, not what it looks like. This repo's answer (`todoFullFix.md` §B, Appendix B p.130-132): `config/game.toml`'s `[network].opponent_url` — a private, hand-edited, never-negotiated, never-hashed field ("the only thing I know about the opponent," the book's own words). `Orchestrator.take_turn()` defaults to it when no explicit `peer_url` is passed. This is operational, not part of the schema negotiation itself — no need for the teammate to match this repo's exact config format, only to have *some* way of knowing where to point their own client.
 
 ## The cop side's current proposal
 
@@ -20,11 +22,12 @@ Built and tested (PRD 2 → PRD 5) against itself only — this repo has never c
 
 **Transport:** FastMCP over Streamable HTTP (matches the book's own ch. 2.3 example).
 
-**Tool 1: `receive_hint`** — the natural-language, psychological, lie-capable channel (rules 25/26/27).
+**Tool 1: `receive_reveal`** — the natural-language, psychological, lie-capable channel (rules 25/26/27), now cryptographically bound to a commit (PRD 6, supersedes PRD 4's `receive_hint`).
 
 | Parameter | Type | Meaning |
 |---|---|---|
-| `text` | `str` | The tactical hint — free natural language (rule 26), may be a lie (Table 21's `Intent` flag governs this on the sender's side; the receiver has no way to know which from the wire alone). Hard-capped at `hint_word_limit` words on the sending side (Table 14 #2), but the tool itself does not reject an over-limit string — it flags it in the ack instead (see below). |
+| `move` | `dict` | The claimed action this turn — `{"type": "move", "direction": "N"/"S"/"E"/"W"/"STAY"}` or `{"type": "place_barrier", "col": int, "row": int}` (`integrity/commit_reveal.py::move_to_wire`). An *unverified claim* until Final Reveal (PRD 6 Design Question 2) — not cryptographically checkable yet, since the nonce needed to recompute `Hcommit` doesn't exist until then. Never a bare coordinate claim about either agent's own position outside what rules 15/16 already require disclosing for a barrier placement specifically. |
+| `hint_text` | `str` | The tactical hint — free natural language (rule 26), may be a lie (Table 21's `Intent` flag governs this on the sender's side, transmitted only at Final Reveal, never here). Hard-capped at `hint_word_limit` words on the sending side (Table 14 #2), but the tool itself does not reject an over-limit string — it flags it in the ack instead (see below). |
 
 **Return (the ack):**
 
@@ -32,7 +35,7 @@ Built and tested (PRD 2 → PRD 5) against itself only — this repo has never c
 {"accepted": true, "word_count": 4}
 ```
 
-`accepted` is `false` if `text` exceeds `hint_word_limit`; `word_count` is `text`'s actual word count, always reported regardless of `accepted`.
+`accepted` is `false` if `hint_text` exceeds `hint_word_limit`; `word_count` is `hint_text`'s actual word count, always reported regardless of `accepted`.
 
 **Not negotiated, not needed to be:** the actual sentence content and vocabulary. Rule 26 makes this free natural language by design — each side parses incoming text with its own logic, however it chooses. Only the wire-level *structure* above (tool name, parameter name/type, ack shape) needs mutual agreement.
 
@@ -58,16 +61,21 @@ Not a wire-schema item — flagged here anyway because it's exactly the kind of 
 
 This repo does not currently exercise the exception — `CopBrain` stays algorithmic-only by default (`PLAN.md`'s PRD 3 section). If either side wants to invoke it later, it needs the same explicit, written agreement this whole document is modeling — not something to discover mid-series because one side's `_decide_move` quietly started consulting an LLM.
 
-## PRD 6 will add more of this — agree on a process now, not per-tool
+## PRD 6's Commit-Reveal tools — built, not yet negotiated with the teammate
 
-PRD 6's Commit-Reveal work adds at least four more wire-surface items with the identical negotiation gap (see `PLAN.md`'s PRD 6 section and `PRD-6-prep-commit-payload-spec.md`):
+Five more tools, all following the same synchronous-ack, injected-callback shape `receive_reveal`/`share_scent_map` already established (`src/cop/tools/mcp_server_prd6.py`):
 
-- **Barrier declaration** (rules 15/16, both **[FATAL]**) — no channel exists yet on either side, as far as this repo knows.
-- **Capture claim / capture response** (rules 21/22, both **[FATAL]**).
-- **The Commit-Reveal envelope itself** — commit, acknowledge, reveal, final-reveal.
-- **The scent-model negotiation ceremony itself** (ch. 4.5) — exchanging and cryptographically locking the emission/decay formula together with a concrete numeric worked example, before either side's `share_scent_map` values can be trusted at audit time. See the dedicated section below.
+**`receive_commit(h_commit: str) -> {"acknowledged": true}`** — Step 1/2 (ch. 5.3.2): a peer's `Hcommit` for this turn (`SHA256` of the canonical-JSON 7-field envelope — `state`, `move`, `intent`, `nonce`, `hint_text`, `step`, `role` — PRD 6 Design Question 1). The synchronous return *is* the Acknowledge step; no separate tool or state for it.
 
-Recommend agreeing on a *process* with the teammate now — e.g. "each side sends a diff of this file before implementing any new tool, and the other side confirms before either implementation starts" — rather than re-running this exact fire drill once per PRD 6 sub-feature.
+**`receive_final_reveal(nonces: dict) -> {"acknowledged": true}`** — end-of-game only: every one of this peer's own nonces for the whole match, keyed by step number (as a string — JSON object keys are always strings). Enables `integrity/audit.py::run_mutual_audit`'s full replay. Never sent before game end (rule 18, **[FATAL]**).
+
+**`receive_barrier_declaration(col: int, row: int) -> {"acknowledged": true}`** — rule 15 (**[FATAL]**): the exact cell of a barrier just placed, sent the same turn. Rule 16 (never lying about it) is enforced by `envelope.move` already carrying this same placement — a mismatch at final audit is the catch, not this call.
+
+**`receive_capture_claim(thief_col, thief_row, cop_col, cop_row, claimed_at_step) -> {"acknowledged": true}`** / **`receive_capture_response(confirmed: bool, true_thief_col: int, true_thief_row: int) -> {"acknowledged": true}`** — rules 21/22 (**[FATAL]**), wire-flattened from `integrity/capture_protocol.py`'s `CaptureClaim`/`CaptureResponse`. Two separate tools, not one call-and-return, because the truthful response gets folded into the responder's *own next commit* rather than returned raw — it needs its own commit-reveal cycle, not just a synchronous answer.
+
+**Barrier/capture wire shape has no book-prescribed mechanism** — searched ch. 1-3 directly for one, found nothing beyond the Appendix E rule statements themselves. This repo's own invention, same category `receive_hint`'s original shape always was.
+
+Recommend agreeing on a *process* with the teammate now for this whole surface — e.g. "each side sends a diff of this file before implementing any new tool, and the other side confirms before either implementation starts" — since none of PRD 6's tools have been negotiated any more than PRD 1-5's were (see the Status log below).
 
 ## The ch. 4.5 scent-model negotiation ceremony
 
@@ -77,10 +85,10 @@ Ch. 4.5, verbatim (translated): "Before the series opens between the two groups,
 
 **Recommendation, per the book's own text above:** offer the teammate `src/cop/memory/scent.py` directly — the `ScentField.advance()` implementation — rather than only a written formula description. Two independently-written implementations of the same formula are exactly the kind of thing that drifts in a subtle rounding or ordering detail; shared code doesn't have that failure mode. This is explicitly book-endorsed, not a shortcut.
 
-**This ceremony's own lock is PRD 6's job**, not built yet — this section documents what needs to happen, cross-referenced from `PRD-6-prep-commit-payload-spec.md`.
+**This ceremony's own lock is still not built** — Step-0 (`integrity/step0.py`) signs hardware/code/config facts but does not yet carry the scent-model formula/numeric-example hash ch. 4.5 describes; this section documents what needs to happen, cross-referenced from `PRD-6-prep-commit-payload-spec.md`.
 
 ## Status log
 
 - **Not yet sent to the teammate.** This file is the draft to send.
-- **Not yet confirmed compatible against a real thief-repo peer.** Every automated test proving `receive_hint`/`share_scent_map` work has been this repo's own client talking to this repo's own server — PRD 5's own milestone explicitly can't reveal this gap, since it's the same code on both ends.
-- **This revision changes the wire shape materially, not just its documentation** — `scent_report` is gone, replaced by a second tool with a different parameter/return shape entirely. If an earlier draft of this file was already shared with the teammate, this supersedes it and needs to go back as a new proposal, not an FYI.
+- **Not yet confirmed compatible against a real thief-repo peer.** Every automated test proving `receive_reveal`/`share_scent_map`/PRD 6's six new tools work has been this repo's own client talking to this repo's own server — no PRD's own milestone can reveal this gap, since it's the same code on both ends every time.
+- **PRD 6 changed the wire shape materially again, not just its documentation** — `receive_hint` is gone, replaced by `receive_reveal` with a different parameter shape (`move` + `hint_text`, not just `text`), plus five entirely new tools. If an earlier draft of this file was already shared with the teammate, this supersedes it and needs to go back as a new proposal, not an FYI.

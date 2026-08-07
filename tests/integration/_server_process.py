@@ -21,14 +21,19 @@ import threading
 from _helpers import wait_for_port
 
 from cop.orchestrator import Orchestrator
+from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
 
 
 def _send_once_peer_is_up(orchestrator: Orchestrator, peer_port: int, text: str) -> None:
     wait_for_port(peer_port)
-    orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
-    asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{peer_port}/mcp", text))
+    orchestrator.state_machine.transition("COMPUTING_MOVE")  # commit_and_reveal_to_peer owns COMMITTING onward
+    asyncio.run(
+        orchestrator.commit_and_reveal_to_peer(
+            f"http://127.0.0.1:{peer_port}/mcp", Move(direction="NORTH"), False, text
+        )
+    )
 
 
 def main() -> None:

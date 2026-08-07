@@ -5,7 +5,7 @@ Connector (`tools/`), Log Manager (`observability/trace.py`), Deadline
 Tracker, Watchdog, and — as of PRD 3 — the Decision Module (`reasoning/`).
 Nothing outside this module reaches those subsystems directly.
 
-The watchdog is doubly wired: every `receive_hint`/`share_scent_map` call
+The watchdog is doubly wired: every tool call on this peer's own server
 feeds it a heartbeat (via `self._on_connection_received`, wired as
 `build_server`'s `on_receive`), and a daemon thread started in
 `run_as_server` polls `watchdog.check()` so a frozen process actually gets
@@ -16,10 +16,12 @@ wired, not that the algorithm works. Algorithm correctness is
 `reasoning/subgame.py`'s job, entirely offline (PRD-3-blind-strategy.md,
 Design Question 3). `take_turn()` lives in `orchestrator_turn.py`'s
 `BrainTurnMixin`; `run_as_server`/the watchdog poll loop live in
-`orchestrator_server.py`'s `ServerLifecycleMixin`; `send_to_peer`/
+`orchestrator_server.py`'s `ServerLifecycleMixin`; PRD 6's real
+Commit-Reveal round trip (`commit_and_reveal_to_peer`) lives in
+`orchestrator_commit_reveal.py`'s `CommitRevealMixin`;
 `request_scent_map_from_peer`/the connection hook live in
 `orchestrator_peer.py`'s `PeerCommsMixin` — this file grew past the
-150-line house cap three times, once at each landing.
+150-line house cap four times, once at each landing.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from .domain.board import Board, Position
 from .memory.belief import BeliefMap
 from .memory.scent import ScentField
 from .observability.trace import Trace
+from .orchestrator_commit_reveal import CommitRevealMixin
 from .orchestrator_peer import PeerCommsMixin
 from .orchestrator_server import ServerLifecycleMixin
 from .orchestrator_turn import BrainTurnMixin
@@ -48,7 +51,7 @@ from .tools.mcp_server import build_server
 _DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
 
 
-class Orchestrator(BrainTurnMixin, PeerCommsMixin, ServerLifecycleMixin):
+class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, ServerLifecycleMixin):
     def __init__(
         self,
         config: GameConfig,
@@ -73,6 +76,10 @@ class Orchestrator(BrainTurnMixin, PeerCommsMixin, ServerLifecycleMixin):
         self._rng = random.Random()
         self.trace = Trace(log_path)
         self.state_machine = PeerStateMachine()
+        # PRD 6, rule 18: this side's own nonces, retained (never
+        # transmitted) until `receive_final_reveal` sends them all at game
+        # end — keyed by step, filled in by `commit_and_reveal_to_peer`.
+        self._pending_nonces: dict[int, str] = {}
         self.watchdog = Watchdog(
             threshold_seconds=config.watchdog_threshold_seconds,
             persist_state=lambda: self.trace.log(
@@ -85,6 +92,6 @@ class Orchestrator(BrainTurnMixin, PeerCommsMixin, ServerLifecycleMixin):
         self.server: FastMCP = build_server(
             config,
             on_receive=self._on_connection_received,
-            on_hint=self._on_hint_received,
-            get_scent_field=self.scent_field.full_field,
+            get_scent_field=self._get_and_commit_scent_field,
+            on_reveal=self._on_reveal_received,
         )

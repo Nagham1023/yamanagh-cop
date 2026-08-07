@@ -21,6 +21,7 @@ from fastmcp import FastMCP
 
 from cop.orchestrator import Orchestrator
 from cop.planner.deadline import DeadlineExceededError
+from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 
 
@@ -36,9 +37,13 @@ def _start_slow_peer(delay_seconds: float) -> int:
     slow = FastMCP("genuinely_slow_but_real_peer")
 
     @slow.tool
-    def receive_hint(text: str) -> dict:
+    def receive_commit(h_commit: str) -> dict:
+        return {"acknowledged": True}
+
+    @slow.tool
+    def receive_reveal(move: dict, hint_text: str) -> dict:
         time.sleep(delay_seconds)
-        return {"accepted": True, "word_count": len(text.split())}
+        return {"accepted": True, "word_count": len(hint_text.split())}
 
     port = _free_port()
     threading.Thread(
@@ -54,6 +59,7 @@ def test_the_same_real_response_is_a_technical_loss_for_one_side_and_a_success_f
     delay_seconds = 1.5
     port = _start_slow_peer(delay_seconds)
     url = f"http://127.0.0.1:{port}/mcp"
+    move = Move(direction="NORTH")
 
     short_config = config.__class__(**{**config.__dict__, "response_timeout_seconds": 0.5})
     short_peer = Orchestrator(short_config, CopBrain(), log_path=str(tmp_path / "short_trace.jsonl"))
@@ -65,7 +71,7 @@ def test_the_same_real_response_is_a_technical_loss_for_one_side_and_a_success_f
 
     # The short-timeout peer genuinely times out on this real, live server.
     try:
-        asyncio.run(short_peer.send_to_peer(url, "a test hint"))
+        asyncio.run(short_peer.commit_and_reveal_to_peer(url, move, False, "a test hint"))
         short_raised = False
     except DeadlineExceededError:
         short_raised = True
@@ -74,7 +80,7 @@ def test_the_same_real_response_is_a_technical_loss_for_one_side_and_a_success_f
 
     # The exact same server, the exact same real 1.5s delay — the
     # long-timeout peer sees a completely normal, successful exchange.
-    long_result = asyncio.run(long_peer.send_to_peer(url, "a test hint"))
+    long_result = asyncio.run(long_peer.commit_and_reveal_to_peer(url, move, False, "a test hint"))
     assert long_result["accepted"] is True
     assert long_peer.state_machine.state == "WAITING_FOR_OPPONENT"
 
@@ -94,4 +100,4 @@ def test_the_same_real_response_is_a_technical_loss_for_one_side_and_a_success_f
     ]
     assert "technical_loss" in short_events
     assert "technical_loss" not in long_events
-    assert "turn_resolved" in long_events
+    assert "revealed" in long_events

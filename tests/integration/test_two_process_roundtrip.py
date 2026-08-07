@@ -20,9 +20,10 @@ from _helpers import wait_for_port as _wait_for_port
 
 from cop.orchestrator import Orchestrator
 from cop.planner.state_machine import PeerStateMachine
+from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
-from cop.tools.mcp_client import send_hint
+from cop.tools.mcp_client_prd6 import send_reveal
 
 
 def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
@@ -32,7 +33,11 @@ def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
     proc_b = _spawn_server(port_b, log_b)
     try:
         _wait_for_port(port_b)
-        data = asyncio.run(send_hint(f"http://127.0.0.1:{port_b}/mcp", "quiet by the river"))
+        data = asyncio.run(
+            send_reveal(
+                f"http://127.0.0.1:{port_b}/mcp", {"type": "move", "direction": "NORTH"}, "quiet by the river"
+            )
+        )
         assert data == {"accepted": True, "word_count": 4}
     finally:
         proc_b.terminate()
@@ -75,11 +80,15 @@ def test_killing_the_peer_produces_a_clean_technical_loss_not_a_hang(tmp_path):
     config = GameConfig.from_file(REPO_CONFIG)
     fast_config = config.__class__(**{**config.__dict__, "response_timeout_seconds": 1.0})
     orchestrator = Orchestrator(fast_config, CopBrain(), log_path=str(tmp_path / "a_trace.jsonl"))
-    orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
+    orchestrator.state_machine.transition("COMPUTING_MOVE")  # commit_and_reveal_to_peer owns COMMITTING onward
 
     start = time.monotonic()
     try:
-        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port_b}/mcp", "a test hint"))
+        asyncio.run(
+            orchestrator.commit_and_reveal_to_peer(
+                f"http://127.0.0.1:{port_b}/mcp", Move(direction="NORTH"), False, "a test hint"
+            )
+        )
         raised = False
     except Exception:
         raised = True
@@ -117,10 +126,10 @@ def test_watchdog_fires_and_extracts_data_on_a_forced_crash(tmp_path):
 
 def test_illegal_state_transition_mid_exchange_is_rejected_not_absorbed():
     """Rule 5, exercised the way a real turn loop would trip it: trying to
-    jump straight to TURN_RESOLVED without ever sending anything."""
+    jump straight to VERIFYING without ever sending anything."""
     machine = PeerStateMachine()
     try:
-        machine.transition("TURN_RESOLVED")
+        machine.transition("VERIFYING")
         raised = False
     except ValueError:
         raised = True

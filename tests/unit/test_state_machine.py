@@ -1,4 +1,8 @@
-"""State machine (rules 4, 5): every legal transition succeeds, everything else is rejected."""
+"""State machine (rules 4, 5): every legal transition succeeds, everything
+else is rejected. Matches the book's own Ch.8 Fig. 11 table (p.80) plus one
+argued extra edge (`COMMITTING -> TECHNICAL_LOSS`) — see the module
+docstring for the full citation and argument.
+"""
 
 from __future__ import annotations
 
@@ -15,26 +19,36 @@ def test_starts_waiting_for_opponent():
 def test_full_round_trip_cycle_is_legal():
     machine = PeerStateMachine()
     assert machine.transition("COMPUTING_MOVE") == "COMPUTING_MOVE"
-    assert machine.transition("SENDING") == "SENDING"
-    assert machine.transition("AWAITING_RESPONSE") == "AWAITING_RESPONSE"
-    assert machine.transition("TURN_RESOLVED") == "TURN_RESOLVED"
+    assert machine.transition("COMMITTING") == "COMMITTING"
+    assert machine.transition("AWAITING_REVEAL") == "AWAITING_REVEAL"
+    assert machine.transition("VERIFYING") == "VERIFYING"
     assert machine.transition("WAITING_FOR_OPPONENT") == "WAITING_FOR_OPPONENT"
 
 
-@pytest.mark.parametrize(
-    "state", ["WAITING_FOR_OPPONENT", "COMPUTING_MOVE", "SENDING", "AWAITING_RESPONSE", "TURN_RESOLVED"]
-)
-def test_technical_loss_reachable_from_every_non_terminal_state(state):
+@pytest.mark.parametrize("state", ["COMPUTING_MOVE", "COMMITTING", "AWAITING_REVEAL"])
+def test_technical_loss_reachable_from_the_books_own_two_states_plus_committing(state):
     machine = PeerStateMachine(state=state)
     assert machine.transition("TECHNICAL_LOSS") == "TECHNICAL_LOSS"
 
 
-def test_sending_directly_from_waiting_is_rejected_now_that_computing_move_exists():
+@pytest.mark.parametrize("state", ["WAITING_FOR_OPPONENT", "VERIFYING"])
+def test_technical_loss_is_not_reachable_from_states_with_no_pending_peer_response(state):
+    """The narrower, argued position (PRD 6 Design Question 4): only states
+    representing an active wait on a pending peer response get the edge —
+    `WAITING_FOR_OPPONENT` (idle between turns) and `VERIFYING` (the reveal
+    is already in hand, purely local) do not, matching the book's own
+    literal table exactly."""
+    machine = PeerStateMachine(state=state)
+    with pytest.raises(ValueError, match="Illegal transition"):
+        machine.transition("TECHNICAL_LOSS")
+
+
+def test_committing_directly_from_waiting_is_rejected_now_that_computing_move_exists():
     # The old PRD 2 shortcut — legal before PRD 3 gave COMPUTING_MOVE
     # something real to represent, illegal now that it does.
     machine = PeerStateMachine()
     with pytest.raises(ValueError, match="Illegal transition"):
-        machine.transition("SENDING")
+        machine.transition("COMMITTING")
     assert machine.state == "WAITING_FOR_OPPONENT"
 
 
@@ -47,7 +61,7 @@ def test_technical_loss_is_terminal():
 def test_skipping_a_state_is_rejected():
     machine = PeerStateMachine()
     with pytest.raises(ValueError, match="Illegal transition"):
-        machine.transition("TURN_RESOLVED")
+        machine.transition("VERIFYING")
     # rejection must not silently move the state anyway
     assert machine.state == "WAITING_FOR_OPPONENT"
 

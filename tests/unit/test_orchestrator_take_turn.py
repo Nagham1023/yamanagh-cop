@@ -27,8 +27,9 @@ from cop.shared.private_config import PrivateConfig
 
 class _AlwaysProposesAnOffBoardMove(BrainBase):
     """A deliberately buggy brain — proves take_turn() catches a brain/action
-    failure the same way send_to_peer catches a network one, instead of
-    stranding the state machine in COMPUTING_MOVE with nothing logged."""
+    failure the same way commit_and_reveal_to_peer catches a network one,
+    instead of stranding the state machine in COMPUTING_MOVE with nothing
+    logged."""
 
     def _pick_move(self, own_pos, target_pos, board, barriers) -> str:
         return "N"
@@ -68,8 +69,8 @@ def _start_server(config, tmp_path, name: str) -> tuple[Orchestrator, int]:
 
 def _sent_hint_text(trace_path) -> str:
     events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
-    (sending_event,) = [e for e in events if e["event"] == "sending_hint"]
-    return sending_event["text"]
+    (revealed_event,) = [e for e in events if e["event"] == "revealed"]
+    return revealed_event["hint_text"]
 
 
 def test_take_turn_moves_according_to_the_brains_own_decision_not_a_fixed_position(config, tmp_path):
@@ -246,20 +247,22 @@ def test_take_turn_pulls_and_applies_the_peers_real_scent_map(config, tmp_path):
     assert "scent_map_received" in events
 
 
-def test_on_hint_received_applies_the_tactical_claim(config, tmp_path):
-    # PRD 4 "Revision 3": _on_hint_received now only ever sees the tactical
-    # hint — scent-map corroboration moved to take_turn's own pull.
+def test_on_reveal_received_applies_the_tactical_claim(config, tmp_path):
+    # PRD 4 "Revision 3": _on_reveal_received's hint_text still only feeds
+    # the tactical claim — scent-map corroboration is take_turn's own pull.
+    # PRD 6: `move` itself is an unverified claim (Design Question 2), not
+    # consumed by this callback at all.
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     claim_focal = interpret_hint("Near the south east side.", client.board)
     claim_before = client.belief_map.probability(claim_focal)
 
-    client._on_hint_received("Near the south east side.")
+    client._on_reveal_received({"type": "move", "direction": "NORTH"}, "Near the south east side.")
 
     assert client.belief_map.probability(claim_focal) > claim_before
 
 
-def test_on_hint_received_does_not_apply_an_over_limit_claim(config, tmp_path):
-    # rule-auditor finding (I9): receive_hint's ack flags an over-limit
+def test_on_reveal_received_does_not_apply_an_over_limit_claim(config, tmp_path):
+    # rule-auditor finding (I9): receive_reveal's ack flags an over-limit
     # hint to the sender, but the ack alone doesn't stop the *content* from
     # reaching this callback — it must be gated before touching belief
     # state. Compared against a control BeliefMap that's never updated at
@@ -270,7 +273,7 @@ def test_on_hint_received_does_not_apply_an_over_limit_claim(config, tmp_path):
 
     control = BeliefMap.uniform(client.board)
 
-    client._on_hint_received(over_limit_text)
+    client._on_reveal_received({"type": "move", "direction": "NORTH"}, over_limit_text)
 
     assert client.belief_map._probabilities == control._probabilities
 

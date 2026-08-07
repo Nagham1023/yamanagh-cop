@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 
 from cop.orchestrator import Orchestrator
 from cop.planner.deadline import DeadlineExceededError
+from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 
 
@@ -29,19 +30,25 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
-def test_send_to_peer_against_a_dead_port_reaches_technical_loss_without_hanging(config, tmp_path):
+def test_commit_and_reveal_to_peer_against_a_dead_port_reaches_technical_loss_without_hanging(
+    config, tmp_path
+):
     # Found while writing the two-process integration test: a killed peer's
     # port closes immediately (connection refused), which is NOT a timeout —
     # asyncio.wait_for lets that exception through unchanged. The original
     # `except DeadlineExceededError` would have missed this entirely, leaving
-    # the state machine stuck in AWAITING_RESPONSE and nothing logged.
+    # the state machine stuck in AWAITING_REVEAL and nothing logged.
     port = _free_port()  # never bound to any server — guaranteed refused
     orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
-    orchestrator.state_machine.transition("COMPUTING_MOVE")  # send_to_peer only owns SENDING onward
+    orchestrator.state_machine.transition("COMPUTING_MOVE")  # commit_and_reveal_to_peer owns COMMITTING onward
 
     start = time.monotonic()
     with pytest.raises(Exception):  # noqa: B017 - deliberately broad: any connection failure counts
-        asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
+        asyncio.run(
+            orchestrator.commit_and_reveal_to_peer(
+                f"http://127.0.0.1:{port}/mcp", Move(direction="NORTH"), False, "a test hint"
+            )
+        )
     elapsed = time.monotonic() - start
 
     assert elapsed < 5.0, "must fail fast, not hang toward the full response_timeout_seconds"
@@ -54,7 +61,9 @@ def test_send_to_peer_against_a_dead_port_reaches_technical_loss_without_hanging
     assert "technical_loss" in events
 
 
-def test_send_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error(config, tmp_path):
+def test_commit_and_reveal_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error(
+    config, tmp_path
+):
     # A peer that accepts the TCP connection and then does nothing at all —
     # no response, no close, no reset. A raw socket held open (not a FastMCP
     # server) is the only way to produce this deterministically: it can't be
@@ -80,7 +89,11 @@ def test_send_to_peer_against_a_silent_peer_hits_the_deadline_not_a_socket_error
     start = time.monotonic()
     try:
         with pytest.raises(DeadlineExceededError):
-            asyncio.run(orchestrator.send_to_peer(f"http://127.0.0.1:{port}/mcp", "a test hint"))
+            asyncio.run(
+                orchestrator.commit_and_reveal_to_peer(
+                    f"http://127.0.0.1:{port}/mcp", Move(direction="NORTH"), False, "a test hint"
+                )
+            )
         elapsed = time.monotonic() - start
 
         assert elapsed < 2.0, "silence must be caught by the deadline, not hang indefinitely"

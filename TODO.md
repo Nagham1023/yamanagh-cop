@@ -143,26 +143,26 @@ uv run python scripts/watch_prd5_tunnel.py   # tunnel wrapper parsed against a l
 
 ## PRD 6 — Security and cryptography
 
-- [ ] rule 11 — config verified byte-for-byte identical with the opponent
-- [ ] rule 17 — Commit-Reveal protocol based on SHA-256
-- [ ] rule 18 — nonce kept secret until game end, generated via `secrets`
-- [ ] rule 19 — any hash mismatch at audit = technical forfeit
-- [ ] rule 21 — declare only the truth when a thief is captured
-- [ ] rule 22 — never falsely declare a capture
-- [ ] rule 24 — Step-0 cryptographic hardware declaration before game start
-- [ ] rule 53 — Step-0 records the exact commit hash being played
-- [ ] enforcement half of rules 15/16 — barrier declaration truthfulness, checked at audit
-- [ ] build: `commit()`/`verify()` functions, canonical JSON (`sort_keys=True, separators`)
-- [ ] build: nonce generation via `secrets.token_hex`, never `random`
-- [ ] build: Step-0 declaration builder (hardware, LLM, token budget, commit hash)
-- [ ] build: `check_config.py --identical` wired into the pre-game gate
-- [ ] build: mutual end-of-game log audit
-- [ ] test: hash comparison uses `secrets.compare_digest`
-- [ ] test: nonce is not transmitted until the final reveal
-- [ ] test: a deliberately tampered log **fails** the audit (rejection test)
-- [ ] milestone watched end-to-end by a human — move committed, revealed, Step-0 verified
-- [ ] `rule-auditor` run, zero fatal violations
-- [ ] `PRD/PRD-6-security-crypto.md` written; commit
+- [x] rule 11 — config verified byte-for-byte identical with the opponent (`integrity/step0.py::verify_config_identity`, administrative per Design Question 3)
+- [x] rule 17 — Commit-Reveal protocol based on SHA-256 (`integrity/commit_reveal.py`)
+- [x] rule 18 — nonce kept secret until game end, generated via `secrets` (`integrity/nonce.py`; `_pending_nonces` retained, never sent by `commit_and_reveal_to_peer`) — secrecy verified clean; eventual disclosure via `receive_final_reveal` built and unit-tested but not yet called from the live turn loop (see PRD 6's "Known gap")
+- [x] rule 19 — any hash mismatch at audit = technical forfeit (`integrity/audit.py::run_mutual_audit`, adversarially tested) — **self-audit half only**; the cross-peer half has no live wiring yet (PRD 6's "Known gap")
+- [x] rule 21 — declare only the truth when a thief is captured (`integrity/capture_protocol.py::claim_capture`, pure function correct/tested) — not called from the live turn loop
+- [x] rule 22 — never falsely declare a capture (`respond_to_capture_claim`, pure function correct/tested) — `receive_capture_response` (this repo's own receive side) unwired
+- [x] rule 24 — Step-0 cryptographic hardware declaration before game start (`integrity/step0.py`/`hardware_declaration.py`) — signable and tested; exchanged out-of-band like config (Design Question 3), no wire tool, stated explicitly now
+- [x] rule 53 — Step-0 records the exact commit hash being played (`current_git_commit_hash`)
+- [x] enforcement half of rules 15/16 — barrier declaration truthfulness, checked at audit (`receive_barrier_declaration`, folded into that turn's commit) — send side live-wired and tested; receive side unwired (this repo is never the legitimate receiver)
+- [x] build: `commit()`/`verify()` functions, canonical JSON (`sort_keys=True, separators`)
+- [x] build: nonce generation via `secrets.token_hex`, never `random`
+- [x] build: Step-0 declaration builder (hardware, LLM, token budget, commit hash)
+- [x] build: `check_config.py --identical` wired into the pre-game gate
+- [x] build: mutual end-of-game log audit — self-audit path; cross-peer path unwired
+- [x] test: hash comparison uses `secrets.compare_digest` (also fixed in `step0.py::verify_config_identity`, found using `==` by `rule-auditor`)
+- [x] test: nonce is not transmitted until the final reveal
+- [x] test: a deliberately tampered log **fails** the audit (rejection test — `test_audit.py`'s adversarial milestone)
+- [x] milestone watched end-to-end by a human — `scripts/watch_prd6_commit_reveal.py`: Step-0 signed, move committed/revealed, honest audit passes, tampered audit rejects
+- [x] `rule-auditor` run, zero **fatal** violations — several non-fatal findings surfaced and are tracked (see PRD 6's "Known gap" section and retrospective item 5); two were fixed immediately (a nonce-key-type bug in `run_mutual_audit`, `verify_config_identity`'s `==`), the receiving-side wiring gap is documented as deferred, matching PRD 6's own out-of-scope boundary
+- [x] `PRD/PRD-6-security-and-cryptography.md` written; commit
 
 ## PRD 7 — Reporting and visualization shell
 
