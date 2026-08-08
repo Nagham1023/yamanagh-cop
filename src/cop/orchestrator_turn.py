@@ -95,7 +95,18 @@ class BrainTurnMixin:
             self.private_config.every_n_steps,
         )
         text = generate_hint(self.game_state.own_pos, provider, self.config, intent)
-        self.trace.log("hint_generated", intent=intent, steps_taken=self.game_state.steps_taken)
+        # `tokens_used=0` is honest, not a placeholder — `template`/`ollama`
+        # (the only implemented providers, Table 21) really do cost zero
+        # LLM tokens. `observability/cost.py::aggregate_tokens` reads this
+        # field; a real non-zero value would come from `HintProvider.generate`
+        # itself once `claude_api`/`claude_cli` are built for real (PRD 7's
+        # own optional, explicitly-deferred section).
+        self.trace.log(
+            "hint_generated",
+            intent=intent,
+            steps_taken=self.game_state.steps_taken,
+            tokens_used=0,
+        )
 
         return await self.commit_and_reveal_to_peer(peer_url, action, intent, text)
 
@@ -120,8 +131,14 @@ class BrainTurnMixin:
         `receive_reveal`'s ack already flags an over-limit hint to the
         sender, but the ack alone doesn't stop the *content* from reaching
         this callback.
+
+        PRD 7: also persists `(move, hint_text)` into `self.peer_trace`
+        (`integrity/peer_trace.py`) — closes PRD 6's own "Known gap" for
+        real. Persisting is not the same as trusting it: `move` still
+        never feeds belief state here (DQ2 stands, unverified until Final
+        Reveal); it's only recorded for `run_peer_audit`'s own later use.
         """
-        del move  # unverified claim (DQ2) — not consumed here, see docstring
+        self.peer_trace.record_reveal(move, hint_text)
         if len(hint_text.split()) <= self.config.hint_word_limit:
             focal_point = interpret_hint(hint_text, self.board)
             self.belief_map.update_from_hint(focal_point, self.board)

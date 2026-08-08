@@ -166,46 +166,48 @@ uv run python scripts/watch_prd5_tunnel.py   # tunnel wrapper parsed against a l
 
 ## PRD 7 — Reporting and visualization shell
 
-- [ ] rule 8 — live UI displays local truth only
-- [ ] rule 9 — live UI never displays the full objective board
-- [ ] rule 20 — Replay/verifier app built
-- [ ] rule 28 — token-bucket rate limiter for outgoing Gmail
-- [ ] rule 29 — DOS detector protecting network resources
-- [ ] rule 30 — Gmail API send-only scope
-- [ ] rule 31 — minimum mandatory games played, against different teams
-- [ ] rule 32 — game results reported automatically via Gmail API
-- [ ] rule 33 — report formatted as standard JSON
-- [ ] rule 34 — final report sent as JSON attachment, never free text
-- [ ] rule 35 — result agreed with opponent; each team sends its own separate report
-- [ ] rule 36 — comprehensive mutual log audit at end of every game
-- [ ] rule 37 — accurately declare games played so far, each game start
-- [ ] rule 38 — never falsely declare games played
-- [ ] rule 39 — never push secrets/credentials, even to a private repo
-- [ ] rule 40 — credentials/secrets added to `.gitignore`
-- [ ] rule 41 — submission version tagged in git
-- [ ] rule 42 — academic report written in `README.md`
-- [ ] rule 43 — Moodle submission form downloaded, filled, saved as PDF unaltered
-- [ ] rule 44 — submitted on Moodle separately by each team member
-- [ ] rule 45 — unique 8-character team code, no spaces
-- [ ] rule 49 — two separate GitHub repos, cross-linked in both READMEs
-- [ ] rule 50 — README/config/PRD/PLAN/TODO present in the repo (this file + `PRD/` in progress)
-- [ ] rule 51 — reports sent to the lecturer's agent-reporting address
-- [ ] rule 52 — exactly one counted game per opponent
-- [ ] rule 54 — total tokens consumed reported in the final JSON
-- [ ] rule 55 — self-score covers code quality only, never the league result
-- [ ] build: live GUI — belief heatmap + turn banner
-- [ ] build: Replay app — `Verified OK` / `TAMPERED` states
-- [ ] build: Gmail OAuth 2.0 setup (Appendix A), send-only scope
-- [ ] build: `ApiGatekeeper` — token bucket + DOS detector (reconciled with Table 19, see PLAN.md §4)
-- [ ] build: final JSON report generator
-- [ ] test: GUI cannot render the opponent's true position (check data reaching the render call)
-- [ ] test: Replay app rejects a tampered log, accepts a clean one (milestone)
-- [ ] test: report is an attached JSON file, never body text
-- [ ] test: `.gitignore` covers `credentials.json`/`token.json`/`.env`; `git log --all --full-history` finds no trace
-- [ ] research: results-analysis notebook + parameter-sensitivity pass + token-cost table (guide §9/§11)
-- [ ] milestone watched end-to-end by a human
-- [ ] `rule-auditor` run, zero fatal violations
-- [ ] `PRD/PRD-7-reporting-shell.md` written; commit
+Status: **Built & verified, with two acknowledged gaps** — full detail in `PRD/PRD-7-reporting-shell.md`'s own Retrospective. In short: every one of the six Build items exists, is tested, and (for the two with visible behaviour) was watched running live; the two gaps are (1) no automatic end-of-game sequence in `src/` chains the two audits + report bundle + Gmail send together yet, and (2) the capture-claim/response protocol (built in PRD 3/6, not this layer) is still unwired from the live turn loop. Neither is a PRD 7 checklist item that was skipped — both are new scope `rule-auditor`'s full-rule-set pass surfaced, deliberately left for a dedicated future PRD/TODO rather than absorbed silently into this closing pass.
+
+- [x] rule 8 — live UI displays local truth only
+- [x] rule 9 — live UI never displays the full objective board
+- [x] rule 20 — Replay/verifier app built
+- [x] rule 28 — token-bucket rate limiter for outgoing Gmail
+- [x] rule 29 — DOS detector protecting network resources
+- [x] rule 30 — Gmail API send-only scope
+- [ ] rule 31 — minimum mandatory games played, against different teams (**[admin]** — needs real opposing teams; `league_ledger.py` tracks it)
+- [ ] rule 32 — game results reported automatically via Gmail API (**gap** — `send_report`/`send_report_bundle` exist and are tested, but nothing calls them automatically at game end; see Retrospective)
+- [x] rule 33 — report formatted as standard JSON
+- [x] rule 34 — final report sent as JSON attachment, never free text
+- [x] rule 35 — this side's own send is code; "opponent also reports and matches" is inherently cross-repo (**[honesty]**/**[admin]**)
+- [ ] rule 36 — comprehensive mutual log audit at end of every game (**gap** — both audits are built and adversarially tested, but not chained into one automatic end-of-game call; see Retrospective)
+- [x] rule 37 — `league_ledger.py` produces the count truthfully (**[honesty]** — nothing forces honesty, same as `Intent`)
+- [x] rule 38 — same mechanism as 37, the lying-is-caught-at-reconciliation half
+- [x] rule 39 — never push secrets/credentials, even to a private repo (swept, empty)
+- [x] rule 40 — credentials/secrets added to `.gitignore`
+- [ ] rule 41 — submission version tagged in git (**[admin]** — a command run once at submission time)
+- [x] rule 42 — academic report written in `README.md` (created this closing pass; the six ch. 9.4.2 sections are present — screenshots still need a human with a display, see README's own `TODO:` marker)
+- [ ] rule 43 — Moodle submission form downloaded, filled, saved as PDF unaltered (**[admin]**)
+- [ ] rule 44 — submitted on Moodle separately by each team member (**[admin]**)
+- [ ] rule 45 — unique 8-character team code, no spaces (**[admin]**)
+- [ ] rule 49 — two separate GitHub repos, cross-linked in both READMEs (`README.md` has the section; the actual thief-repo URL is still a placeholder pending confirmation)
+- [x] rule 50 — README/config/PRD/PLAN/TODO present in the repo (`README.md` was missing entirely until this closing pass — corrected)
+- [x] rule 51 — reports sent to the lecturer's agent-reporting address (`config/game.toml`'s `[email].recipient`, read by `gmail_sender.py`)
+- [x] rule 52 — exactly one counted game per opponent (`league_ledger.py` rejection-tested)
+- [x] rule 54 — total tokens consumed reported in the final JSON
+- [x] rule 55 — self-score covers code quality only, never the league result (**[admin]** — a framing instruction)
+- [x] build: live GUI — belief heatmap + turn banner
+- [x] build: Replay app — `Verified OK` / `TAMPERED` states
+- [x] build: Gmail OAuth 2.0 setup (Appendix A), send-only scope
+- [x] build: `ApiGatekeeper` — token bucket + DOS detector (reconciled with Table 19, see PLAN.md §4)
+- [x] build: final JSON report generator
+- [x] test: GUI cannot render the opponent's true position (check data reaching the render call)
+- [x] test: Replay app rejects a tampered log, accepts a clean one (milestone)
+- [x] test: report is an attached JSON file, never body text
+- [x] test: `.gitignore` covers `credentials.json`/`token.json`/`.env`; `git log --all --full-history` finds no trace
+- [x] research: results-analysis notebook + parameter-sensitivity pass + token-cost table (guide §9/§11)
+- [x] milestone watched end-to-end by a human (`scripts/watch_prd7_live_gui.py`, `scripts/watch_prd7_replay.py`)
+- [x] `rule-auditor` run — zero fatal-rule violations found live; two non-fatal wiring gaps documented (see Retrospective)
+- [x] `PRD/PRD-7-reporting-shell.md` written; commit
 
 ## Cross-cutting / submission
 

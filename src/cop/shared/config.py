@@ -12,14 +12,15 @@ presence-checked (TODO1.md #4). `arena` may legitimately be `""` (Table 14's
 
 `todoFullFix.md` §A2: `from_dict()` reads Appendix B's actual nested schema
 (`board_and_agents`/`world`/`movement_and_barriers`/`scoring`/`pheromones`/
-`network_and_league`, plus top-level `schema_version`/`agreed_between`) —
-confirmed by reading Appendix B directly (p.126-132), not the flat, invented
-shape earlier PRDs used. This dataclass's own attribute names stay
-unchanged: Appendix B governs the negotiated *file* schema, not either
-team's internal naming, and every other module reads fields via
-`config.<attr>`, name-agnostic to the JSON's shape — `from_dict()` is the
-one translation point. `PARAMETERS.md`'s mapping table cross-references the
-two naming schemes.
+`network_and_league`/`rate_limiter_gatekeeper`, plus top-level
+`schema_version`/`agreed_between`) — confirmed by reading Appendix B directly
+(p.126-132), not the flat, invented shape earlier PRDs used. This dataclass's
+own attribute names stay unchanged: Appendix B governs the negotiated *file*
+schema, not either team's internal naming, and every other module reads
+fields via `config.<attr>`, name-agnostic to the JSON's shape — `from_dict()`
+is the one translation point. `PARAMETERS.md`'s mapping table cross-references
+the two naming schemes. Validators live in `config_validators.py` (split out
+once PRD 7's own new fields pushed this file past the 150-line cap).
 """
 
 from __future__ import annotations
@@ -29,40 +30,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .config_validators import non_negative_int, positive_int, positive_number, string
+
 _SUPPORTED_ORIGIN = "top-left"
 _SUPPORTED_INDEX_BASE = 0
-
-
-def _positive_int(data: dict[str, Any], key: str) -> int:
-    value = data[key]
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ValueError(f"{key} must be a positive int, got {value!r}")
-    return value
-
-
-def _non_negative_int(data: dict[str, Any], key: str) -> int:
-    value = data[key]
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        raise ValueError(f"{key} must be a non-negative int, got {value!r}")
-    return value
-
-
-def _string(data: dict[str, Any], key: str) -> str:
-    value = data[key]
-    if not isinstance(value, str):
-        raise ValueError(f"{key} must be a string, got {value!r}")
-    return value
-
-
-def _positive_number(data: dict[str, Any], key: str) -> float:
-    """Like `_positive_int`, but accepts a float too — timeouts (Table 19) are
-    seconds, and a sub-second value is a legitimate thing to negotiate for a
-    faster test suite, unlike board_size/quota/score fields which are always
-    whole counts."""
-    value = data[key]
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"{key} must be a positive number, got {value!r}")
-    return float(value)
 
 
 @dataclass(frozen=True)
@@ -90,10 +61,16 @@ class GameConfig:
     scent_field_size: int
     schema_version: str
     agreed_between: tuple[str, ...]
+    token_budget_per_series: int
+    rate_limit_requests_per_minute: float
+    rate_limit_concurrent_requests: int
+    rate_limit_retry_backoff_seconds: float
+    rate_limit_max_retries: int
+    rate_limit_queue_depth: int
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GameConfig:
-        """Pull PRD 1-4's fields out of the full, Appendix-B-shaped config dict.
+        """Pull PRD 1-7's fields out of the full, Appendix-B-shaped config dict.
 
         `KeyError` means the config is *incomplete* — a missing nested group
         (e.g. no `board_and_agents` at all) fails loudly rather than
@@ -106,6 +83,7 @@ class GameConfig:
         scoring = data["scoring"]
         pheromones = data["pheromones"]
         network_and_league = data["network_and_league"]
+        rate_limiter_gatekeeper = data["rate_limiter_gatekeeper"]
 
         origin = board_and_agents["axis_origin_corner"]
         index_base = board_and_agents["axis_start_index"]
@@ -118,29 +96,41 @@ class GameConfig:
             )
 
         return cls(
-            board_size=_positive_int(board_and_agents, "grid_size"),
-            agent_count=_positive_int(board_and_agents, "num_agents"),
+            board_size=positive_int(board_and_agents, "grid_size"),
+            agent_count=positive_int(board_and_agents, "num_agents"),
             origin=origin,
             index_base=index_base,
             thief_start=tuple(board_and_agents["thief_start"]),
             cop_start=tuple(board_and_agents["cop_start"]),
-            barrier_quota=_non_negative_int(movement_and_barriers, "max_barriers"),
-            step_ceiling=_positive_int(movement_and_barriers, "max_moves"),
-            survival_threshold=_positive_int(movement_and_barriers, "survival_threshold"),
-            score_capture_cop=_non_negative_int(scoring, "capture_cop"),
-            score_capture_thief=_non_negative_int(scoring, "capture_thief"),
-            score_survival_cop=_non_negative_int(scoring, "survival_cop"),
-            score_survival_thief=_non_negative_int(scoring, "survival_thief"),
-            score_draw=_non_negative_int(scoring, "tie_score"),
-            response_timeout_seconds=_positive_number(network_and_league, "response_timeout_sec"),
-            watchdog_threshold_seconds=_positive_number(network_and_league, "watchdog_timeout_sec"),
-            arena=_string(world, "map_area"),
-            hint_word_limit=_positive_int(world, "hint_max_words"),
-            scent_source_strength=_positive_number(pheromones, "pheromone_center_intensity"),
-            scent_decay_rate=_positive_number(pheromones, "pheromone_decay"),
-            scent_field_size=_positive_int(pheromones, "pheromone_grid_size"),
-            schema_version=_string(data, "schema_version"),
+            barrier_quota=non_negative_int(movement_and_barriers, "max_barriers"),
+            step_ceiling=positive_int(movement_and_barriers, "max_moves"),
+            survival_threshold=positive_int(movement_and_barriers, "survival_threshold"),
+            score_capture_cop=non_negative_int(scoring, "capture_cop"),
+            score_capture_thief=non_negative_int(scoring, "capture_thief"),
+            score_survival_cop=non_negative_int(scoring, "survival_cop"),
+            score_survival_thief=non_negative_int(scoring, "survival_thief"),
+            score_draw=non_negative_int(scoring, "tie_score"),
+            response_timeout_seconds=positive_number(network_and_league, "response_timeout_sec"),
+            watchdog_threshold_seconds=positive_number(network_and_league, "watchdog_timeout_sec"),
+            arena=string(world, "map_area"),
+            hint_word_limit=positive_int(world, "hint_max_words"),
+            scent_source_strength=positive_number(pheromones, "pheromone_center_intensity"),
+            scent_decay_rate=positive_number(pheromones, "pheromone_decay"),
+            scent_field_size=positive_int(pheromones, "pheromone_grid_size"),
+            schema_version=string(data, "schema_version"),
             agreed_between=tuple(data["agreed_between"]),
+            token_budget_per_series=positive_int(network_and_league, "token_budget_per_series"),
+            rate_limit_requests_per_minute=positive_number(
+                rate_limiter_gatekeeper, "requests_per_minute"
+            ),
+            rate_limit_concurrent_requests=positive_int(
+                rate_limiter_gatekeeper, "concurrent_requests"
+            ),
+            rate_limit_retry_backoff_seconds=positive_number(
+                rate_limiter_gatekeeper, "retry_backoff_sec"
+            ),
+            rate_limit_max_retries=positive_int(rate_limiter_gatekeeper, "max_retries"),
+            rate_limit_queue_depth=positive_int(rate_limiter_gatekeeper, "queue_depth"),
         )
 
     @classmethod

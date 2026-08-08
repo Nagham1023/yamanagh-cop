@@ -37,6 +37,7 @@ SEAM_FUNCTION = "ground_truth_target_position"
 SUBGAME_PATH = SRC_ROOT / "reasoning" / "subgame.py"
 ORCHESTRATOR_PATH = SRC_ROOT / "orchestrator.py"
 ORCHESTRATOR_TURN_PATH = SRC_ROOT / "orchestrator_turn.py"
+PEER_TRACE_PATH = SRC_ROOT / "integrity" / "peer_trace.py"
 
 
 def _is_seam_call(node: ast.AST | None) -> bool:
@@ -101,8 +102,20 @@ def test_orchestrator_turn_no_longer_routes_target_pos_through_the_ground_truth_
     )
 
 
+def test_peer_trace_routes_its_throwaway_target_pos_through_the_ground_truth_seam():
+    # PRD 7: run_peer_audit's GameState reconstruction never reads target_pos
+    # at all (only own_pos/steps_taken/barriers feed canonical_state_bytes) —
+    # neither ground-truth nor belief-driven, so it's routed through the
+    # seam's own identity function rather than left bare, keeping it honest
+    # about being a pass-through value, not a third semantic category.
+    sites = _sites_in(PEER_TRACE_PATH)
+    assert len(sites) == 1, f"expected exactly 1 target_pos site in peer_trace.py, found {sites}"
+    ((_, routes),) = sites
+    assert routes, "peer_trace.py's throwaway target_pos should route through the seam function"
+
+
 def test_no_other_file_has_grown_an_unaccounted_for_target_pos_assignment():
-    known = {SUBGAME_PATH, ORCHESTRATOR_PATH, ORCHESTRATOR_TURN_PATH}
+    known = {SUBGAME_PATH, ORCHESTRATOR_PATH, ORCHESTRATOR_TURN_PATH, PEER_TRACE_PATH}
     unexpected = []
     for path in SRC_ROOT.rglob("*.py"):
         if path in known:

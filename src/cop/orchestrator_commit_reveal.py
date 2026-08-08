@@ -2,9 +2,13 @@
 out of `orchestrator_peer.py`, which would otherwise cross the 150-line
 house cap once this landed alongside the PRD 4/5 scent-map/connection
 machinery. A mixin, not a standalone class: reaches into `self.trace`,
-`self.state_machine`, `self.config`, `self.game_state`, and
-`self._pending_nonces` (all set up by `Orchestrator.__init__`), plus
+`self.state_machine`, `self.config`, `self.game_state`, `self._pending_nonces`,
+and `self._pending_intents` (all set up by `Orchestrator.__init__`), plus
 `self._fail_to_technical_loss` from the sibling `PeerCommsMixin`.
+`self._pending_intents` is PRD 7's own addition — `send_final_reveal_to_peer`
+(`orchestrator_peer_audit.py`) needs both the nonce and the Intent flag for
+this side's own committed envelope to let the peer's own `run_peer_audit`
+recompute `Hcommit` (ch. 5.3.1's equation needs `Intent`, not just `Nonce`).
 
 Supersedes PRD 4's `send_to_peer` (a bare, uncommitted hint) — `take_turn`
 (`orchestrator_turn.py`) calls `commit_and_reveal_to_peer` now.
@@ -122,6 +126,7 @@ class CommitRevealMixin:
                 f"revealed move at step {step} does not match this side's own earlier commit"
             )
         self._pending_nonces[step] = nonce
+        self._pending_intents[step] = intent
         self.trace.log(
             "revealed",
             h_commit=h_commit,

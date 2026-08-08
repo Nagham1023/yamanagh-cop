@@ -13,7 +13,7 @@ from dataclasses import replace
 import pytest
 
 from cop.domain.board import Position
-from cop.integrity.commit_reveal import CommitEnvelope, commit, move_to_wire, verify
+from cop.integrity.commit_reveal import CommitEnvelope, commit, move_to_wire, verify, wire_to_action
 from cop.reasoning.brain_base import Move, PlaceBarrier
 
 _STATE = b'{"barriers_placed":[],"own_pos":[2,2],"steps_taken":3}'
@@ -93,3 +93,26 @@ def test_verify_uses_compare_digest_not_equality(monkeypatch):
     envelope = _envelope()
     verify(envelope, commit(envelope))
     assert len(calls) == 1
+
+
+def test_wire_to_action_is_the_true_inverse_of_move_to_wire():
+    assert wire_to_action(move_to_wire(Move(direction="NORTH"))) == Move(direction="NORTH")
+    assert wire_to_action(move_to_wire(PlaceBarrier(target=Position(4, 5)))) == PlaceBarrier(
+        target=Position(4, 5)
+    )
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        {"type": "move"},  # missing direction
+        {"type": "move", "direction": 5},  # wrong type
+        {"type": "place_barrier", "col": "not-an-int", "row": 1},
+        {"type": "place_barrier", "row": 1},  # missing col
+        {"type": "levitate"},  # unrecognized type
+        {},  # no type at all
+    ],
+)
+def test_wire_to_action_rejects_malformed_input(malformed):
+    with pytest.raises(ValueError):
+        wire_to_action(malformed)

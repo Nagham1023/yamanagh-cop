@@ -37,7 +37,7 @@ def register_prd6_tools(
     on_receive: Callable[[str | None], None] | None,
     on_commit: Callable[[str], None] | None = None,
     on_reveal: Callable[[dict, str], None] | None = None,
-    on_final_reveal: Callable[[dict], None] | None = None,
+    on_final_reveal: Callable[[dict, dict], None] | None = None,
     on_barrier_declaration: Callable[[int, int], None] | None = None,
     on_capture_claim: Callable[[int, int, int, int, int], None] | None = None,
     on_capture_response: Callable[[bool, int, int], None] | None = None,
@@ -71,14 +71,23 @@ def register_prd6_tools(
         return {"accepted": accepted, "word_count": word_count}
 
     @mcp.tool
-    def receive_final_reveal(nonces: dict) -> dict:
-        """Step 4, end-of-game only: every one of this peer's own nonces for
-        the whole match, keyed by step number as a string (JSON object keys
-        are always strings) — enables `integrity/audit.py`'s full replay."""
+    def receive_final_reveal(nonces: dict, intents: dict) -> dict:
+        """Step 4, end-of-game only: every one of this peer's own nonces
+        *and* Intent flags for the whole match, both keyed by step number as
+        a string (JSON object keys are always strings). `Intent` — like the
+        nonce — is never revealed earlier (ch. 5.3.1's own `Hcommit`
+        equation needs it to recompute the hash; `move`/`hint_text` alone,
+        already revealed at Step 3, aren't enough). `State` is deliberately
+        *not* part of this payload at all: the auditing side reconstructs it
+        locally by replaying the peer's own revealed `Move` sequence from
+        their publicly known start position (`board_and_agents.thief_start`/
+        `cop_start`, part of the shared, locked config) — never transmitted
+        as a position claim, matching rule 27. Enables
+        `integrity/peer_trace.py::run_peer_audit`'s full bilateral replay."""
         if on_receive is not None:
             on_receive(caller_ip())
         if on_final_reveal is not None:
-            on_final_reveal(nonces)
+            on_final_reveal(nonces, intents)
         return {"acknowledged": True}
 
     @mcp.tool

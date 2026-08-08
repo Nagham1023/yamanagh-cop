@@ -45,4 +45,10 @@ def config() -> GameConfig:
         scent_field_size=5,
         schema_version="1.2",
         agreed_between=("group-a", "group-b"),
+        token_budget_per_series=200_000,
+        rate_limit_requests_per_minute=30.0,
+        rate_limit_concurrent_requests=2,
+        rate_limit_retry_backoff_seconds=5.0,
+        rate_limit_max_retries=3,
+        rate_limit_queue_depth=100,
     )

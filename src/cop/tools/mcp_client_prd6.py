@@ -25,9 +25,11 @@ async def send_reveal(url: str, move: dict, hint_text: str) -> dict[str, Any]:
         return result.data
 
 
-async def send_final_reveal(url: str, nonces: dict) -> dict[str, Any]:
+async def send_final_reveal(url: str, nonces: dict, intents: dict) -> dict[str, Any]:
     async with Client(url) as client:
-        result = await client.call_tool("receive_final_reveal", {"nonces": nonces})
+        result = await client.call_tool(
+            "receive_final_reveal", {"nonces": nonces, "intents": intents}
+        )
         return result.data
 
 

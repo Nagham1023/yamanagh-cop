@@ -37,7 +37,7 @@ def _start_server(config) -> str:
 
 def test_send_final_reveal_round_trips_over_real_http(config):
     url = _start_server(config)
-    data = asyncio.run(send_final_reveal(url, {"0": "a" * 32}))
+    data = asyncio.run(send_final_reveal(url, {"0": "a" * 32}, {"0": False}))
     assert data == {"acknowledged": True}
 
 

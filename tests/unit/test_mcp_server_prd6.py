@@ -54,12 +54,16 @@ def test_receive_commit_acknowledges_and_fires_on_commit(config):
 
 def test_receive_final_reveal_acknowledges_and_fires_on_final_reveal(config):
     received = []
-    mcp = build_server(config, on_final_reveal=lambda nonces: received.append(nonces))
+    mcp = build_server(
+        config, on_final_reveal=lambda nonces, intents: received.append((nonces, intents))
+    )
 
-    data = _call(mcp, "receive_final_reveal", {"nonces": {"0": "b" * 32}})
+    data = _call(
+        mcp, "receive_final_reveal", {"nonces": {"0": "b" * 32}, "intents": {"0": False}}
+    )
 
     assert data == {"acknowledged": True}
-    assert received == [{"0": "b" * 32}]
+    assert received == [({"0": "b" * 32}, {"0": False})]
 
 
 def test_receive_barrier_declaration_acknowledges_and_fires_on_barrier_declaration(config):
@@ -108,7 +112,7 @@ def test_on_receive_fires_on_final_reveal_capture_claim_and_capture_response(con
     calls = []
     mcp = build_server(config, on_receive=lambda ip: calls.append(ip))
 
-    _call(mcp, "receive_final_reveal", {"nonces": {}})
+    _call(mcp, "receive_final_reveal", {"nonces": {}, "intents": {}})
     _call(
         mcp,
         "receive_capture_claim",
@@ -125,7 +129,7 @@ def test_every_prd6_callback_is_optional(config):
     mcp = build_server(config)
 
     assert _call(mcp, "receive_commit", {"h_commit": "a" * 64}) == {"acknowledged": True}
-    assert _call(mcp, "receive_final_reveal", {"nonces": {}}) == {"acknowledged": True}
+    assert _call(mcp, "receive_final_reveal", {"nonces": {}, "intents": {}}) == {"acknowledged": True}
     assert _call(mcp, "receive_barrier_declaration", {"col": 0, "row": 0}) == {"acknowledged": True}
     assert _call(
         mcp,

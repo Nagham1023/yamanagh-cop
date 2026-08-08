@@ -5,6 +5,9 @@ description = "Cop peer for the Distributed Cops-and-Robbers P2P game (Orchestra
 requires-python = ">=3.11"
 dependencies = [
     "fastmcp>=3.4.6",
+    "google-api-python-client>=2.198.0",
+    "google-auth>=2.56.3",
+    "google-auth-oauthlib>=1.4.0",
 ]
 
 [dependency-groups]

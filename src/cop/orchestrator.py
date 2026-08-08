@@ -32,11 +32,13 @@ from fastmcp import FastMCP
 
 from .domain.barriers import BarrierSet
 from .domain.board import Board, Position
+from .integrity.peer_trace import PeerTrace
 from .memory.belief import BeliefMap
 from .memory.scent import ScentField
 from .observability.trace import Trace
 from .orchestrator_commit_reveal import CommitRevealMixin
 from .orchestrator_peer import PeerCommsMixin
+from .orchestrator_peer_audit import PeerAuditMixin
 from .orchestrator_server import ServerLifecycleMixin
 from .orchestrator_turn import BrainTurnMixin
 from .planner.state_machine import PeerStateMachine
@@ -51,7 +53,7 @@ from .tools.mcp_server import build_server
 _DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
 
 
-class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, ServerLifecycleMixin):
+class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, PeerAuditMixin, ServerLifecycleMixin):
     def __init__(
         self,
         config: GameConfig,
@@ -80,6 +82,13 @@ class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, ServerLife
         # transmitted) until `receive_final_reveal` sends them all at game
         # end — keyed by step, filled in by `commit_and_reveal_to_peer`.
         self._pending_nonces: dict[int, str] = {}
+        # PRD 7: this side's own Intent flags, same lifetime/reason as
+        # `_pending_nonces` — `send_final_reveal_to_peer` needs both.
+        self._pending_intents: dict[int, bool] = {}
+        # PRD 7: the peer's own committed-and-revealed data, assembled from
+        # `on_commit`/`on_reveal`/`on_final_reveal` — `orchestrator_peer_audit.py`'s
+        # `run_peer_audit` verifies against this, the bilateral half of rule 19/36.
+        self.peer_trace = PeerTrace()
         self.watchdog = Watchdog(
             threshold_seconds=config.watchdog_threshold_seconds,
             persist_state=lambda: self.trace.log(
@@ -94,4 +103,6 @@ class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, ServerLife
             on_receive=self._on_connection_received,
             get_scent_field=self._get_and_commit_scent_field,
             on_reveal=self._on_reveal_received,
+            on_commit=self._on_commit_received,
+            on_final_reveal=self._on_final_reveal_received,
         )

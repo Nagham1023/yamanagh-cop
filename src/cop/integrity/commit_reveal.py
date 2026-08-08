@@ -17,6 +17,7 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 
+from ..domain.board import Position
 from ..reasoning.brain_base import Action, Move, PlaceBarrier
 from .canonical_json import canonical_json_bytes
 
@@ -43,6 +44,28 @@ def move_to_wire(action: Action) -> dict:
         case PlaceBarrier(target=target):
             return {"type": "place_barrier", "col": target.col, "row": target.row}
     raise TypeError(f"not a recognized Action: {action!r}")  # pragma: no cover — exhaustive match
+
+
+def wire_to_action(move: dict) -> Action:
+    """The inverse of `move_to_wire` — needed by `integrity/peer_trace.py`
+    to replay a peer's own revealed `Move` sequence and reconstruct their
+    `State` locally (never transmitted as a position claim, rule 27).
+    Untrusted input (rule 9): raises `ValueError`, this project's own
+    convention for "present but nonsensical," on a malformed shape rather
+    than letting a `KeyError`/`TypeError` surface from deep inside the
+    replay logic."""
+    move_type = move.get("type")
+    if move_type == "move":
+        direction = move.get("direction")
+        if not isinstance(direction, str):
+            raise ValueError(f"malformed move wire payload: {move!r}")
+        return Move(direction=direction)
+    if move_type == "place_barrier":
+        col, row = move.get("col"), move.get("row")
+        if not isinstance(col, int) or not isinstance(row, int):
+            raise ValueError(f"malformed place_barrier wire payload: {move!r}")
+        return PlaceBarrier(target=Position(col, row))
+    raise ValueError(f"unrecognized move wire payload: {move!r}")
 
 
 def _canonical_envelope_bytes(envelope: CommitEnvelope) -> bytes:

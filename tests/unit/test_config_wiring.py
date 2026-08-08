@@ -48,7 +48,13 @@ def test_barrier_quota_from_config_drives_quota_rejection(tmp_path):
             "survival_cop": 5, "survival_thief": 10, "tie_score": 2, "technical_loss": 0,
         },
         "pheromones": {"pheromone_center_intensity": 0.9, "pheromone_decay": 0.10, "pheromone_grid_size": 5},
-        "network_and_league": {"response_timeout_sec": 30, "watchdog_timeout_sec": 60},
+        "network_and_league": {
+            "response_timeout_sec": 30, "watchdog_timeout_sec": 60, "token_budget_per_series": 200000,
+        },
+        "rate_limiter_gatekeeper": {
+            "requests_per_minute": 30, "concurrent_requests": 2,
+            "retry_backoff_sec": 5, "max_retries": 3, "queue_depth": 100,
+        },
     }
     path = tmp_path / "config_quota_one.json"
     path.write_text(json.dumps(custom), encoding="utf-8")
