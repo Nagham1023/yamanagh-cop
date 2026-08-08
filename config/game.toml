@@ -10,7 +10,7 @@ group_name = "dev-team"
 group_id = "dev-team"
 sub_game_number = 1
 members = ["dev-1"]
-repos = { cop = "https://github.com/dev-team/cop-repo", thief = "https://github.com/dev-team/thief-repo" }
+repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://github.com/yamandahle/thief-peer" }
 
 [network]
 my_port = 8801               # this peer's own MCP server port

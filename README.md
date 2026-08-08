@@ -10,11 +10,10 @@ non-negotiable invariants, `PLAN.md` for the full architecture, and `PRD/`
 
 ## Companion (thief) repo
 
-`TODO: real thief-repo GitHub URL — placeholder until the teammate's repo
-link is confirmed (rule 49's four cross-links).` `config/game.toml`'s
-`[repos]` block holds the negotiated URLs used by the report bundle
-(`tools/report_bundle.py`); this line is the human-readable pointer the
-README itself is required to carry.
+[yamandahle/thief-peer](https://github.com/yamandahle/thief-peer) — the thief role for this
+match (rule 49's four cross-links). `config/game.toml`'s `[repos]` block holds the same
+negotiated URLs used by the report bundle (`tools/report_bundle.py`); this line is the
+human-readable pointer the README itself is required to carry.
 
 ## Running it
 

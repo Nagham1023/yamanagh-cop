@@ -189,7 +189,7 @@ Status: **Built & verified, with two acknowledged gaps** — full detail in `PRD
 - [ ] rule 43 — Moodle submission form downloaded, filled, saved as PDF unaltered (**[admin]**)
 - [ ] rule 44 — submitted on Moodle separately by each team member (**[admin]**)
 - [ ] rule 45 — unique 8-character team code, no spaces (**[admin]**)
-- [ ] rule 49 — two separate GitHub repos, cross-linked in both READMEs (`README.md` has the section; the actual thief-repo URL is still a placeholder pending confirmation)
+- [x] rule 49 — two separate GitHub repos, cross-linked (`README.md`'s own section, `config/game.toml`'s `[repos]` block: cop `https://github.com/Nagham1023/yamanagh-cop`, thief `https://github.com/yamandahle/thief-peer`) — this side's own two links confirmed; the thief repo's own README carrying the reverse cross-link is that team's job, not verifiable from here
 - [x] rule 50 — README/config/PRD/PLAN/TODO present in the repo (`README.md` was missing entirely until this closing pass — corrected)
 - [x] rule 51 — reports sent to the lecturer's agent-reporting address (`config/game.toml`'s `[email].recipient`, read by `gmail_sender.py`)
 - [x] rule 52 — exactly one counted game per opponent (`league_ledger.py` rejection-tested)
@@ -234,7 +234,7 @@ Status: **Built & verified.** Closes both gaps `rule-auditor`'s PRD 7 closing-pa
 
 ## Cross-cutting / submission
 
-- [ ] `README.md` written — install/usage, thief-repo link, screenshots (deferred from PRD 1's wrap-up, don't let it slip further)
+- [x] `README.md` written — "Running it" (install/usage), thief-repo link (confirmed: `https://github.com/yamandahle/thief-peer`) — [ ] screenshots (`screenshots/live_gui_verified.png`, `replay_verified_ok.png`, `replay_tampered.png`) still need a human with a display to run `scripts/watch_prd7_live_gui.py`/`watch_prd7_replay.py` and capture them
 - [ ] tag `v1.0-submission` pushed
 - [ ] Moodle form filled, saved as PDF, fields untouched
 - [ ] submitted on Moodle separately by each team member
