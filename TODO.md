@@ -209,6 +209,29 @@ Status: **Built & verified, with two acknowledged gaps** — full detail in `PRD
 - [x] `rule-auditor` run — zero fatal-rule violations found live; two non-fatal wiring gaps documented (see Retrospective)
 - [x] `PRD/PRD-7-reporting-shell.md` written; commit
 
+## PRD 8 — Live match wiring
+
+Status: **Built & verified.** Closes both gaps `rule-auditor`'s PRD 7 closing-pass review found: the capture-claim/response protocol (rules 21/22) is now called from the live turn loop, and an automatic end-of-game sequence (rules 32/36) runs the audits, league bookkeeping, and report send together for the first time. Full detail in `PRD/PRD-8-live-match-wiring.md`'s own Retrospective — including two real bugs found only by running the code (a cross-event-loop `asyncio.Event` thread-safety bug, and a pre-existing test that started hanging once real capture claims could fire), not anticipated by design review alone.
+
+- [x] rule 1/2 — still no shared live state, no thief brain anywhere; every new test uses a second real cop `Orchestrator` standing in for the peer, same established discipline
+- [x] rule 6/7 — the new capture-response wait reuses `AWAITING_REVEAL`'s already-legal `TECHNICAL_LOSS` edge (no new state-machine state); rejection-tested (a non-responding peer, and a peer lacking the tool entirely)
+- [x] rule 19 — the audit half of end-of-game reporting now actually runs automatically (`report_game()`), not just on request
+- [x] rule 21 — capture claims are now genuinely sent from live play (`play_game()` → `take_turn()` → `commit_and_reveal_to_peer` → `_claim_capture_if_warranted`), honestly grounded in the cop's own belief, not a verified fact (Design Question 1, confirmed against the book)
+- [x] rule 22 — the response side is real and adversarially tested: a wrong belief gets `confirmed=False` and the game continues normally, not a technical loss
+- [x] rule 31/37/38/52 — `league_ledger.record_counted_game` is now actually called at game end (`report_game()`, gated on a caller-supplied `is_counted`), not just built and unit-tested in isolation
+- [x] rule 32/36 — the automatic end-of-game sequence: final reveal → self-audit → peer-audit → league record → report send through the Gatekeeper, in that order, tested directly
+- [x] build: `reasoning/state.py::claims_capture()` — the honest, belief-only capture trigger
+- [x] build: `orchestrator_capture.py` — capture-claim send-and-await, wired inside `commit_and_reveal_to_peer`'s own `AWAITING_REVEAL` window (not a new state)
+- [x] build: `orchestrator_game_loop.py::play_game()` — the first live, multi-turn loop in this repo
+- [x] build: `orchestrator_end_of_game.py::report_game()` — the automatic end-of-game sequence
+- [x] test: the adversarial case — a claim built from a wrong belief is denied, not a rule 21 violation and not a technical loss (Design Question 1's own milestone)
+- [x] test: a peer that never responds to a claim, and a peer lacking the tool entirely, both reach `TECHNICAL_LOSS` within the deadline
+- [x] test: `play_game()` genuinely stops the instant an `Outcome` is reached — no extra turn
+- [x] test: `report_game()` calls each step in the documented order, and respects `is_counted`
+- [x] milestone watched end-to-end by a human (`scripts/watch_prd8_live_match.py`) — a real confirmed capture ending a match in one turn, and a denied claim continuing to an ordinary `SURVIVAL` ending, both live
+- [x] `rule-auditor` run — see `PRD-8-live-match-wiring.md`'s own Retrospective for the full findings
+- [x] `PRD/PRD-8-live-match-wiring.md` written, critiqued, corrected, and built; `TODO8.md` executed in full; commit
+
 ## Cross-cutting / submission
 
 - [ ] `README.md` written — install/usage, thief-repo link, screenshots (deferred from PRD 1's wrap-up, don't let it slip further)

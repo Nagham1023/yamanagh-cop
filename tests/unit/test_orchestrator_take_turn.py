@@ -202,6 +202,14 @@ def test_take_turn_zeroes_belief_at_a_newly_placed_barrier(config, tmp_path):
     )
     own_pos = client.game_state.own_pos
     assert client.belief_map.probability(own_pos) > 0.0
+    # PRD 8: a fresh uniform belief's most_likely_cell() happens to tie-break
+    # to own_pos here — pointed elsewhere so this belief-zeroing test doesn't
+    # incidentally also trigger a real capture claim (own_pos == the belief
+    # target is exactly this new layer's own trigger condition, Design
+    # Question 1) against a server that, correctly, never answers one.
+    client.game_state.target_pos = Position(
+        (own_pos.col + 3) % config.board_size, (own_pos.row + 3) % config.board_size
+    )
 
     asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
 

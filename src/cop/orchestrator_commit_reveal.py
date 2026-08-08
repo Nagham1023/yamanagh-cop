@@ -4,7 +4,8 @@ house cap once this landed alongside the PRD 4/5 scent-map/connection
 machinery. A mixin, not a standalone class: reaches into `self.trace`,
 `self.state_machine`, `self.config`, `self.game_state`, `self._pending_nonces`,
 and `self._pending_intents` (all set up by `Orchestrator.__init__`), plus
-`self._fail_to_technical_loss` from the sibling `PeerCommsMixin`.
+`self._fail_to_technical_loss` from the sibling `PeerCommsMixin` and
+`self._claim_capture_if_warranted` from the sibling `CaptureClaimMixin` (PRD 8).
 `self._pending_intents` is PRD 7's own addition — `send_final_reveal_to_peer`
 (`orchestrator_peer_audit.py`) needs both the nonce and the Intent flag for
 this side's own committed envelope to let the peer's own `run_peer_audit`
@@ -16,6 +17,7 @@ Supersedes PRD 4's `send_to_peer` (a bare, uncommitted hint) — `take_turn`
 
 from __future__ import annotations
 
+from .domain.board import Position
 from .integrity.commit_payload import canonical_state_bytes
 from .integrity.commit_reveal import CommitEnvelope, commit, move_to_wire, verify
 from .integrity.nonce import generate_nonce
@@ -28,7 +30,12 @@ _ROLE = "cop"  # rule 1/2: this repo's own role is a compile-time constant, neve
 
 class CommitRevealMixin:
     async def commit_and_reveal_to_peer(
-        self, peer_url: str, action: Action, intent: bool, hint_text: str
+        self,
+        peer_url: str,
+        action: Action,
+        intent: bool,
+        hint_text: str,
+        believed_thief_pos: Position | None = None,
     ) -> dict:
         """Commit `Hcommit` (Step 1), await the peer's ack (Step 2), reveal
         `(move, hint_text)` with the nonce still hidden (Step 3, rule 18),
@@ -116,6 +123,9 @@ class CommitRevealMixin:
             self.trace.log(
                 "barrier_declared", col=action.target.col, row=action.target.row, step=step
             )
+
+        # PRD 8, same window/reasoning as barrier declaration above (see orchestrator_capture.py).
+        await self._claim_capture_if_warranted(peer_url, action, believed_thief_pos, step)
 
         self.state_machine.transition("VERIFYING")
         if not verify(envelope, h_commit):

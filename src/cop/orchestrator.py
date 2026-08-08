@@ -26,23 +26,30 @@ Commit-Reveal round trip (`commit_and_reveal_to_peer`) lives in
 
 from __future__ import annotations
 
+import asyncio
 import random
 
 from fastmcp import FastMCP
 
 from .domain.barriers import BarrierSet
 from .domain.board import Board, Position
+from .integrity.capture_protocol import CaptureResponse
 from .integrity.peer_trace import PeerTrace
 from .memory.belief import BeliefMap
 from .memory.scent import ScentField
 from .observability.trace import Trace
+from .orchestrator_capture import CaptureClaimMixin
 from .orchestrator_commit_reveal import CommitRevealMixin
+from .orchestrator_end_of_game import EndOfGameMixin
+from .orchestrator_game_loop import GameLoopMixin
 from .orchestrator_peer import PeerCommsMixin
 from .orchestrator_peer_audit import PeerAuditMixin
 from .orchestrator_server import ServerLifecycleMixin
 from .orchestrator_turn import BrainTurnMixin
 from .planner.state_machine import PeerStateMachine
 from .planner.watchdog import Watchdog
+from .policy.gatekeeper import ApiGatekeeper
+from .policy.league_ledger import LeagueLedger
 from .reasoning.brain_base import BrainBase
 from .reasoning.state import GameState
 from .shared.config import GameConfig
@@ -53,7 +60,16 @@ from .tools.mcp_server import build_server
 _DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
 
 
-class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, PeerAuditMixin, ServerLifecycleMixin):
+class Orchestrator(
+    BrainTurnMixin,
+    CaptureClaimMixin,
+    CommitRevealMixin,
+    EndOfGameMixin,
+    GameLoopMixin,
+    PeerCommsMixin,
+    PeerAuditMixin,
+    ServerLifecycleMixin,
+):
     def __init__(
         self,
         config: GameConfig,
@@ -77,6 +93,12 @@ class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, PeerAuditM
         self.template_provider = TemplateHintProvider()
         self._rng = random.Random()
         self.trace = Trace(log_path)
+        # PRD 8: `Trace` keeps its own path private (`self._path`) — this
+        # repo's own `report_game()` needs to read it back to hand to
+        # `run_mutual_audit`, so `Orchestrator` keeps its own copy too.
+        self.log_path = log_path
+        self.league_ledger = LeagueLedger()
+        self.gatekeeper = ApiGatekeeper(config)
         self.state_machine = PeerStateMachine()
         # PRD 6, rule 18: this side's own nonces, retained (never
         # transmitted) until `receive_final_reveal` sends them all at game
@@ -89,6 +111,13 @@ class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, PeerAuditM
         # `on_commit`/`on_reveal`/`on_final_reveal` — `orchestrator_peer_audit.py`'s
         # `run_peer_audit` verifies against this, the bilateral half of rule 19/36.
         self.peer_trace = PeerTrace()
+        # PRD 8: capture-claim response correlation — `_claim_capture_if_warranted`
+        # (orchestrator_capture.py) waits on the event; `_on_capture_response_received`
+        # sets it. Reset per-turn inside `_claim_capture_if_warranted` itself.
+        self._capture_response_event = asyncio.Event()
+        self._capture_response: CaptureResponse | None = None
+        self._capture_response_loop: asyncio.AbstractEventLoop | None = None
+        self._last_turn_captured = False
         self.watchdog = Watchdog(
             threshold_seconds=config.watchdog_threshold_seconds,
             persist_state=lambda: self.trace.log(
@@ -105,4 +134,6 @@ class Orchestrator(BrainTurnMixin, CommitRevealMixin, PeerCommsMixin, PeerAuditM
             on_reveal=self._on_reveal_received,
             on_commit=self._on_commit_received,
             on_final_reveal=self._on_final_reveal_received,
+            on_capture_claim=self._on_capture_claim_received,
+            on_capture_response=self._on_capture_response_received,
         )

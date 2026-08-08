@@ -37,7 +37,18 @@ def _start(config, tmp_path, name: str) -> tuple[Orchestrator, str]:
     return orchestrator, f"http://127.0.0.1:{port}/mcp"
 
 
-def test_step_index_stays_in_lockstep_across_a_dozen_alternating_rounds(config, tmp_path):
+def test_step_index_stays_in_lockstep_across_a_dozen_alternating_rounds(config, tmp_path, monkeypatch):
+    # PRD 8: over enough real, adaptively-moving rounds, a peer's own move
+    # can legitimately land on its own belief target (that's the point of
+    # the strategy) — triggering a real capture claim the other side, also
+    # a cop (rule 1/2), never answers by design, hanging this unrelated
+    # step-counting test for the full deadline. This test was never about
+    # captures; disabled here, not weakened in the code that's supposed to
+    # trigger it for real.
+    import cop.orchestrator_capture as capture_module
+
+    monkeypatch.setattr(capture_module, "claims_capture", lambda *args, **kwargs: None)
+
     peer_a, url_a = _start(config, tmp_path, "a")
     peer_b, url_b = _start(config, tmp_path, "b")
 

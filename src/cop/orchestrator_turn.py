@@ -80,6 +80,9 @@ class BrainTurnMixin:
             )
             self.state_machine.transition("TECHNICAL_LOSS")
             raise
+        # PRD 8: captured before target_pos is overwritten below with next
+        # turn's belief — this is the cell the brain used to decide this move.
+        believed_thief_pos = self.game_state.target_pos
         self.trace.log("computed_move", action=repr(action))
         self.belief_map.zero_out_barriers(self.game_state.barriers)
 
@@ -108,7 +111,9 @@ class BrainTurnMixin:
             tokens_used=0,
         )
 
-        return await self.commit_and_reveal_to_peer(peer_url, action, intent, text)
+        return await self.commit_and_reveal_to_peer(
+            peer_url, action, intent, text, believed_thief_pos
+        )
 
     def _on_reveal_received(self, move: dict, hint_text: str) -> None:
         """Server-role counterpart to `take_turn`'s outgoing reveal:

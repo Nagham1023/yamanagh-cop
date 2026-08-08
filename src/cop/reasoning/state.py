@@ -70,3 +70,22 @@ class GameState:
                 if not self.barriers.place(self.own_pos, target, board):
                     raise ValueError(f"illegal barrier placement at {target!r}")
         self.steps_taken += 1
+
+
+def claims_capture(
+    action: Action, own_pos_before: Position, own_pos_after: Position, target_pos: Position
+) -> Position | None:
+    """PRD 8 Design Question 1: the cop never holds the true thief position
+    (rule 1/2), so this can only ever check the cop's own *believed* cell,
+    never a verified one — the book's own text ("lands on the same cell as
+    the Thief **and** makes a capture claim") pairs the landing with the
+    claim itself, not with prior certainty. Returns the claimed thief cell
+    (always `target_pos`, since a claim can only ever be about the cell
+    already believed to hold the thief) if this turn's action landed there,
+    else `None`. `own_pos_before` is accepted but deliberately unused for a
+    `Move` — only where the cop *ends up* matters, not where it started."""
+    match action:
+        case Move():
+            return target_pos if own_pos_after == target_pos else None
+        case PlaceBarrier(target=barrier_target):
+            return target_pos if barrier_target == target_pos else None
