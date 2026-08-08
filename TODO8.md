@@ -96,4 +96,4 @@ Neither of these was visible from reading the code — both surfaced only once t
 - [x] `git log --all --full-history -- '*credentials*' '*token.json*' '*.env'` — returns nothing.
 - [x] Update `PRD-8-live-match-wiring.md`'s status line to "Built & verified" with an honest retrospective — done, including both execution-time decisions (§4's `TECHNICAL_LOSS` conversion, §5's `opponent_id` source) and both bugs found only by running the code.
 - [x] Update `TODO.md`'s own master checklist — PRD 8 section added.
-- [ ] Commit only after all of the above.
+- [x] Commit only after all of the above.
