@@ -9,6 +9,7 @@ test in this repo.
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 import threading
 import time
@@ -190,6 +191,51 @@ def test_report_game_explicit_override_wins_over_a_completed_negotiation(config,
 
     assert captured_bundles[0].opponent_cop_repo_url == "https://github.com/explicit/cop"
     assert captured_bundles[0].opponent_thief_repo_url == "https://github.com/explicit/thief"
+
+
+def test_report_game_attaches_all_four_table_20_files(config, tmp_path, monkeypatch):
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    client.league_ledger = client.league_ledger.__class__(path=str(tmp_path / "ledger.json"))
+    peer_url = _start_peer(config, tmp_path)
+
+    captured = {}
+    import cop.orchestrator_end_of_game as end_of_game_module
+
+    def _spy_send_report_bundle(service, to_addr, subject, body, attachments, email_mode="send"):
+        captured["attachments"] = attachments
+        return None
+
+    monkeypatch.setattr(end_of_game_module, "send_report_bundle", _spy_send_report_bundle)
+
+    _report_game(client, peer_url, is_counted=True)
+
+    # game_id is the bare Table 20 token (PARAMETERS.md) — declaration_/
+    # result_ take only game_id; config_/log_ take game_id *and*
+    # sub_game_number separately, appending their own "_g{NN}".
+    game_id = client.private_config.group_id
+    sub_game_number = client.private_config.sub_game_number
+    attachments = captured["attachments"]
+    assert set(attachments) == {
+        f"declaration_{game_id}.json",
+        f"result_{game_id}.json",
+        f"config_{game_id}_g{sub_game_number:02d}.json",
+        f"log_{game_id}_g{sub_game_number:02d}.json",
+    }
+
+    declaration = attachments[f"declaration_{game_id}.json"]
+    assert declaration["group_name"] == client.private_config.group_name
+    assert declaration["scent_model_sha256"]  # non-empty — a real Step0 declaration, not a stub
+
+    config_payload = attachments[f"config_{game_id}_g{sub_game_number:02d}.json"]
+    assert config_payload["schema_version"] == config.schema_version
+
+    log_payload = attachments[f"log_{game_id}_g{sub_game_number:02d}.json"]
+    assert isinstance(log_payload, list)
+    assert any(entry.get("event") == "nonces_revealed" for entry in log_payload)
+
+    # Every attachment round-trips through JSON cleanly (rule 34: JSON, not free text).
+    for payload in attachments.values():
+        assert json.loads(json.dumps(payload)) == payload
 
 
 def test_report_game_raises_when_neither_override_nor_negotiation_is_available(config, tmp_path):

@@ -15,7 +15,7 @@ import tkinter
 
 import pytest
 
-from cop.observability.replay_viewer import ReplayViewer, ReplayViewerWindow
+from cop.observability.replay_viewer import ReplayViewer, ReplayViewerWindow, nonces_from_log
 from cop.orchestrator import Orchestrator
 from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
@@ -167,6 +167,54 @@ def test_a_log_with_no_committed_steps_reports_no_current_step(tmp_path):
 
     assert viewer.overall_status == "Verified OK"  # vacuously — no commit entries to mismatch
     assert viewer.current() is None
+
+
+def _run_one_turn_and_final_reveal(config, tmp_path) -> Orchestrator:
+    """Like `_run_one_real_committed_turn`, but also sends Final Reveal —
+    the only thing that produces a `nonces_revealed` trace entry
+    (`orchestrator_peer_audit.py`, PRD 10)."""
+    port = _free_port()
+    server = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "server_trace.jsonl"))
+    threading.Thread(
+        target=server.run_as_server, kwargs={"host": "127.0.0.1", "port": port}, daemon=True
+    ).start()
+    time.sleep(0.5)
+
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    url = f"http://127.0.0.1:{port}/mcp"
+    client.state_machine.transition("COMPUTING_MOVE")
+    asyncio.run(client.commit_and_reveal_to_peer(url, Move(direction="N"), False, "quiet by the river"))
+    asyncio.run(client.send_final_reveal_to_peer(url))
+    return client
+
+
+def test_nonces_from_log_matches_the_process_own_pending_nonces(config, tmp_path):
+    client = _run_one_turn_and_final_reveal(config, tmp_path)
+
+    extracted = nonces_from_log(tmp_path / "client_trace.jsonl")
+
+    expected = {str(step): nonce for step, nonce in client._pending_nonces.items()}
+    assert extracted == expected
+    assert extracted  # not vacuously empty — a real turn really happened
+
+
+def test_nonces_from_log_round_trips_through_a_real_replay_verification(config, tmp_path):
+    _run_one_turn_and_final_reveal(config, tmp_path)
+    log_path = tmp_path / "client_trace.jsonl"
+
+    viewer = ReplayViewer(log_path, nonces_from_log(log_path))
+
+    assert viewer.overall_status == "Verified OK"
+
+
+def test_nonces_from_log_rejects_a_log_with_no_final_reveal(config, tmp_path):
+    # A match that never reached Final Reveal (crashed, or was never
+    # finished) genuinely has no revealed nonces to recover — a clear
+    # error, not a silent empty dict or a crash.
+    _run_one_real_committed_turn(config, tmp_path)
+
+    with pytest.raises(ValueError, match="nonces_revealed"):
+        nonces_from_log(tmp_path / "client_trace.jsonl")
 
 
 @pytest.mark.skipif(not _HAS_DISPLAY, reason="no display available for a real Tk window")

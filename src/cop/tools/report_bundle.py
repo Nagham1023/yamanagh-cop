@@ -1,6 +1,11 @@
-"""Builds `declaration_<game_id>.json` and `result_<game_id>.json` (Table
-20; the other two of the four mandatory files, `config_<game_id>_g<NN>.json`
-and `log_<game_id>_g<NN>.json`, already exist since PRD 1/PRD 6).
+"""Builds all four Table 20 files: `declaration_<game_id>.json`,
+`result_<game_id>.json`, and — PRD 10 — the loaders for the other two,
+`config_<game_id>_g<NN>.json` (the raw negotiated config, already on disk
+at `Orchestrator.shared_config_path`) and `log_<game_id>_g<NN>.json` (the
+raw trace log, already on disk at `Orchestrator.log_path`). Only the
+*filenames* for the latter two existed here before PRD 10 — `report_game()`
+(`orchestrator_end_of_game.py`) attached only `result_` until now, a known
+simplification its own module docstring used to flag.
 
 Composes `integrity/step0.py::Step0Declaration` (reused, not duplicated —
 PRD 6's own "don't reopen the frozen spec" discipline) with the
@@ -12,7 +17,9 @@ this team's own two.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..integrity.step0 import Step0Declaration
 
@@ -31,6 +38,25 @@ def config_filename(game_id: str, sub_game_number: int) -> str:
 
 def log_filename(game_id: str, sub_game_number: int) -> str:
     return f"log_{game_id}_g{sub_game_number:02d}.json"
+
+
+def load_config_dict(shared_config_path: str | Path) -> dict:
+    """The `config_<game_id>_g<NN>.json` attachment: the negotiated shared
+    config's own raw parsed content, exactly as byte-identical rule 11
+    already guarantees it is on both sides — not rebuilt from `GameConfig`,
+    which would risk silently diverging from what was actually agreed."""
+    return json.loads(Path(shared_config_path).read_text(encoding="utf-8"))
+
+
+def load_log_entries(log_path: str | Path) -> list[dict]:
+    """The `log_<game_id>_g<NN>.json` attachment: `Trace`'s own JSONL file
+    (`observability/trace.py`), parsed into a JSON array — `send_report_
+    bundle`'s attachments are JSON-serializable payloads, not raw file
+    bytes (`tools/gmail_sender.py::build_message`), so the newline-
+    delimited log needs this one translation, not a re-derivation of its
+    content."""
+    lines = Path(log_path).read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
 
 
 def _hardware_dict(step0: Step0Declaration) -> dict:
@@ -53,7 +79,7 @@ class DeclarationBundle:
     cop_repo_url: str
     thief_repo_url: str
     token_budget_per_series: int
-    started_at: str
+    started_at: str | None
     ended_at: str | None = None
 
 

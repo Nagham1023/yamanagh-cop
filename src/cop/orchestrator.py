@@ -47,6 +47,7 @@ from .orchestrator_peer import PeerCommsMixin
 from .orchestrator_peer_audit import PeerAuditMixin
 from .orchestrator_server import ServerLifecycleMixin
 from .orchestrator_step0 import Step0NegotiationMixin
+from .orchestrator_step0_wait import Step0PassiveWaitMixin
 from .orchestrator_turn import BrainTurnMixin
 from .planner.state_machine import PeerStateMachine
 from .planner.watchdog import Watchdog
@@ -73,6 +74,7 @@ class Orchestrator(
     PeerAuditMixin,
     ServerLifecycleMixin,
     Step0NegotiationMixin,
+    Step0PassiveWaitMixin,
 ):
     def __init__(
         self,
@@ -99,27 +101,18 @@ class Orchestrator(
         self.template_provider = TemplateHintProvider()
         self._rng = random.Random()
         self.trace = Trace(log_path)
-        # PRD 8: `Trace` keeps its own path private (`self._path`) — this
-        # repo's own `report_game()` needs to read it back to hand to
-        # `run_mutual_audit`, so `Orchestrator` keeps its own copy too.
-        self.log_path = log_path
+        self.log_path = log_path  # report_game() hands this to run_mutual_audit (Trace's own path is private)
         self.league_ledger = LeagueLedger()
         self.gatekeeper = ApiGatekeeper(config)
         self.state_machine = PeerStateMachine()
-        # PRD 6, rule 18: this side's own nonces, retained (never
-        # transmitted) until `receive_final_reveal` sends them all at game
-        # end — keyed by step, filled in by `commit_and_reveal_to_peer`.
+        # Rule 18: this side's own nonces, never transmitted until
+        # receive_final_reveal, keyed by step (commit_and_reveal_to_peer fills these in).
         self._pending_nonces: dict[int, str] = {}
-        # PRD 7: this side's own Intent flags, same lifetime/reason as
-        # `_pending_nonces` — `send_final_reveal_to_peer` needs both.
-        self._pending_intents: dict[int, bool] = {}
-        # PRD 7: the peer's own committed-and-revealed data, assembled from
-        # `on_commit`/`on_reveal`/`on_final_reveal` — `orchestrator_peer_audit.py`'s
-        # `run_peer_audit` verifies against this, the bilateral half of rule 19/36.
+        self._pending_intents: dict[int, bool] = {}  # same lifetime/reason as _pending_nonces
+        # The peer's own committed-and-revealed data (on_commit/on_reveal/on_final_reveal) —
+        # orchestrator_peer_audit.py::run_peer_audit verifies against this (rule 19/36).
         self.peer_trace = PeerTrace()
-        # PRD 8: capture-claim response correlation — `_claim_capture_if_warranted`
-        # (orchestrator_capture.py) waits on the event; `_on_capture_response_received`
-        # sets it. Reset per-turn inside `_claim_capture_if_warranted` itself.
+        # Capture-claim response correlation (orchestrator_capture.py); reset per-turn there.
         self._capture_response_event = asyncio.Event()
         self._capture_response: CaptureResponse | None = None
         self._capture_response_loop: asyncio.AbstractEventLoop | None = None
@@ -127,6 +120,14 @@ class Orchestrator(
         # Filled in by `negotiate_step0`/`_on_step0_received` — `report_game`
         # (rule 49) sources the opponent's repo URLs from here by default.
         self._opponent_repos: dict[str, str] | None = None
+        # PRD 10: cross-loop signal for the CLI's passive side — see
+        # orchestrator_step0_wait.py::await_passive_step0.
+        self._step0_received_event = asyncio.Event()
+        self._step0_received_loop: asyncio.AbstractEventLoop | None = None
+        self._step0_failure: Exception | None = None
+        self._step0_completed: bool = False  # set once by _signal_step0_received
+        self._match_started_at: str | None = None  # set by play_game() — report_game() needs both
+        self._match_ended_at: str | None = None
         self.watchdog = Watchdog(
             threshold_seconds=config.watchdog_threshold_seconds,
             persist_state=lambda: self.trace.log(

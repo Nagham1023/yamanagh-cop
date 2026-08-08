@@ -1,20 +1,22 @@
 """Ch. 5.5's Step-0 negotiation ceremony, live (rules 11, 23, 24, 49) —
 closes the gap `cop-team-fix-list.md` flagged and `WIRE-CONTRACT.md` line
 88 already admitted: `Step0Declaration`/`verify_config_identity`
-(`integrity/step0.py`) existed but were never exchanged over the wire or
-called automatically before a match starts.
+(`integrity/step0.py`) existed but were never exchanged over the wire.
 
-Both sides verify independently, not just the initiator (rule 9 —
-everything a peer sends is untrusted): `negotiate_step0` (the initiator,
-called once, explicitly, before `run_as_server()`/`play_game()` — same
-"separate, explicit call" precedent `report_game()` set in PRD 8) and
-`_on_step0_received` (the responder's `build_server` callback) both run
-the exact same `_verify_peer_step0` check against their own locally
-computed values. A mismatch on *either* side raises `Step0MismatchError`
-and drives that side's own state machine to `TECHNICAL_LOSS` — the
-responder re-raises too, so a bad payload fails the tool call itself
-rather than leaving the initiator believing it succeeded while the
-responder silently forfeits underneath it.
+Both sides verify independently (rule 9): `negotiate_step0` (the
+initiator, called once explicitly, same "separate call" precedent
+`report_game()` set in PRD 8) and `_on_step0_received` (the responder's
+`build_server` callback) both run the identical `_verify_peer_step0`
+check. A mismatch on *either* side raises `Step0MismatchError` and drives
+that side's own state machine to `TECHNICAL_LOSS` — the responder
+re-raises too, so a bad payload fails the tool call itself rather than
+leaving the initiator believing it succeeded while the responder
+silently forfeits underneath it.
+
+`_on_step0_received` also calls `self._signal_step0_received(...)`
+(defined in `orchestrator_step0_wait.py`'s sibling mixin — PRD 10's
+`await_passive_step0`, kept in its own file for the 150-line cap) — a
+no-op when nothing is passively waiting.
 """
 
 from __future__ import annotations
@@ -93,12 +95,14 @@ class Step0NegotiationMixin:
         own_signature = sign_step0(own_declaration)
         try:
             _, validated_repos = self._verify_peer_step0(declaration, signature, repos)
-        except Step0MismatchError:
+        except Step0MismatchError as exc:
             self.state_machine.transition("TECHNICAL_LOSS")
+            self._signal_step0_received(exc)
             raise
         self._opponent_repos = validated_repos
         self.trace.log("step0_negotiated", role="responder")
         self.state_machine.transition("WAITING_FOR_OPPONENT")
+        self._signal_step0_received(None)
         return {
             "declaration": declaration_to_wire(own_declaration),
             "signature": own_signature,

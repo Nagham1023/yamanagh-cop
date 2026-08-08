@@ -52,6 +52,8 @@ def test_loads_the_dev_private_config_from_disk():
     assert config.email_recipient == "rmisegal+uoh26finalgame@gmail.com"
     assert config.thief_class is None
     assert config.police_class is None
+    assert config.initiate_step0 is False
+    assert config.step0_wait_seconds == 300.0
 
 
 def test_it_is_really_toml_not_json(tmp_path):
@@ -102,6 +104,22 @@ def test_opponent_url_round_trips_from_network_section():
         _full_private(network={"opponent_url": "http://203.0.113.5:9000/mcp"})
     )
     assert config.opponent_url == "http://203.0.113.5:9000/mcp"
+
+
+def test_initiate_step0_and_step0_wait_seconds_default_safely_when_absent():
+    # Matches [strategy]'s own "absent must not raise" discipline — an
+    # older config file predating PRD 10 must keep loading unchanged.
+    config = PrivateConfig.from_dict(_full_private())
+    assert config.initiate_step0 is False
+    assert config.step0_wait_seconds == 300.0
+
+
+def test_initiate_step0_and_step0_wait_seconds_round_trip_when_present():
+    config = PrivateConfig.from_dict(
+        _full_private(network={"initiate_step0": True, "step0_wait_seconds": 60})
+    )
+    assert config.initiate_step0 is True
+    assert config.step0_wait_seconds == 60.0
 
 
 def test_this_loader_is_not_gameconfig_from_file():

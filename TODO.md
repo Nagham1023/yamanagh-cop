@@ -252,14 +252,35 @@ Status: **Built & verified.** Closes all four gaps `cop-team-fix-list.md` (the T
 - [x] found and fixed in passing: `test_private_config.py` asserted a stale placeholder repo URL left over from before the real URL was confirmed (`f6397bf`) — confirmed pre-existing via `git stash`, not a regression, fixed as a one-line drift correction
 - [x] `PRD/PRD-9-step0-negotiation.md` written and built; `TODO9.md` executed in full; `WIRE-CONTRACT.md`'s ch. 4.5 section updated from "still not built" to describe the shipped ceremony; commit
 
+## PRD 10 — CLI entry point, complete report bundle, and online-match readiness
+
+Status: **Built & verified.** Closes both polish gaps named directly: no `src/cop/__main__.py` existed despite `CLAUDE.md`/`README.md` documenting `uv run python -m cop peer`/`replay --log <path>` (PRD 7's own "Explicitly out of scope" section named this and deferred it); `report_game()` attached only `result_<game_id>.json`, not all four Table 20 files. Designing the CLI surfaced a third gap neither item named — nonces lived only in live process memory, so a standalone `replay --log <path>` run against a completed match's log file had no way to cryptographically verify it — fixed in the same pass since it blocked the `replay` subcommand from working as documented. Full detail in `PRD/PRD-10-cli-and-online-readiness.md`.
+
+- [x] rule 18/20 — `send_final_reveal_to_peer` now logs the revealed nonces themselves (not just a count), unconditionally, before attempting the send — `nonces_from_log` (new) is the CLI `replay` subcommand's only source for them, since the live process that played the match has usually already exited
+- [x] rule 20 — `uv run python -m cop replay --log <path>` is a real, headless-by-default verifier: `Verified OK`/`TAMPERED`/a clear error on an incomplete log, each a distinct process exit code
+- [x] rule 34/49 — `report_game()` attaches all four Table 20 files (`declaration_`, `config_`, `log_`, `result_`) in one email, each round-tripping cleanly through JSON
+- [x] rule 6/7 — the CLI's passive Step-0 wait (`await_passive_step0`) reuses PRD 8's own cross-thread `Event`/`call_soon_threadsafe` pattern; a genuine timeout reaches `TECHNICAL_LOSS` cleanly, not a hang — and (`rule-auditor`'s own reproduced finding) a negotiation that already completed *before* the wait was even called is recognized via `self._step0_completed`, not silently discarded and re-waited on for the full timeout
+- [x] build: `cli_peer.py::run_peer` / `cli_replay.py::run_replay` / `__main__.py` — the CLI itself; confirmed both sides always drive their own turns regardless of who negotiates first (`orchestrator_turn.py::take_turn` read directly before designing this)
+- [x] build: `orchestrator_step0_wait.py::Step0PassiveWaitMixin` — `await_passive_step0`, the CLI's non-initiating side
+- [x] build: `orchestrator_game_loop.py` stamps `_match_started_at`/`_match_ended_at`; `report_bundle.py::load_config_dict`/`load_log_entries` — the two Table 20 files that had loaders but no reader before this
+- [x] build: `scripts/setup_gmail_oauth.py` — the one-time OAuth consent flow `gmail_sender.py`'s own docstring referenced but never built
+- [x] test: two real, independent `run_peer()` calls (initiator + passive) reach a genuinely negotiated, played, and reported match through the CLI itself, not a hand-assembled `Orchestrator`; `--counted` verified to actually reach the league ledger
+- [x] test: `run_replay` — verified-ok/tampered/incomplete-log, each a distinct rejection case (house rule)
+- [x] found and fixed in passing: `report_bundle.py`'s own docstring claimed `token_budget_per_series` wasn't tracked — it already was, on `GameConfig`; same stale-claim drift PRD 9 found and fixed for `verify_config_identity`
+- [x] found only by running `uv run python -m cop peer` as two real subprocesses, not by any unit test: `config_filename`/`log_filename` were called with an already-suffixed `game_id` instead of the bare `group_id`, doubling `_g01` in real filenames on disk — the one test checking this mirrored the same bug in its own expected values, so the suite stayed green; fixed in both call sites and that test, re-verified with the same literal CLI run
+- [x] `rule-auditor` run scoped to rules 6/7/18/20/34/49 — found two further real gaps the run above didn't: `declaration_filename`/`result_filename` still received the already-suffixed `game_id` too (Table 20's own `PARAMETERS.md` text specifies bare `game_id` for both, no per-sub-game suffix at all), and a genuine, empirically-reproduced race in `await_passive_step0` that could discard an already-successful negotiation and burn the full timeout on a spurious `TECHNICAL_LOSS`; both fixed with regression tests before this line was written (`PRD-10-cli-and-online-readiness.md`'s own Retrospective has the full account, including why two different verification techniques — running the CLI, and the scoped audit — each caught what the other missed)
+- [x] `instructions.md` written (full submission-readiness scope, confirmed with user) — ngrok, Gmail OAuth, real config exchange, running matches, the three still-open screenshots, the rules 41-45 submission checklist
+- [x] `PRD/PRD-10-cli-and-online-readiness.md` written and built; `TODO10.md` executed in full; commit
+
 ## Cross-cutting / submission
 
-- [x] `README.md` written — "Running it" (install/usage), thief-repo link (confirmed: `https://github.com/yamandahle/thief-peer`) — [ ] screenshots (`screenshots/live_gui_verified.png`, `replay_verified_ok.png`, `replay_tampered.png`) still need a human with a display to run `scripts/watch_prd7_live_gui.py`/`watch_prd7_replay.py` and capture them
-- [ ] tag `v1.0-submission` pushed
-- [ ] Moodle form filled, saved as PDF, fields untouched
-- [ ] submitted on Moodle separately by each team member
-- [ ] 8-character team code chosen and used consistently everywhere
-- [ ] self-score write-up — code quality only
-- [ ] warm-up games scheduled (uncounted, protocol shakeout)
-- [ ] ≥2 counted games played against different teams
-- [ ] config values agreed with the thief-repo partner before PRD 2 connects the two processes
+- [x] `README.md` written — "Running it" (install/usage), thief-repo link (confirmed: `https://github.com/yamandahle/thief-peer`) — [ ] screenshots (`screenshots/live_gui_verified.png`, `replay_verified_ok.png`, `replay_tampered.png`) still need a human with a display to run `scripts/watch_prd7_live_gui.py`/`watch_prd7_replay.py` and capture them (`instructions.md` §7 has the exact steps)
+- [ ] tag `v1.0-submission` pushed (`instructions.md` §9)
+- [ ] Moodle form filled, saved as PDF, fields untouched (`instructions.md` §9)
+- [ ] submitted on Moodle separately by each team member (`instructions.md` §9)
+- [ ] 8-character team code chosen and used consistently everywhere (`instructions.md` §9)
+- [ ] self-score write-up — code quality only (`instructions.md` §9)
+- [ ] warm-up games scheduled (uncounted, protocol shakeout) (`instructions.md` §6)
+- [ ] ≥2 counted games played against different teams (`instructions.md` §6)
+- [ ] config values agreed with the thief-repo partner (`instructions.md` §2 — now includes `WIRE-CONTRACT.md` exchange and `initiate_step0` assignment, not just the shared config file)
+- [ ] Gmail OAuth `token.json` obtained, ngrok authtoken configured (`instructions.md` §3-4) — needed before `email.mode = "send"` or `--tunnel` work for real

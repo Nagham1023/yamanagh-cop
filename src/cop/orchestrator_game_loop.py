@@ -15,6 +15,8 @@ value.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from .domain.end_conditions import determine_outcome
 from .domain.scoring import Outcome
 
@@ -22,11 +24,19 @@ from .domain.scoring import Outcome
 class GameLoopMixin:
     async def play_game(self, peer_url: str) -> Outcome:
         """Loop `take_turn()` until capture, the step ceiling, the survival
-        threshold, or a technical loss ends the match."""
+        threshold, or a technical loss ends the match.
+
+        PRD 10: stamps `self._match_started_at`/`_match_ended_at` (ISO-8601
+        UTC) at this function's own real boundaries — the only two points
+        in this repo's own lifecycle that legitimately represent "a match
+        began"/"a match ended" — `report_game()`'s `DeclarationBundle`
+        needs both and had no other honest source for them."""
+        self._match_started_at = datetime.now(UTC).isoformat()
         while True:
             try:
                 await self.take_turn(peer_url)
             except Exception:
+                self._match_ended_at = datetime.now(UTC).isoformat()
                 return Outcome.TECHNICAL_LOSS
 
             outcome = determine_outcome(
@@ -37,4 +47,5 @@ class GameLoopMixin:
             )
             self.watchdog.heartbeat()
             if outcome is not None:
+                self._match_ended_at = datetime.now(UTC).isoformat()
                 return outcome

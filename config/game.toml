@@ -16,6 +16,8 @@ repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://g
 my_port = 8801               # this peer's own MCP server port
 opponent_url = "http://127.0.0.1:8802/mcp"   # the only thing I know about the opponent
 turn_timeout_seconds = 180
+initiate_step0 = false       # exactly one side sets this true per real match — agreed with the peer team out-of-band, never negotiated in-protocol
+step0_wait_seconds = 300     # how long the passive side waits for the other to dial in and negotiate Step-0 before giving up
 
 # [strategy] — optional: point at your own brain subclass (else the shipped
 # heuristic runs). Not built yet (PRD 4's "Explicitly out of scope" note).

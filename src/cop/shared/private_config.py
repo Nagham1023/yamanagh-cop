@@ -16,6 +16,13 @@ also why it belongs in this never-negotiated, never-hashed file rather than
 as a runtime-only argument. `[strategy]` is read but not yet consumed
 anywhere (PRD 4's "Explicitly out of scope" note still applies; dynamic
 `thief_class`/`police_class` loading is unbuilt).
+
+PRD 10: `initiate_step0`/`step0_wait_seconds` (`[network]`) tell the CLI
+(`cli_peer.py`) which side dials out first for the ch. 5.5 negotiation
+ceremony — a real-match decision agreed with the peer team out-of-band,
+same never-negotiated category as `opponent_url`. Both default safely
+(`False`/`300.0`) via `.get()` so existing config files and test fixtures
+that predate this pair keep loading unchanged.
 """
 
 from __future__ import annotations
@@ -33,6 +40,8 @@ class PrivateConfig:
     opponent_url: str
     my_port: int
     turn_timeout_seconds: float
+    initiate_step0: bool
+    step0_wait_seconds: float
     group_name: str
     group_id: str
     sub_game_number: int
@@ -71,6 +80,8 @@ class PrivateConfig:
             opponent_url=network["opponent_url"],
             my_port=network["my_port"],
             turn_timeout_seconds=float(network["turn_timeout_seconds"]),
+            initiate_step0=bool(network.get("initiate_step0", False)),
+            step0_wait_seconds=float(network.get("step0_wait_seconds", 300.0)),
             group_name=game["group_name"],
             group_id=game["group_id"],
             sub_game_number=game["sub_game_number"],

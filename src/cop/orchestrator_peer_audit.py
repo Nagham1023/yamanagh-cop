@@ -42,9 +42,21 @@ class PeerAuditMixin:
         transition here — Final Reveal sits outside the per-turn cycle
         entirely (PRD 6 Design Question 4), so there is no legal per-turn
         state for a failure here to land on; a failure is logged and
-        re-raised, not converted into `TECHNICAL_LOSS`."""
+        re-raised, not converted into `TECHNICAL_LOSS`.
+
+        PRD 10: logs the nonces themselves into `self.trace` — not just
+        `step_count` (below) — the moment they're revealed, *before*
+        attempting the send. Rule 18 only requires secrecy *until* game
+        end; this is that exact moment, and a standalone `replay --log
+        <path>` run against a completed match's log file (this repo's own
+        `nonces_from_log`, `observability/replay_viewer.py`) has no other
+        source for them once the live process has exited. Logged
+        unconditionally, not gated on the send succeeding — the self-audit
+        half (`run_mutual_audit`) only needs locally-known-good data,
+        never the peer's own reachability."""
         nonces = {str(step): nonce for step, nonce in self._pending_nonces.items()}
         intents = {str(step): intent for step, intent in self._pending_intents.items()}
+        self.trace.log("nonces_revealed", nonces=nonces)
         try:
             result = await await_with_deadline(
                 send_final_reveal(peer_url, nonces, intents),

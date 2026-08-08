@@ -167,3 +167,28 @@ def test_play_game_converts_a_technical_loss_into_a_return_value_not_an_exceptio
 
     assert outcome == Outcome.TECHNICAL_LOSS
     assert client.state_machine.state == "TECHNICAL_LOSS"
+
+
+def test_play_game_stamps_started_and_ended_at_on_an_ordinary_outcome(config, tmp_path):
+    fast_config = config.__class__(**{**config.__dict__, "step_ceiling": 1, "survival_threshold": 100})
+    client, client_url = _start_client(fast_config, tmp_path)
+    thief_port = _start_denying_thief_peer(client_url)
+
+    assert client._match_started_at is None
+    assert client._match_ended_at is None
+
+    asyncio.run(client.play_game(f"http://127.0.0.1:{thief_port}/mcp"))
+
+    assert client._match_started_at is not None
+    assert client._match_ended_at is not None
+    assert client._match_started_at <= client._match_ended_at  # ISO-8601 sorts lexically
+
+
+def test_play_game_stamps_started_and_ended_at_even_on_a_technical_loss(config, tmp_path):
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    dead_url = f"http://127.0.0.1:{_free_port()}/mcp"  # nothing listens here
+
+    asyncio.run(client.play_game(dead_url))
+
+    assert client._match_started_at is not None
+    assert client._match_ended_at is not None

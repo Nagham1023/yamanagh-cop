@@ -292,6 +292,7 @@ def _private_config_pointing_at(port: int) -> PrivateConfig:
     return PrivateConfig(
         provider="template", every_n_steps=1,
         opponent_url=f"http://127.0.0.1:{port}/mcp", my_port=0, turn_timeout_seconds=180.0,
+        initiate_step0=False, step0_wait_seconds=300.0,
         group_name="dev-team", group_id="dev-team", sub_game_number=1, members=("dev-1",),
         repos={"cop": "https://example.com/cop", "thief": "https://example.com/thief"},
         model="claude-sonnet-5", step_deadline_seconds=30.0,

@@ -21,6 +21,8 @@ from cop.tools.report_bundle import (
     build_result,
     config_filename,
     declaration_filename,
+    load_config_dict,
+    load_log_entries,
     log_filename,
     result_filename,
 )
@@ -99,6 +101,35 @@ def test_build_result_round_trips_and_contains_all_four_repo_links():
         "https://github.com/team-b/cop",
         "https://github.com/team-b/thief",
     }
+
+
+def test_load_config_dict_returns_the_real_negotiated_config_as_is(tmp_path):
+    config_path = tmp_path / "config_dev_g01.json"
+    original = {"schema_version": "1.2", "board_and_agents": {"grid_size": 7}}
+    config_path.write_text(json.dumps(original), encoding="utf-8")
+
+    assert load_config_dict(config_path) == original
+
+
+def test_load_log_entries_parses_a_real_jsonl_trace_into_a_list(config, tmp_path):
+    log_path = tmp_path / "log_dev_g01.json"
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(log_path))
+    orchestrator.trace.log("game_started")
+    orchestrator.trace.log("computed_move", action="Move(N)")
+
+    entries = load_log_entries(log_path)
+
+    assert [e["event"] for e in entries] == ["game_started", "computed_move"]
+    assert entries[1]["action"] == "Move(N)"
+
+
+def test_load_log_entries_skips_blank_lines(tmp_path):
+    log_path = tmp_path / "log.json"
+    log_path.write_text('{"event": "a"}\n\n{"event": "b"}\n', encoding="utf-8")
+
+    entries = load_log_entries(log_path)
+
+    assert [e["event"] for e in entries] == ["a", "b"]
 
 
 def test_a_real_orchestrators_trace_log_lands_under_the_correct_table_20_name(config, tmp_path):

@@ -158,6 +158,9 @@ def test_send_final_reveal_to_peer_against_an_unreachable_url_logs_and_reraises(
     events = [json.loads(line)["event"] for line in (tmp_path / "client_trace.jsonl").read_text().splitlines()]
     assert "final_reveal_failed" in events
     assert "final_reveal_sent" not in events
+    # PRD 10: nonces are logged unconditionally, before the send is even
+    # attempted — the self-audit half never depends on peer reachability.
+    assert "nonces_revealed" in events
 
 
 def test_orchestrator_audit_peer_delegates_to_run_peer_audit(config, tmp_path):
