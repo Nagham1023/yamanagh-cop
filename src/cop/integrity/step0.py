@@ -3,11 +3,15 @@
 Design Question 3). Book's own field list, exactly: hardware spec (this
 module's own `HardwareDeclaration`, split into `hardware_declaration.py`
 for the 150-line cap), LLM model name (folded into that same object), code
-git-commit hash (rule 53), group name, `sub_game_number`. Plus one field
-the book does not ask for — `config_sha256` — this repo's own extension to
-close rule 11's actual enforcement gap: a config swapped *after* Step-0
-becomes a catchable audit-time mismatch instead of an unverifiable claim.
-Labeled as such below, not presented as book-required.
+git-commit hash (rule 53), group name, `sub_game_number`. Plus two fields
+the book does not ask for by this exact name: `config_sha256` — this
+repo's own extension to close rule 11's actual enforcement gap, a config
+swapped *after* Step-0 becomes a catchable audit-time mismatch instead of
+an unverifiable claim — and `scent_model_sha256` (`integrity/
+scent_model_lock.py`), which *is* book-required (ch. 4.5, rule 23
+**[FATAL]**) even though the book doesn't specify which object should
+carry it; Step-0 is the natural, single pre-game declaration rather than a
+second parallel signed object. Both labeled as such below.
 """
 
 from __future__ import annotations
@@ -75,20 +79,24 @@ def verify_config_identity(ours_path: str | Path, theirs_path: str | Path) -> bo
 @dataclass(frozen=True)
 class Step0Declaration:
     """The pre-game declaration object, ch. 5.5. `config_sha256` is this
-    repo's own extension, not part of the book's own field list — see this
-    module's own docstring and PRD 6's Design Question 3."""
+    repo's own extension, not part of the book's own field list —
+    `scent_model_sha256` *is* book-required (rule 23) but not under this
+    exact name — see this module's own docstring and PRD 6's Design
+    Question 3."""
 
     hardware: HardwareDeclaration
     code_commit_hash: str
     group_name: str
     sub_game_number: int
     config_sha256: str
+    scent_model_sha256: str
 
     def __post_init__(self) -> None:
         _non_empty_string(self.code_commit_hash, "code_commit_hash")
         _non_empty_string(self.group_name, "group_name")
         _positive_int(self.sub_game_number, "sub_game_number")
         _non_empty_string(self.config_sha256, "config_sha256")
+        _non_empty_string(self.scent_model_sha256, "scent_model_sha256")
 
 
 def _canonical_declaration_bytes(declaration: Step0Declaration) -> bytes:
@@ -111,6 +119,7 @@ def _canonical_declaration_bytes(declaration: Step0Declaration) -> bytes:
         "group_name": declaration.group_name,
         "sub_game_number": declaration.sub_game_number,
         "config_sha256": declaration.config_sha256,
+        "scent_model_sha256": declaration.scent_model_sha256,
     }
     return canonical_json_bytes(payload)
 

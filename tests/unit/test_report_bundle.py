@@ -33,7 +33,7 @@ def _step0() -> Step0Declaration:
     )
     return Step0Declaration(
         hardware=hardware, code_commit_hash="a" * 40, group_name="yamanagh",
-        sub_game_number=1, config_sha256="b" * 64,
+        sub_game_number=1, config_sha256="b" * 64, scent_model_sha256="c" * 64,
     )
 
 
@@ -67,6 +67,7 @@ def test_build_declaration_round_trips_through_json_cleanly():
     assert round_tripped == payload
     assert round_tripped["group_name"] == "yamanagh"
     assert round_tripped["cop_repo_url"] == "https://github.com/Nagham1023/yamanagh-cop"
+    assert round_tripped["scent_model_sha256"] == "c" * 64
 
 
 def test_build_result_round_trips_and_contains_all_four_repo_links():

@@ -4,13 +4,18 @@ gap `rule-auditor`'s PRD 7 closing-pass review found: every piece
 `ApiGatekeeper`) was correct and tested in isolation, but nothing called
 them together, in order, when a game actually ends.
 
-`opponent_cop_repo_url`/`opponent_thief_repo_url`/`sub_game_scores`/
-`cumulative_score` are accepted as parameters, not derived here: this repo
-has no channel anywhere for learning the opponent's own repo URLs (only
-their live `opponent_url`, `PrivateConfig`'s "the only thing I know about
-the opponent") or for tracking cross-sub-game cumulative scores (one
-`Orchestrator` instance is one sub-game's own process lifetime, per PRD 6's
-own I1 invariant) — genuinely external, negotiated data, not something to
+`opponent_cop_repo_url`/`opponent_thief_repo_url` now default to `None` and
+are sourced from `self._opponent_repos` (PRD 9's `negotiate_step0`/
+`_on_step0_received`, `orchestrator_step0.py`) when omitted — closes the
+gap this module's own docstring used to flag here: "this repo has no
+channel anywhere for learning the opponent's own repo URLs." The explicit
+parameters stay, for a caller that genuinely needs to override (a test, or
+a real match where negotiation ran against a different peer than the one
+`report_game` is reporting against). `sub_game_scores`/`cumulative_score`
+are still accepted as parameters, not derived here: tracking cross-sub-game
+cumulative scores needs state spanning more than one sub-game's own process
+lifetime (one `Orchestrator` instance is one sub-game's own lifetime, per
+PRD 6's own I1 invariant) — genuinely external data, not something to
 silently invent a fake source for.
 
 Known simplification, flagged rather than silently shipped: attaches only
@@ -35,16 +40,25 @@ from .tools.report_bundle import ResultBundle, build_result, result_filename
 
 
 class EndOfGameMixin:
+    def _opponent_repo_url(self, role: str) -> str:
+        if self._opponent_repos is None:
+            raise ValueError(
+                f"opponent_{role}_repo_url was not supplied and no Step-0 "
+                f"negotiation has completed (self._opponent_repos is None) "
+                f"— call negotiate_step0() first, or pass it explicitly."
+            )
+        return self._opponent_repos[role]
+
     async def report_game(
         self,
         peer_url: str,
         outcome: Outcome,
         is_counted: bool,
         opponent_id: str,
-        opponent_cop_repo_url: str,
-        opponent_thief_repo_url: str,
         sub_game_scores: dict[str, int],
         cumulative_score: int,
+        opponent_cop_repo_url: str | None = None,
+        opponent_thief_repo_url: str | None = None,
     ) -> dict | None:
         """Design Question 4: separate from `play_game()` itself, called
         once by a thin caller after the loop returns — a test proving
@@ -52,7 +66,15 @@ class EndOfGameMixin:
         working `ApiGatekeeper`/Gmail mock, and vice versa. Design
         Question 5: `is_counted` is the caller's own policy decision
         (`league_ledger`'s job to enforce, not this method's to re-derive).
+
+        Rule 49: `opponent_cop_repo_url`/`opponent_thief_repo_url` fall
+        back to `self._opponent_repos` (set by a completed Step-0
+        negotiation, `orchestrator_step0.py`) when not explicitly passed.
+        Raises `ValueError` — never silently emits an empty string into an
+        audit-relevant JSON field — if neither source is available.
         """
+        opponent_cop_repo_url = opponent_cop_repo_url or self._opponent_repo_url("cop")
+        opponent_thief_repo_url = opponent_thief_repo_url or self._opponent_repo_url("thief")
         await self.send_final_reveal_to_peer(peer_url)
         self_audit = run_mutual_audit(self.log_path, self._pending_nonces)
         peer_audit = self.audit_peer()

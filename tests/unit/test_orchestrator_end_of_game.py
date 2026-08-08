@@ -13,6 +13,8 @@ import socket
 import threading
 import time
 
+import pytest
+
 from cop.domain.scoring import Outcome
 from cop.orchestrator import Orchestrator
 from cop.reasoning.cop_brain import CopBrain
@@ -117,3 +119,93 @@ def test_report_game_calls_each_step_in_the_documented_order(config, tmp_path):
     _report_game(client, peer_url, is_counted=True)
 
     assert call_order == ["final_reveal", "peer_audit", "league_record", "gatekeeper_execute"]
+
+
+def test_report_game_sources_opponent_repo_urls_from_a_completed_negotiation(config, tmp_path, monkeypatch):
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    client.league_ledger = client.league_ledger.__class__(path=str(tmp_path / "ledger.json"))
+    peer_url = _start_peer(config, tmp_path)
+    client._opponent_repos = {
+        "cop": "https://github.com/team-b/cop", "thief": "https://github.com/team-b/thief",
+    }
+
+    captured_bundles = []
+    import cop.orchestrator_end_of_game as end_of_game_module
+
+    original_build_result = end_of_game_module.build_result
+
+    def _spy_build_result(bundle):
+        captured_bundles.append(bundle)
+        return original_build_result(bundle)
+
+    monkeypatch.setattr(end_of_game_module, "build_result", _spy_build_result)
+
+    asyncio.run(
+        client.report_game(
+            peer_url,
+            Outcome.SURVIVAL,
+            is_counted=True,
+            opponent_id=peer_url,
+            sub_game_scores={"g01": 5},
+            cumulative_score=5,
+        )
+    )
+
+    assert len(captured_bundles) == 1
+    assert captured_bundles[0].opponent_cop_repo_url == "https://github.com/team-b/cop"
+    assert captured_bundles[0].opponent_thief_repo_url == "https://github.com/team-b/thief"
+
+
+def test_report_game_explicit_override_wins_over_a_completed_negotiation(config, tmp_path, monkeypatch):
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    client.league_ledger = client.league_ledger.__class__(path=str(tmp_path / "ledger.json"))
+    peer_url = _start_peer(config, tmp_path)
+    client._opponent_repos = {
+        "cop": "https://github.com/from-negotiation/cop", "thief": "https://github.com/from-negotiation/thief",
+    }
+
+    captured_bundles = []
+    import cop.orchestrator_end_of_game as end_of_game_module
+
+    original_build_result = end_of_game_module.build_result
+
+    def _spy_build_result(bundle):
+        captured_bundles.append(bundle)
+        return original_build_result(bundle)
+
+    monkeypatch.setattr(end_of_game_module, "build_result", _spy_build_result)
+
+    asyncio.run(
+        client.report_game(
+            peer_url,
+            Outcome.SURVIVAL,
+            is_counted=True,
+            opponent_id=peer_url,
+            sub_game_scores={"g01": 5},
+            cumulative_score=5,
+            opponent_cop_repo_url="https://github.com/explicit/cop",
+            opponent_thief_repo_url="https://github.com/explicit/thief",
+        )
+    )
+
+    assert captured_bundles[0].opponent_cop_repo_url == "https://github.com/explicit/cop"
+    assert captured_bundles[0].opponent_thief_repo_url == "https://github.com/explicit/thief"
+
+
+def test_report_game_raises_when_neither_override_nor_negotiation_is_available(config, tmp_path):
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    client.league_ledger = client.league_ledger.__class__(path=str(tmp_path / "ledger.json"))
+    peer_url = _start_peer(config, tmp_path)
+    assert client._opponent_repos is None
+
+    with pytest.raises(ValueError, match="opponent_cop_repo_url"):
+        asyncio.run(
+            client.report_game(
+                peer_url,
+                Outcome.SURVIVAL,
+                is_counted=True,
+                opponent_id=peer_url,
+                sub_game_scores={"g01": 5},
+                cumulative_score=5,
+            )
+        )

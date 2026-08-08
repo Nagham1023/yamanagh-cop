@@ -72,6 +72,23 @@ def test_unknown_target_state_is_rejected():
         machine.transition("NOT_A_REAL_STATE")
 
 
+def test_negotiating_reaches_waiting_for_opponent_on_a_verified_match():
+    machine = PeerStateMachine(state="NEGOTIATING")
+    assert machine.transition("WAITING_FOR_OPPONENT") == "WAITING_FOR_OPPONENT"
+
+
+def test_negotiating_reaches_technical_loss_on_a_mismatch():
+    machine = PeerStateMachine(state="NEGOTIATING")
+    assert machine.transition("TECHNICAL_LOSS") == "TECHNICAL_LOSS"
+
+
+def test_negotiating_cannot_skip_straight_into_the_per_turn_cycle():
+    machine = PeerStateMachine(state="NEGOTIATING")
+    with pytest.raises(ValueError, match="Illegal transition"):
+        machine.transition("COMMITTING")
+    assert machine.state == "NEGOTIATING"
+
+
 def test_a_machine_constructed_in_an_unknown_state_rejects_any_transition():
     # PeerStateMachine's `state` field has no constructor-time validation,
     # so a directly-constructed garbage state is possible — this proves the

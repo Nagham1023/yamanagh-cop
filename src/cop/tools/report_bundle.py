@@ -64,6 +64,7 @@ def build_declaration(bundle: DeclarationBundle) -> dict:
         "group_name": bundle.group_name,
         "sub_game_number": bundle.step0.sub_game_number,
         "config_sha256": bundle.step0.config_sha256,
+        "scent_model_sha256": bundle.step0.scent_model_sha256,
         "members": list(bundle.members),
         "cop_repo_url": bundle.cop_repo_url,
         "thief_repo_url": bundle.thief_repo_url,

@@ -85,10 +85,21 @@ Ch. 4.5, verbatim (translated): "Before the series opens between the two groups,
 
 **Recommendation, per the book's own text above:** offer the teammate `src/cop/memory/scent.py` directly — the `ScentField.advance()` implementation — rather than only a written formula description. Two independently-written implementations of the same formula are exactly the kind of thing that drifts in a subtle rounding or ordering detail; shared code doesn't have that failure mode. This is explicitly book-endorsed, not a shortcut.
 
-**This ceremony's own lock is still not built** — Step-0 (`integrity/step0.py`) signs hardware/code/config facts but does not yet carry the scent-model formula/numeric-example hash ch. 4.5 describes; this section documents what needs to happen, cross-referenced from `PRD-6-prep-commit-payload-spec.md`.
+**This ceremony's own lock is now built (PRD 9)** — `Step0Declaration` (`integrity/step0.py`) carries a dedicated `scent_model_sha256` field (`integrity/scent_model_lock.py::compute_scent_model_hash`), a SHA-256 of the fixed formula shape plus this series' configured `source_strength`/`decay_rate` plus a worked numeric example computed by actually running `ScentField.advance()` — not hand-typed, so it can't silently drift from the real implementation. Exchanged live over the wire (below), not just computed and left unexchanged.
+
+## PRD 9's one new tool — the live Step-0 exchange (rules 11, 23, 24, 49)
+
+**`receive_step0(declaration: dict, signature: str, repos: dict) -> {"declaration": dict, "signature": str, "repos": dict}`** — a single synchronous round trip, unlike the commit/reveal tools above: both sides already hold everything they need the instant the call arrives, so the responder verifies and answers in the same call rather than acknowledging now and replying later.
+
+`declaration` is `Step0Declaration` wire-flattened (`integrity/step0_wire.py::declaration_to_wire`) — hardware spec, LLM model name, code git-commit hash (rule 53), group name, `sub_game_number`, `config_sha256`, `scent_model_sha256`. `signature` is `sign_step0(declaration)` — SHA-256 of the declaration's own canonical JSON. `repos` is `{"cop": url, "thief": url}` (rule 49) — not part of the signed hash, the book's own Step-0 field list doesn't include it; rides alongside the same way `receive_reveal` already bundles `move` and `hint_text` in one call.
+
+**Both sides verify independently** (`orchestrator_step0.py::_verify_peer_step0`, called by both the initiator's `negotiate_step0` and the responder's `_on_step0_received`): the returned `signature` must match its own `declaration` (`secrets.compare_digest`, catches transmission tampering), then `config_sha256` must equal this side's own `hash_config_file(shared_config_path)` (rule 11), then `scent_model_sha256` must equal this side's own `compute_scent_model_hash(config)` (rule 23). Any failure raises `Step0MismatchError`, drives that side's own state machine to `TECHNICAL_LOSS`, and — on the responder — fails the tool call itself, so a bad payload doesn't leave the initiator believing it succeeded while the responder silently forfeits underneath it.
+
+Whichever side calls `negotiate_step0(peer_url)` first is the initiator; the other simply runs `run_as_server()` and its `_on_step0_received` callback handles the incoming call — no separate second call needed on the responder's side.
 
 ## Status log
 
 - **Not yet sent to the teammate.** This file is the draft to send.
-- **Not yet confirmed compatible against a real thief-repo peer.** Every automated test proving `receive_reveal`/`share_scent_map`/PRD 6's six new tools work has been this repo's own client talking to this repo's own server — no PRD's own milestone can reveal this gap, since it's the same code on both ends every time.
+- **Not yet confirmed compatible against a real thief-repo peer.** Every automated test proving `receive_reveal`/`share_scent_map`/PRD 6's six new tools/`receive_step0` works has been this repo's own client talking to this repo's own server — no PRD's own milestone can reveal this gap, since it's the same code on both ends every time.
 - **PRD 6 changed the wire shape materially again, not just its documentation** — `receive_hint` is gone, replaced by `receive_reveal` with a different parameter shape (`move` + `hint_text`, not just `text`), plus five entirely new tools. If an earlier draft of this file was already shared with the teammate, this supersedes it and needs to go back as a new proposal, not an FYI.
+- **PRD 9 adds one more tool, `receive_step0`** — same "new proposal, not a formality" status as every prior wire-surface change in this log.

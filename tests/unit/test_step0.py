@@ -44,6 +44,7 @@ def _declaration(**overrides) -> Step0Declaration:
         "group_name": "yamanagh",
         "sub_game_number": 1,
         "config_sha256": "b" * 64,
+        "scent_model_sha256": "d" * 64,
     }
     base.update(overrides)
     return Step0Declaration(**base)
@@ -157,6 +158,11 @@ def test_step0_declaration_rejects_an_empty_group_name():
         _declaration(group_name="")
 
 
+def test_step0_declaration_rejects_an_empty_scent_model_sha256():
+    with pytest.raises(ValueError):
+        _declaration(scent_model_sha256="")
+
+
 def test_current_git_commit_hash_matches_real_git_state():
     expected = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
@@ -197,6 +203,12 @@ def test_sign_step0_changes_when_a_hardware_field_changes():
 def test_sign_step0_changes_when_config_sha256_changes():
     baseline = sign_step0(_declaration())
     changed = sign_step0(_declaration(config_sha256="c" * 64))
+    assert baseline != changed
+
+
+def test_sign_step0_changes_when_scent_model_sha256_changes():
+    baseline = sign_step0(_declaration())
+    changed = sign_step0(_declaration(scent_model_sha256="e" * 64))
     assert baseline != changed
 
 

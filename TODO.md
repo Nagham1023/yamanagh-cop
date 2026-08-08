@@ -232,6 +232,26 @@ Status: **Built & verified.** Closes both gaps `rule-auditor`'s PRD 7 closing-pa
 - [x] `rule-auditor` run — see `PRD-8-live-match-wiring.md`'s own Retrospective for the full findings
 - [x] `PRD/PRD-8-live-match-wiring.md` written, critiqued, corrected, and built; `TODO8.md` executed in full; commit
 
+## PRD 9 — Step-0 negotiation ceremony
+
+Status: **Built & verified.** Closes all four gaps `cop-team-fix-list.md` (the Thief side's review) flagged: rule 23 **[FATAL]** had no scent-model cryptographic lock; rule 11 **[FATAL]**'s `verify_config_identity()` was built but never called from anywhere; rule 49 had no channel for the opponent's own repo URLs; and there was no live Step-0/negotiate exchange tool at all. All four shared one root cause — `Step0Declaration` existed and was unit-tested in isolation but never put on the wire — same shape of gap PRD 8 closed for capture-claim/end-of-game. Full detail in `PRD/PRD-9-step0-negotiation.md`.
+
+- [x] rule 9 — both the initiator (`negotiate_step0`) and the responder (`_on_step0_received`) independently verify the peer's declaration; a malformed shape, a forged signature, or a hash mismatch is rejected on whichever side detects it, not trusted from either direction
+- [x] rule 11 — `config_sha256` is now compared live, automatically, before any turn is played (`_verify_peer_step0`), not only by a human running `check_config.py --identical` on demand
+- [x] rule 23 — `scent_model_sha256` (`integrity/scent_model_lock.py`), a hash of the fixed formula shape + this series' numbers + a worked numeric example, exchanged and verified before move 1
+- [x] rule 24 — `Step0Declaration` (hardware, code commit hash, group name, sub-game number) now genuinely exchanged over MCP, not just constructed and left local
+- [x] rule 49 — `repos` rides alongside the signed declaration in `receive_step0`; `report_game()` sources `opponent_cop_repo_url`/`opponent_thief_repo_url` from a completed negotiation by default, explicit override still supported
+- [x] build: `integrity/scent_model_lock.py::compute_scent_model_hash()` — computed via a real `ScentField.advance()` run, not hand-typed
+- [x] build: `integrity/step0_wire.py` — wire (de)serialization, split out once `orchestrator_step0.py` hit the 150-line cap
+- [x] build: `tools/mcp_server_prd9.py`/`mcp_client_prd9.py::receive_step0`/`send_step0` — one synchronous round trip
+- [x] build: `orchestrator_step0.py::Step0NegotiationMixin` — `negotiate_step0`/`_on_step0_received`, both running the identical `_verify_peer_step0` check
+- [x] build: `planner/state_machine.py` gains `NEGOTIATING` as a legal (not default) state
+- [x] test: two real `Orchestrator`s — a genuine match succeeds; a mismatched `config_sha256`, a mismatched `scent_model_sha256`, and a forged signature are each rejected independently (three separate rejection tests, house rule)
+- [x] test: `report_game()` sources opponent repo URLs from a completed negotiation, an explicit override still wins, and it raises clearly when neither is available
+- [x] milestone watched end-to-end by a human (`scripts/watch_prd9_step0_negotiation.py`) — a genuine mutual lock, and a clean, mutually-visible `TECHNICAL_LOSS` on a real single-byte config mismatch, both live
+- [x] found and fixed in passing: `test_private_config.py` asserted a stale placeholder repo URL left over from before the real URL was confirmed (`f6397bf`) — confirmed pre-existing via `git stash`, not a regression, fixed as a one-line drift correction
+- [x] `PRD/PRD-9-step0-negotiation.md` written and built; `TODO9.md` executed in full; `WIRE-CONTRACT.md`'s ch. 4.5 section updated from "still not built" to describe the shipped ceremony; commit
+
 ## Cross-cutting / submission
 
 - [x] `README.md` written — "Running it" (install/usage), thief-repo link (confirmed: `https://github.com/yamandahle/thief-peer`) — [ ] screenshots (`screenshots/live_gui_verified.png`, `replay_verified_ok.png`, `replay_tampered.png`) still need a human with a display to run `scripts/watch_prd7_live_gui.py`/`watch_prd7_replay.py` and capture them

@@ -18,6 +18,7 @@ from pathlib import Path
 
 from cop.integrity.audit import run_mutual_audit
 from cop.integrity.hardware_declaration import detect_hardware
+from cop.integrity.scent_model_lock import compute_scent_model_hash
 from cop.integrity.step0 import (
     Step0Declaration,
     current_git_commit_hash,
@@ -52,10 +53,12 @@ def main() -> None:
         group_name="yamanagh",
         sub_game_number=1,
         config_sha256=hash_config_file(CONFIG_PATH),
+        scent_model_sha256=compute_scent_model_hash(config),
     )
     print(f"  hardware: os={hardware.os_name} cores={hardware.cpu_cores} ram_gb={hardware.ram_gb}")
     print(f"  code_commit_hash={declaration.code_commit_hash}")
     print(f"  config_sha256={declaration.config_sha256}")
+    print(f"  scent_model_sha256={declaration.scent_model_sha256}")
     print(f"  Step0 signature: {sign_step0(declaration)}")
 
     print("\n2. A real commit -> ack -> reveal -> ack round trip (ch. 5.3.1/5.3.2)")

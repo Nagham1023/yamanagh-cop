@@ -20,8 +20,9 @@ Design Question 3). `take_turn()` lives in `orchestrator_turn.py`'s
 Commit-Reveal round trip (`commit_and_reveal_to_peer`) lives in
 `orchestrator_commit_reveal.py`'s `CommitRevealMixin`;
 `request_scent_map_from_peer`/the connection hook live in
-`orchestrator_peer.py`'s `PeerCommsMixin` — this file grew past the
-150-line house cap four times, once at each landing.
+`orchestrator_peer.py`'s `PeerCommsMixin`; the live Step-0 ceremony lives
+in `orchestrator_step0.py`'s `Step0NegotiationMixin` — this file grew past
+the 150-line house cap five times, once at each landing.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from .orchestrator_game_loop import GameLoopMixin
 from .orchestrator_peer import PeerCommsMixin
 from .orchestrator_peer_audit import PeerAuditMixin
 from .orchestrator_server import ServerLifecycleMixin
+from .orchestrator_step0 import Step0NegotiationMixin
 from .orchestrator_turn import BrainTurnMixin
 from .planner.state_machine import PeerStateMachine
 from .planner.watchdog import Watchdog
@@ -58,6 +60,7 @@ from .tools.hint_providers import TemplateHintProvider, build_provider
 from .tools.mcp_server import build_server
 
 _DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
+_DEFAULT_SHARED_CONFIG_PATH = "config/shared/config_dev_g01.json"  # negotiate_step0's re-hash target
 
 
 class Orchestrator(
@@ -69,6 +72,7 @@ class Orchestrator(
     PeerCommsMixin,
     PeerAuditMixin,
     ServerLifecycleMixin,
+    Step0NegotiationMixin,
 ):
     def __init__(
         self,
@@ -76,6 +80,7 @@ class Orchestrator(
         brain: BrainBase,
         log_path: str = "logs/trace.jsonl",
         private_config: PrivateConfig | None = None,
+        shared_config_path: str = _DEFAULT_SHARED_CONFIG_PATH,
     ) -> None:
         self.config = config
         self.brain = brain
@@ -89,6 +94,7 @@ class Orchestrator(
             barriers=barriers,
         )
         self.private_config = private_config or PrivateConfig.from_file(_DEFAULT_PRIVATE_CONFIG_PATH)
+        self.shared_config_path = shared_config_path  # PRD 9: negotiate_step0's own re-hash target
         self.hint_provider = build_provider(self.private_config.provider)
         self.template_provider = TemplateHintProvider()
         self._rng = random.Random()
@@ -118,6 +124,9 @@ class Orchestrator(
         self._capture_response: CaptureResponse | None = None
         self._capture_response_loop: asyncio.AbstractEventLoop | None = None
         self._last_turn_captured = False
+        # Filled in by `negotiate_step0`/`_on_step0_received` — `report_game`
+        # (rule 49) sources the opponent's repo URLs from here by default.
+        self._opponent_repos: dict[str, str] | None = None
         self.watchdog = Watchdog(
             threshold_seconds=config.watchdog_threshold_seconds,
             persist_state=lambda: self.trace.log(
@@ -136,4 +145,5 @@ class Orchestrator(
             on_final_reveal=self._on_final_reveal_received,
             on_capture_claim=self._on_capture_claim_received,
             on_capture_response=self._on_capture_response_received,
+            on_step0=self._on_step0_received,
         )

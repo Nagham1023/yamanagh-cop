@@ -19,6 +19,19 @@ available until Final Reveal (rule 18), so that full check stays a
 separate, one-time `integrity/audit.py::run_mutual_audit` call at game
 end, outside this per-turn cycle entirely.
 
+`NEGOTIATING` (PRD 9) is the ch. 5.5 Step-0 ceremony — logically the very
+first state, before the per-turn cycle above ever starts. It is *not* the
+dataclass's own default (`WAITING_FOR_OPPONENT` stays that, unchanged, so
+every one of PRD 1-8's existing `PeerStateMachine()`/`Orchestrator()`
+call sites and tests keeps constructing a machine already sitting at the
+per-turn cycle's own resting state, exactly as before) — `negotiate_step0`
+(`orchestrator_step0.py`) explicitly constructs
+`PeerStateMachine(state="NEGOTIATING")` itself, the one caller that
+actually runs the ceremony. `NEGOTIATING -> WAITING_FOR_OPPONENT` on a
+verified match, `NEGOTIATING -> TECHNICAL_LOSS` on a hash mismatch or a
+network failure — the same "a call that can hang or fail gets the edge"
+reasoning `COMMITTING`'s own addition already established.
+
 `TECHNICAL_LOSS` reachability deliberately does **not** match the book's
 own diagram caption ("dashed arrows... emergency exits from a
 communication step that failed") verbatim — the caption and the book's own
@@ -46,6 +59,7 @@ from dataclasses import dataclass, field
 # for exactly which states reach TECHNICAL_LOSS and why that set is
 # narrower than "every state."
 TRANSITIONS: dict[str, set[str]] = {
+    "NEGOTIATING": {"WAITING_FOR_OPPONENT", "TECHNICAL_LOSS"},
     "WAITING_FOR_OPPONENT": {"COMPUTING_MOVE"},
     "COMPUTING_MOVE": {"COMMITTING", "TECHNICAL_LOSS"},
     "COMMITTING": {"AWAITING_REVEAL", "TECHNICAL_LOSS"},
