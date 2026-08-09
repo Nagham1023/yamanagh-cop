@@ -15,14 +15,16 @@ value.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 from .domain.end_conditions import determine_outcome
 from .domain.scoring import Outcome
+from .observability.live_gui import LiveGuiWindow, render_state
 
 
 class GameLoopMixin:
-    async def play_game(self, peer_url: str) -> Outcome:
+    async def play_game(self, peer_url: str, enable_gui: bool = False) -> Outcome:
         """Loop `take_turn()` until capture, the step ceiling, the survival
         threshold, or a technical loss ends the match.
 
@@ -32,20 +34,36 @@ class GameLoopMixin:
         began"/"a match ended" — `report_game()`'s `DeclarationBundle`
         needs both and had no other honest source for them."""
         self._match_started_at = datetime.now(UTC).isoformat()
-        while True:
-            try:
-                await self.take_turn(peer_url)
-            except Exception:
-                self._match_ended_at = datetime.now(UTC).isoformat()
-                return Outcome.TECHNICAL_LOSS
+        gui_window = LiveGuiWindow(board_size=self.config.board_size) if enable_gui else None
+        try:
+            while True:
+                try:
+                    await self.take_turn(peer_url)
+                except Exception:
+                    self._match_ended_at = datetime.now(UTC).isoformat()
+                    return Outcome.TECHNICAL_LOSS
 
-            outcome = determine_outcome(
-                captured=self._last_turn_captured,
-                steps_taken=self.game_state.steps_taken,
-                step_ceiling=self.config.step_ceiling,
-                survival_threshold=self.config.survival_threshold,
-            )
-            self.watchdog.heartbeat()
-            if outcome is not None:
-                self._match_ended_at = datetime.now(UTC).isoformat()
-                return outcome
+                if gui_window is not None:
+                    rendered = render_state(
+                        self.game_state.own_pos,
+                        self.belief_map._probabilities,
+                        self.state_machine.state,
+                    )
+                    gui_window.update(rendered)
+                    await asyncio.sleep(0.5)
+
+                outcome = determine_outcome(
+                    captured=self._last_turn_captured,
+                    steps_taken=self.game_state.steps_taken,
+                    step_ceiling=self.config.step_ceiling,
+                    survival_threshold=self.config.survival_threshold,
+                )
+                self.watchdog.heartbeat()
+                if outcome is not None:
+                    self._match_ended_at = datetime.now(UTC).isoformat()
+                    if gui_window is not None:
+                        await asyncio.sleep(1.0)
+                    return outcome
+        finally:
+            if gui_window is not None:
+                gui_window.close()

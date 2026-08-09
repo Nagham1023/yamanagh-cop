@@ -192,3 +192,31 @@ def test_play_game_stamps_started_and_ended_at_even_on_a_technical_loss(config, 
 
     assert client._match_started_at is not None
     assert client._match_ended_at is not None
+
+
+def test_play_game_with_enable_gui_true_updates_and_closes_window(config, tmp_path, monkeypatch):
+    fast_config = config.__class__(**{**config.__dict__, "step_ceiling": 1, "survival_threshold": 100})
+    client, client_url = _start_client(fast_config, tmp_path)
+    thief_port = _start_denying_thief_peer(client_url)
+
+    updates = []
+    closed = []
+
+    class DummyGuiWindow:
+        def __init__(self, board_size: int):
+            pass
+
+        def update(self, rendered):
+            updates.append(rendered)
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr("cop.orchestrator_game_loop.LiveGuiWindow", DummyGuiWindow)
+
+    outcome = asyncio.run(client.play_game(f"http://127.0.0.1:{thief_port}/mcp", enable_gui=True))
+
+    assert outcome == Outcome.SURVIVAL
+    assert len(updates) == 1
+    assert closed == [True]
+
