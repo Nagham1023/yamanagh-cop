@@ -82,7 +82,11 @@ class EndOfGameMixin:
         """
         opponent_cop_repo_url = opponent_cop_repo_url or self._opponent_repo_url("cop")
         opponent_thief_repo_url = opponent_thief_repo_url or self._opponent_repo_url("thief")
-        await self.send_final_reveal_to_peer(peer_url)
+        try:
+            await self.send_final_reveal_to_peer(peer_url)
+        except Exception as exc:
+            self.trace.log("final_reveal_send_failed", error=str(exc))
+
         self_audit = run_mutual_audit(self.log_path, self._pending_nonces)
         peer_audit = self.audit_peer()
 

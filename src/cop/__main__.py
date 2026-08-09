@@ -31,6 +31,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tunnel", action="store_true",
         help="expose this peer via ngrok (rule 10) — needed for a real cross-machine match",
     )
+    peer_parser.add_argument(
+        "--gui", action="store_true",
+        help="open live belief heatmap GUI window during the match",
+    )
     peer_parser.add_argument("--private-config", default=DEFAULT_PRIVATE_CONFIG_PATH)
     peer_parser.add_argument("--shared-config", default=DEFAULT_SHARED_CONFIG_PATH)
 
@@ -54,6 +58,7 @@ def main() -> None:
                     args.shared_config,
                     counted=args.counted,
                     use_tunnel=args.tunnel,
+                    gui=args.gui,
                 )
             )
         except Step0MismatchError as exc:

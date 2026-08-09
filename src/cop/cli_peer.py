@@ -41,6 +41,7 @@ async def run_peer(
     *,
     counted: bool = False,
     use_tunnel: bool = False,
+    gui: bool = False,
     log_path: str | None = None,
     league_ledger_path: str | None = None,
 ) -> Orchestrator:
@@ -83,7 +84,7 @@ async def run_peer(
     else:
         await orchestrator.await_passive_step0(private_config.step0_wait_seconds)
 
-    outcome = await orchestrator.play_game(peer_url)
+    outcome = await orchestrator.play_game(peer_url, enable_gui=gui)
 
     score = score_outcome(outcome, config)
     await orchestrator.report_game(
