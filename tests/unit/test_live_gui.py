@@ -112,5 +112,90 @@ def test_live_gui_window_actually_renders_without_crashing():
         rendered = render_state(Position(0, 0), {Position(3, 3): 0.9}, "COMPUTING_MOVE")
         window.update(rendered)
         assert window.banner.cget("text") == "YOUR TURN"
+        # Full board is always painted (missing belief cells stay white) —
+        # never an empty canvas waiting on the first sparse update.
+        assert window.canvas.find_all()
     finally:
         window.close()
+
+
+@pytest.mark.skipif(not _HAS_DISPLAY, reason="no display available for a real Tk window")
+def test_live_gui_window_paints_a_full_grid_on_construction():
+    window = LiveGuiWindow(board_size=3)
+    try:
+        # 3x3 cells drawn before any belief update — fixes the blank-window
+        # Windows failure mode when --gui opened under asyncio with no paint.
+        assert len(window.canvas.find_all()) == 9
+    finally:
+        window.close()
+
+
+def test_live_gui_session_runs_match_fn_and_returns_its_result(monkeypatch):
+    """No real Tk mainloop — prove the session wires match_fn + quit path."""
+    from cop.observability import live_gui as live_gui_mod
+
+    class _FakeWindow:
+        def __init__(self, board_size: int):
+            self.root = type("R", (), {})()
+            self.root.after = lambda _ms, cb: cb() if False else None  # noqa: ARG005
+            self.updates = []
+            self.ran = False
+
+        def update(self, rendered):
+            self.updates.append(rendered)
+
+        def run(self):
+            self.ran = True
+
+        def close(self):
+            pass
+
+    # Avoid spinning forever: first poll sees match already done and quits.
+    class _QuitWindow(_FakeWindow):
+        def __init__(self, board_size: int):
+            super().__init__(board_size)
+            self._session = None
+
+        def run(self):
+            self.ran = True
+            # Simulate mainloop returning after match thread finished.
+            while not self._session._match_done.wait(timeout=0.05):
+                pass
+
+    orch = type(
+        "O",
+        (),
+        {
+            "game_state": type("G", (), {"own_pos": Position(1, 1)})(),
+            "belief_map": type("B", (), {"_probabilities": {Position(1, 1): 1.0}})(),
+            "state_machine": type("S", (), {"state": "COMPUTING_MOVE"})(),
+        },
+    )()
+
+    window_holder = {}
+
+    def _fake_window(board_size: int):
+        w = _QuitWindow(board_size)
+        window_holder["w"] = w
+        return w
+
+    monkeypatch.setattr(live_gui_mod, "LiveGuiWindow", _fake_window)
+
+    session = live_gui_mod.LiveGuiSession(orch, board_size=7, poll_interval_ms=1)
+    window_holder["w"]._session = session
+
+    # Don't schedule real after-callbacks; inject a one-shot poll then stop.
+    def _poll_once():
+        rendered = live_gui_mod.render_state(
+            orch.game_state.own_pos,
+            orch.belief_map._probabilities,
+            str(orch.state_machine.state),
+        )
+        window_holder["w"].update(rendered)
+
+    monkeypatch.setattr(session, "_schedule_poll", _poll_once)
+
+    result = session.run(lambda: "ok-outcome")
+    assert result == "ok-outcome"
+    assert window_holder["w"].ran is True
+    assert window_holder["w"].updates

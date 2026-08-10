@@ -99,3 +99,21 @@ def test_replay_subcommand_dispatches_to_run_replay_and_exits_with_its_code(monk
 def test_no_subcommand_is_rejected():
     with pytest.raises(SystemExit):
         main_module._build_parser().parse_args([])
+
+
+def test_peer_subcommand_with_gui_dispatches_to_run_peer_with_gui(monkeypatch):
+    captured = {}
+
+    def _fake_run_peer_with_gui(private_config_path, shared_config_path, *, counted, use_tunnel):
+        captured["args"] = (private_config_path, shared_config_path, counted, use_tunnel)
+
+    monkeypatch.setattr(main_module, "run_peer_with_gui", _fake_run_peer_with_gui)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["cop", "peer", "--gui", "--private-config", "a.toml", "--shared-config", "b.json"],
+    )
+
+    main_module.main()
+
+    assert captured["args"] == ("a.toml", "b.json", False, False)

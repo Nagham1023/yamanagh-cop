@@ -117,6 +117,9 @@ class Orchestrator(
         self._capture_response: CaptureResponse | None = None
         self._capture_response_loop: asyncio.AbstractEventLoop | None = None
         self._last_turn_captured = False
+        # Ch.5.3.2 Step 4: peer Final Reveal means the match has ended.
+        # Set from the MCP server thread; `play_game` reads it each loop.
+        self._peer_final_reveal_received = False
         # Filled in by `negotiate_step0`/`_on_step0_received` — `report_game`
         # (rule 49) sources the opponent's repo URLs from here by default.
         self._opponent_repos: dict[str, str] | None = None

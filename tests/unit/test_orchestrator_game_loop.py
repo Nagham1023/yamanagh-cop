@@ -156,7 +156,11 @@ def test_play_game_calls_watchdog_heartbeat_once_per_completed_turn(config, tmp_
 
     asyncio.run(client.play_game(f"http://127.0.0.1:{thief_port}/mcp"))
 
-    assert len(heartbeats) == 3
+    # play_game heartbeats once per completed turn; inbound peer tool calls
+    # (rule 7 / _on_connection_received) also heartbeat — with rule-46
+    # barrier Capture Claims that adds ≥1 extra beat, so assert the floor.
+    assert client.game_state.steps_taken == 3
+    assert len(heartbeats) >= 3
 
 
 def test_play_game_converts_a_technical_loss_into_a_return_value_not_an_exception(config, tmp_path):
@@ -217,6 +221,51 @@ def test_play_game_with_enable_gui_true_updates_and_closes_window(config, tmp_pa
     outcome = asyncio.run(client.play_game(f"http://127.0.0.1:{thief_port}/mcp", enable_gui=True))
 
     assert outcome == Outcome.SURVIVAL
-    assert len(updates) == 1
+    # Immediate paint on open + one post-turn update (blank-window fix).
+    assert len(updates) == 2
     assert closed == [True]
+
+
+def test_play_game_stops_when_peer_sends_final_reveal_ch532(config, tmp_path):
+    # Ch.5.3.2 Step 4: Final Reveal = end of game. Without this stop, a peer
+    # that ends early leaves Cop looping to the ceiling (rule 35 risk).
+    fast_config = config.__class__(**{**config.__dict__, "step_ceiling": 20, "survival_threshold": 100})
+    client, client_url = _start_client(fast_config, tmp_path)
+    thief_port = _start_denying_thief_peer(client_url)
+
+    async def _run() -> Outcome:
+        async def _end_after_first_turn(peer_url: str):
+            await original_take_turn(peer_url)
+            client._on_final_reveal_received({"1": "deadbeef"}, {"1": True})
+
+        original_take_turn = client.take_turn
+        client.take_turn = _end_after_first_turn  # type: ignore[method-assign]
+        return await client.play_game(f"http://127.0.0.1:{thief_port}/mcp")
+
+    outcome = asyncio.run(_run())
+
+    assert client._peer_final_reveal_received is True
+    assert outcome == Outcome.TECHNICAL_LOSS
+    assert client.game_state.steps_taken == 1
+
+
+def test_play_game_peer_final_reveal_preserves_confirmed_capture(config, tmp_path):
+    client, client_url = _start_client(config, tmp_path)
+    thief_port = _start_confirming_thief_peer(client_url)
+    client.game_state.target_pos = Position(1, 0)
+    client.belief_map.most_likely_cell = lambda: Position(1, 0)
+
+    async def _run() -> Outcome:
+        async def _capture_then_peer_reveal(peer_url: str):
+            await original_take_turn(peer_url)
+            client._on_final_reveal_received({"1": "deadbeef"}, {"1": True})
+
+        original_take_turn = client.take_turn
+        client.take_turn = _capture_then_peer_reveal  # type: ignore[method-assign]
+        return await client.play_game(f"http://127.0.0.1:{thief_port}/mcp")
+
+    outcome = asyncio.run(_run())
+
+    assert outcome == Outcome.CAPTURE
+    assert client._last_turn_captured is True
 

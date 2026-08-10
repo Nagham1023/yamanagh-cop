@@ -24,9 +24,27 @@ from .observability.live_gui import LiveGuiWindow, render_state
 
 
 class GameLoopMixin:
+    def _outcome_after_peer_final_reveal(self) -> Outcome:
+        """Ch.5.3.2: peer Final Reveal ends the match. Prefer a capture we
+        already confirmed (rules 21/22); else honour survival/ceiling if
+        those local predicates already fire; never invent SURVIVAL early
+        (rule 35 / rule 22)."""
+        if self._last_turn_captured:
+            return Outcome.CAPTURE
+        outcome = determine_outcome(
+            captured=False,
+            steps_taken=self.game_state.steps_taken,
+            step_ceiling=self.config.step_ceiling,
+            survival_threshold=self.config.survival_threshold,
+        )
+        if outcome is not None:
+            return outcome
+        return Outcome.TECHNICAL_LOSS
+
     async def play_game(self, peer_url: str, enable_gui: bool = False) -> Outcome:
         """Loop `take_turn()` until capture, the step ceiling, the survival
-        threshold, or a technical loss ends the match.
+        threshold, a peer Final Reveal (Ch.5.3.2), or a technical loss
+        ends the match.
 
         PRD 10: stamps `self._match_started_at`/`_match_ended_at` (ISO-8601
         UTC) at this function's own real boundaries — the only two points
@@ -35,8 +53,21 @@ class GameLoopMixin:
         needs both and had no other honest source for them."""
         self._match_started_at = datetime.now(UTC).isoformat()
         gui_window = LiveGuiWindow(board_size=self.config.board_size) if enable_gui else None
+        if gui_window is not None:
+            # Paint immediately so the window is never blank while the first
+            # take_turn awaits the peer (CLI `--gui` prefers LiveGuiSession).
+            gui_window.update(
+                render_state(
+                    self.game_state.own_pos,
+                    self.belief_map._probabilities,
+                    str(self.state_machine.state),
+                )
+            )
         try:
             while True:
+                if self._peer_final_reveal_received:
+                    self._match_ended_at = datetime.now(UTC).isoformat()
+                    return self._outcome_after_peer_final_reveal()
                 try:
                     await self.take_turn(peer_url)
                 except Exception:
@@ -47,10 +78,16 @@ class GameLoopMixin:
                     rendered = render_state(
                         self.game_state.own_pos,
                         self.belief_map._probabilities,
-                        self.state_machine.state,
+                        str(self.state_machine.state),
                     )
                     gui_window.update(rendered)
                     await asyncio.sleep(0.5)
+
+                if self._peer_final_reveal_received:
+                    self._match_ended_at = datetime.now(UTC).isoformat()
+                    if gui_window is not None:
+                        await asyncio.sleep(1.0)
+                    return self._outcome_after_peer_final_reveal()
 
                 outcome = determine_outcome(
                     captured=self._last_turn_captured,

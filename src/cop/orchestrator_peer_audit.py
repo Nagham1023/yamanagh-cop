@@ -29,13 +29,37 @@ class PeerAuditMixin:
         self.peer_trace.record_commit(h_commit)
         self.trace.log("peer_commit_received", h_commit=h_commit)
 
-    def _on_final_reveal_received(self, nonces: dict, intents: dict) -> None:
+    def _on_final_reveal_received(self, nonces: dict, intents: dict) -> dict:
         """Server-role counterpart to `send_final_reveal_to_peer` — the
         peer's own nonces and Intent flags, both required to recompute
         their `Hcommit` (ch. 5.3.1's equation needs `Intent`, not just
-        `Nonce`; `State` is never sent at all, see `peer_trace.py`)."""
+        `Nonce`; `State` is never sent at all, see `peer_trace.py`).
+
+        Ch.5.3.2 Step 4 names Final Reveal as the end-of-game step ("all
+        Nonces (end of game)"). A live Cop⇄Thief run showed this callback
+        used to only record audit data while `play_game` kept looping to
+        the step ceiling — producing contradictory winners (rule 35). The
+        flag below is what stops the loop.
+
+        Returns the peer-audit summary (rules 19/36) so the caller of
+        `receive_final_reveal` learns whether *their* commits verified —
+        mutual audit cannot be one-sided and silent."""
         self.peer_trace.record_final_reveal(nonces, intents)
-        self.trace.log("peer_final_reveal_received", step_count=len(nonces))
+        self._peer_final_reveal_received = True
+        peer_audit = self.audit_peer()
+        verified = len(self.peer_trace.entries) - len(peer_audit.mismatches)
+        self.trace.log(
+            "peer_final_reveal_received",
+            step_count=len(nonces),
+            audit_passed=peer_audit.passed,
+            verified_steps=verified,
+        )
+        return {
+            "passed": peer_audit.passed,
+            "verified_steps": max(0, verified),
+            "failed_steps": [m.get("step") for m in peer_audit.mismatches],
+            "evaluated": True,
+        }
 
     async def send_final_reveal_to_peer(self, peer_url: str) -> dict:
         """Rule 18: only ever called at game end. No state-machine

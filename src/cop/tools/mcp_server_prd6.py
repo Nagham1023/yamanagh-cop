@@ -83,12 +83,20 @@ def register_prd6_tools(
         their publicly known start position (`board_and_agents.thief_start`/
         `cop_start`, part of the shared, locked config) — never transmitted
         as a position claim, matching rule 27. Enables
-        `integrity/peer_trace.py::run_peer_audit`'s full bilateral replay."""
+        `integrity/peer_trace.py::run_peer_audit`'s full bilateral replay.
+
+        Return includes the peer-audit summary (rules 19/36) when the
+        orchestrator callback provides one — so the revealing side learns
+        whether this side verified their commits, closing the silent
+        one-way audit gap."""
         if on_receive is not None:
             on_receive(caller_ip())
+        result: dict = {"acknowledged": True}
         if on_final_reveal is not None:
-            on_final_reveal(nonces, intents)
-        return {"acknowledged": True}
+            audit = on_final_reveal(nonces, intents)
+            if isinstance(audit, dict):
+                result.update(audit)
+        return result
 
     @mcp.tool
     def receive_barrier_declaration(col: int, row: int) -> dict:

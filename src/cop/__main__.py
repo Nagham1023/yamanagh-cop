@@ -11,7 +11,12 @@ import argparse
 import asyncio
 import sys
 
-from .cli_peer import DEFAULT_PRIVATE_CONFIG_PATH, DEFAULT_SHARED_CONFIG_PATH, run_peer
+from .cli_peer import (
+    DEFAULT_PRIVATE_CONFIG_PATH,
+    DEFAULT_SHARED_CONFIG_PATH,
+    run_peer,
+    run_peer_with_gui,
+)
 from .cli_replay import run_replay
 from .orchestrator_step0 import Step0MismatchError
 
@@ -52,15 +57,24 @@ def main() -> None:
 
     if args.command == "peer":
         try:
-            asyncio.run(
-                run_peer(
+            if args.gui:
+                # Tk mainloop must own the main thread on Windows — do not
+                # nest LiveGuiWindow under asyncio.run (blank window).
+                run_peer_with_gui(
                     args.private_config,
                     args.shared_config,
                     counted=args.counted,
                     use_tunnel=args.tunnel,
-                    gui=args.gui,
                 )
-            )
+            else:
+                asyncio.run(
+                    run_peer(
+                        args.private_config,
+                        args.shared_config,
+                        counted=args.counted,
+                        use_tunnel=args.tunnel,
+                    )
+                )
         except Step0MismatchError as exc:
             print(f"Step-0 negotiation failed: {exc}", file=sys.stderr)
             sys.exit(1)

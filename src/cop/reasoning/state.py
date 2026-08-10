@@ -75,17 +75,27 @@ class GameState:
 def claims_capture(
     action: Action, own_pos_before: Position, own_pos_after: Position, target_pos: Position
 ) -> Position | None:
-    """PRD 8 Design Question 1: the cop never holds the true thief position
-    (rule 1/2), so this can only ever check the cop's own *believed* cell,
-    never a verified one — the book's own text ("lands on the same cell as
-    the Thief **and** makes a capture claim") pairs the landing with the
-    claim itself, not with prior certainty. Returns the claimed thief cell
-    (always `target_pos`, since a claim can only ever be about the cell
-    already believed to hold the thief) if this turn's action landed there,
-    else `None`. `own_pos_before` is accepted but deliberately unused for a
-    `Move` — only where the cop *ends up* matters, not where it started."""
+    """When this turn's action warrants a Capture Claim (book Ch.3.4 + rules
+    21/22/46), return the cell being claimed; else `None`.
+
+    Move: the book pairs "lands on the same cell as the Thief **and** makes
+    a capture claim" — under fog of war (rules 1/2) that cell can only be
+    the believed target, never a verified one. Claim only when the landing
+    cell equals `target_pos`.
+
+    PlaceBarrier: rule 46 ([FATAL] cross-check) — a barrier on the thief's
+    *current* cell is an instant capture. Cop cannot verify that locally, so
+    every barrier placement must ask via Capture Claim on the barrier cell
+    itself; the thief answers truthfully (rules 21/22). Matching belief is
+    NOT required — a barrier next to the belief peak can still be the real
+    cell (live Cop⇄Thief run: barrier on (5,5) hit the thief while belief
+    was (4,5), no claim was sent, both sides then disagreed on the winner
+    — rule 35).
+
+    `own_pos_before` is accepted but unused for `Move` — only where the cop
+    *ends up* matters, not where it started."""
     match action:
         case Move():
             return target_pos if own_pos_after == target_pos else None
         case PlaceBarrier(target=barrier_target):
-            return target_pos if barrier_target == target_pos else None
+            return barrier_target

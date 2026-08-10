@@ -1,6 +1,6 @@
-"""`claims_capture()` (PRD 8 Design Question 1): the honest, belief-only
-capture trigger — the cop can only ever claim its own believed cell, never
-a verified one.
+"""`claims_capture()` — when a turn warrants a Capture Claim (Ch.3.4 +
+rules 21/22/46). Moves claim only the believed cell; barriers always claim
+the barrier cell itself (rule 46), then the thief confirms or denies.
 """
 
 from __future__ import annotations
@@ -31,11 +31,13 @@ def test_a_barrier_placed_exactly_on_the_belief_target_claims_it():
     assert result == Position(2, 2)
 
 
-def test_a_barrier_placed_elsewhere_claims_nothing():
+def test_a_barrier_claims_its_own_cell_even_when_belief_differs():
+    # Rule 46: barrier-on-thief is capture. Belief may be off-by-one; the
+    # claim must still ask about the barrier cell so the thief can confirm.
     result = claims_capture(
         PlaceBarrier(target=Position(2, 2)), Position(1, 2), Position(1, 2), target_pos=Position(5, 5)
     )
-    assert result is None
+    assert result == Position(2, 2)
 
 
 def test_own_pos_before_never_enters_the_move_comparison():
