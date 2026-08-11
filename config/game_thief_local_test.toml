@@ -1,0 +1,38 @@
+# config/game_thief_local_test.toml — local-only test double for connecting
+# to a real Thief process on this same machine (her repo's own
+# config/thief/game_cop_local_test.toml, port 8801 -> opponent 8802). Never
+# used by the real submission config/game.toml's own values; safe to run
+# repeatedly, email.mode stays "draft" so nothing is ever actually sent.
+#
+# Pairing: cop listens on 8802, dials her at 8801. initiate_step0 = false —
+# her own cop_step0_handshake() always actively dials in first (confirmed
+# by reading her interop/cop_handshake.py directly, no passive branch
+# exists on her side), so this side must be the one that waits.
+
+version = "1.10"
+
+[game]
+group_name = "dev-team"
+group_id = "dev-team"
+sub_game_number = 1
+members = ["dev-1"]
+repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://github.com/yamandahle/thief-peer" }
+
+[network]
+my_port = 8802
+opponent_url = "http://127.0.0.1:8801/mcp"
+turn_timeout_seconds = 180
+initiate_step0 = false
+step0_wait_seconds = 60   # short for fast local iteration, not the real match's 300s default
+
+[trash_talk]
+provider = "template"
+every_n_steps = 1
+
+[llm]
+model = "claude-sonnet-5"
+step_deadline_seconds = 30
+
+[email]
+recipient = "rmisegal+uoh26finalgame@gmail.com"
+mode = "draft"
