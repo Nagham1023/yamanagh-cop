@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .rl_checkpoint_quant import QuantizationParams, dequantize_q_table
 from .rl_state_encoding import State
 
 _CURRENT_ENCODING_VERSION = "v1"
@@ -44,14 +45,24 @@ class RLQTable:
 
 def save_checkpoint(
     path: str | Path,
-    q_values: dict[State, dict[str, float]],
+    q_values: dict[State, dict[str, float]] | dict[State, dict[str, int]],
     *,
     state_encoding_version: str = _CURRENT_ENCODING_VERSION,
+    quantization: QuantizationParams | None = None,
 ) -> None:
     """`q_values` is a plain dict (`training/q_table.py::QTable.as_dict()`'s
-    output) — this function never depends on training's own `QTable` class."""
-    payload = {
+    output, or `training/quantize.py::quantize_q_table`'s quantized output
+    when `quantization` is given) — this function never depends on
+    training's own `QTable` class. `quantization=None` (the PRD 11 shape)
+    means `q_values` are already the real floats; a `QuantizationParams`
+    here means they are int codes `load_checkpoint` must dequantize."""
+    payload: dict[str, Any] = {
         "state_encoding_version": state_encoding_version,
+        "quantization": (
+            None
+            if quantization is None
+            else {"dtype": quantization.dtype, "scale": quantization.scale, "min_q": quantization.min_q}
+        ),
         "q_values": [
             {"state": list(state), "values": values} for state, values in q_values.items()
         ],
@@ -64,7 +75,11 @@ def save_checkpoint(
 def load_checkpoint(path: str | Path) -> RLQTable:
     """Raises `ValueError` on a malformed/corrupted file rather than
     returning a partial table silently — a broken checkpoint reaching a
-    real match undetected is worse than a loud failure at load time."""
+    real match undetected is worse than a loud failure at load time.
+
+    A PRD-11-era checkpoint (no `quantization` key at all) loads exactly as
+    before — backward compatible by construction, not by a version branch:
+    `raw.get("quantization")` is `None` either way."""
     text = Path(path).read_text(encoding="utf-8")
     try:
         raw: Any = json.loads(text)
@@ -80,8 +95,15 @@ def load_checkpoint(path: str | Path) -> RLQTable:
             f"{_CURRENT_ENCODING_VERSION!r}"
         )
 
-    values: dict[State, dict[str, float]] = {}
+    raw_values: dict[State, dict[str, Any]] = {}
     for entry in raw["q_values"]:
         state = tuple(entry["state"])
-        values[state] = entry["values"]
-    return RLQTable(values)
+        raw_values[state] = entry["values"]
+
+    quantization = raw.get("quantization")
+    if quantization is None:
+        return RLQTable(raw_values)
+    params = QuantizationParams(
+        dtype=quantization["dtype"], scale=quantization["scale"], min_q=quantization["min_q"]
+    )
+    return RLQTable(dequantize_q_table(raw_values, params))

@@ -7,6 +7,7 @@ import json
 import pytest
 
 from cop.reasoning.rl_checkpoint import load_checkpoint, save_checkpoint
+from cop.reasoning.rl_checkpoint_quant import QuantizationParams
 
 _Q_VALUES = {(1, 2, 0): {"N": 4.5, "E": 1.0}, (-1, 0, 3): {"STAY": 0.2}}
 
@@ -62,3 +63,25 @@ def test_unrecognized_encoding_version_raises_value_error(tmp_path):
     )
     with pytest.raises(ValueError):
         load_checkpoint(path)
+
+
+def test_a_quantized_checkpoint_dequantizes_transparently_on_load(tmp_path):
+    path = tmp_path / "checkpoint.json"
+    params = QuantizationParams(dtype="int8", scale=2.0, min_q=-10.0)
+    quantized_values = {(0, 0, 0): {"N": 127, "E": -128}}  # N clearly best
+    save_checkpoint(path, quantized_values, quantization=params)
+    table = load_checkpoint(path)
+    assert table.ranked_actions((0, 0, 0)) == ["N", "E"]
+
+
+def test_a_prd11_era_checkpoint_with_no_quantization_key_at_all_still_loads(tmp_path):
+    """Simulates a file written before PRD 12 existed — `quantization` is
+    entirely absent, not present-and-null."""
+    path = tmp_path / "checkpoint.json"
+    payload = {
+        "state_encoding_version": "v1",
+        "q_values": [{"state": [1, 2, 0], "values": {"N": 4.5, "E": 1.0}}],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    table = load_checkpoint(path)
+    assert table.ranked_actions((1, 2, 0)) == ["N", "E"]

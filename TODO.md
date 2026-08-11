@@ -287,6 +287,20 @@ Status: **Built & verified.** The RL layer `PRD-3-blind-strategy.md` deferred ("
 - [x] `rule-auditor` run scoped to rules 1/2/25/I2/I6/I7 and the new files
 - [x] `PRD/PRD-11-rl-training-simulator.md` written and built; `TODO11.md` executed in full; commit
 
+## PRD 12 — Quantization, latency benchmark, and promotion-gate criteria
+
+Status: **Built & verified.** Extends PRD 11's checkpoint format (backward compatible — a PRD-11-era checkpoint still loads unchanged) rather than replacing it. Nothing from this layer is wired into any real match either; still off the graded critical path. Full detail in `PRD/PRD-12-quantization-and-benchmarking.md`.
+
+- [x] design — per-table affine int8 quantization of a Q-table's stored values, the tabular analogue of PyTorch's post-training weight quantization; stated up front that lookup latency's benefit isn't load-bearing for a tabular table (confirmed by the measured numbers, not assumed)
+- [x] build: `src/cop/reasoning/rl_checkpoint_quant.py` — `QuantizationParams`, `dequantize_q_table` (the one authoritative decode implementation)
+- [x] build: `rl_checkpoint.py` extended with an optional `quantization` field — transparent dequantize on load, backward compatible with PRD 11's own unquantized format
+- [x] build: `training/quantize.py` — `quantize_q_table`, `argmax_agreement_rate`; `training/benchmark_latency.py` — realistic-state sampling + p50/p95/p99 timing; `training/checkpoint_io.py` gains `save_quantized()`
+- [x] found only by deliberately constructing an adversarial near-tie case, not assumed: the argmax-agreement metric is proven to actually detect a real divergence (0.5, not 1.0, on a table engineered to collapse a genuine tiny margin into a quantized tie)
+- [x] test: 22 new tests, 100% coverage on every new/extended module; full PRD-11+12 suite together, 65 passed
+- [x] milestone watched: `scripts/watch_prd12_quantization.py` — 41% size reduction, 90.84% argmax-agreement (a real, honestly-reported number — not assumed to be 100%), p99 latency ~752,000x under the 30s `response_timeout_seconds` budget
+- [x] `rule-auditor` run
+- [x] `PRD/PRD-12-quantization-and-benchmarking.md` written and built; `TODO12.md` executed in full; commit
+
 ## Cross-cutting / submission
 
 - [x] `README.md` written — "Running it" (install/usage), thief-repo link (confirmed: `https://github.com/yamandahle/thief-peer`) — [ ] screenshots (`screenshots/live_gui_verified.png`, `replay_verified_ok.png`, `replay_tampered.png`) still need a human with a display to run `scripts/watch_prd7_live_gui.py`/`watch_prd7_replay.py` and capture them (`instructions.md` §7 has the exact steps)
