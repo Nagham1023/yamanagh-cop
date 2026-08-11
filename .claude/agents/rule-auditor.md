@@ -39,6 +39,8 @@ Read the skill for the full list. The patterns that matter most, because each on
 - Gmail scope wider than send-only (30)
 - `X-Forwarded-For` (or any peer-supplied header) trusted for anything beyond logging/display (I9) — it's attacker-controllable; a real violation is it gating any decision, not just being logged
 - `host="0.0.0.0"` binding present without a corresponding `use_tunnel` justification (PRD 5) — silently wider exposure than intended
+- a barrier's Capture Claim gated on matching the cop's *believed* target rather than fired unconditionally on the barrier's own cell (46) — the cop has no ground truth (1/2), so a belief-gated claim silently misses a real capture; this was a real regression here, not a hypothetical (see `RULES.md`'s field notes)
+- the game loop not stopping when the peer's Final Reveal arrives, Ch. 5.3.2 Step 4 (35) — risks computing a locally different outcome than the peer already settled on; also a real regression here
 
 ## Reporting format
 

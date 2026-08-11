@@ -97,6 +97,13 @@ The sanction text is the book's own stated consequence. Where the sanction is di
 | 54 | MUST | Report in the final JSON the **total tokens consumed** in the sub-game (and in the series). | Ch. 5, Ch. 9 |
 | 55 | MUST | Self-score **code quality only** — not the league game result. | Ch. 11 |
 
+### Field notes — traps confirmed against this repo's own code
+
+Not new rules — specific, previously-invisible ways rules 46 and 35 get violated in practice despite the surrounding code looking correct. Found via a real local Cop⇄Thief interop run (`THIEF-INTEROP-NOTE.md`, 2026-08-09) and fixed in commit `8cc9082`. Both were verified directly against the book PDF this session (bidi-corrected Hebrew extraction), not just against this table.
+
+- **Rule 46's enforcement mechanism.** The book's barrier law (Ch. 3.4, "חוק המחסום", printed p. 21) makes capture unconditional on the barrier's *true* cell — but the cop never has ground truth (rules 1/2). A `claims_capture()` that only fires a Capture Claim when the barrier happens to match the cop's *believed* target, rather than firing unconditionally on the barrier's own cell, silently swallows a real capture whenever belief is off by even one cell. The fix: always ask the thief about the barrier's own cell; the thief's truthful rules-21/22 answer is what actually settles it, not the cop's belief.
+- **Rule 35's trigger from Ch. 5.3.2 Step 4.** The book's own Commit→Acknowledge→Reveal→Audit diagram (Fig. 6, printed p. 36) labels Step 4 in plain English: "Final Reveal: all Nonces (**end of game**)". A game loop that keeps taking turns after receiving the peer's Final Reveal — instead of stopping and computing the outcome right there — can reach a *different* local outcome than the peer already settled on. That's exactly the "contradictory reports" condition rule 35 zeroes both teams for.
+
 ---
 
 ## The fatal subset — check these before every commit and every game

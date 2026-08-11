@@ -67,6 +67,13 @@ Read `references/RULES.md`. Then check the code against the patterns below. Thes
 | Barrier placement not announced, or announced with a different cell than the one used | Rules 15, 16. |
 | Barrier placed further than one cell from the cop, or without forgoing the move | Ch. 3 barrier law. |
 | No capture on a barrier dropped on the thief's cell, or no capture when the thief has zero legal moves | Rules 46, 47. |
+| Barrier Capture Claim gated on matching the cop's *believed* target instead of firing unconditionally on the barrier's own cell | Rule 46, 21. The cop has no ground truth (rules 1/2) — gating the claim on belief silently misses a real capture whenever belief is off by even one cell. Confirmed as a real regression in this repo (`8cc9082`), not a hypothetical. |
+
+### Cross-peer termination
+
+| Look for | Why it is fatal |
+|---|---|
+| The game loop not stopping when the peer's Final Reveal arrives (Ch. 5.3.2 Step 4 — the book's own diagram literally labels it "end of game") | Rule 35. Looping past it risks computing a locally different outcome than the peer already settled on — a contradictory report zeroes both teams. Confirmed as a real regression in this repo (`8cc9082`), not a hypothetical. |
 
 ### Secrets and reporting
 
