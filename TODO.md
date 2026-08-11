@@ -272,6 +272,21 @@ Status: **Built & verified.** Closes both polish gaps named directly: no `src/co
 - [x] `instructions.md` written (full submission-readiness scope, confirmed with user) — ngrok, Gmail OAuth, real config exchange, running matches, the three still-open screenshots, the rules 41-45 submission checklist
 - [x] `PRD/PRD-10-cli-and-online-readiness.md` written and built; `TODO10.md` executed in full; commit
 
+## PRD 11 — RL training simulator and tabular Q-learning brain
+
+Status: **Built & verified.** The RL layer `PRD-3-blind-strategy.md` deferred ("treat it as optional, later-if-time"), picked up now as the first of a three-layer plan (11: this layer; 12: quantization, not yet built; 13: pipeline orchestration and gated deployment, not yet built). Nothing from this layer is wired into any real match — `RLCopBrain` is fully built and tested but not yet referenced from `cli_peer.py` or `config/game.toml`. Full detail in `PRD/PRD-11-rl-training-simulator.md`.
+
+- [x] rule 25/I7 — `RLCopBrain._pick_move` always intersects the Q-table's ranked actions with a Python-computed legal set; a table miss or missing checkpoint falls back to the inherited `CopBrain` heuristic, never a guess
+- [x] rules 1/2 — `training/` is a new top-level, sandbox-only package with a one-directional dependency on `src/cop/`, enforced by `tests/unit/test_training_boundary.py`; synthetic sparring opponents are plain functions, never a `BrainBase`/`ThiefBrain` subclass
+- [x] I6 — every game magnitude the encoding touches is read from the `Board`/`BarrierSet`/`GameConfig` objects already in scope; RL hyperparameters live in `config/rl_training.toml`, explicitly outside Appendix F and `check_config.py`'s scope
+- [x] build: `src/cop/reasoning/rl_state_encoding.py`, `rl_checkpoint.py`, `rl_cop_brain.py` — the production-side files
+- [x] build: `training/` — `config.py`, `opponent_policies.py`, `reward.py`, `q_table.py`, `env.py`, `train_loop.py`, `checkpoint_io.py`
+- [x] found only by running the parity test, not by inspection: `SelfPlayEnv`'s first draft double-checked capture (once after the cop's move, once after the thief's) — physics-wrong, since the thief walking onto the cop is never itself a capture; fixed to check exactly once, matching `run_local_subgame`'s own order
+- [x] test: 50 new tests, 100% coverage on every new module; full existing `tests/unit/` suite re-run in batches with zero regressions (three pre-existing, environment-specific real-HTTP-server hangs confirmed identical on a clean `main` via `git stash`, not introduced here)
+- [x] milestone watched: `scripts/watch_prd11_rl_training.py` — 2000 episodes trained in 0.50s, reward climbed from 13.83 to 20.44 average, `RLCopBrain` reached a 100% capture rate vs. a random baseline's 10% over 20 seeded episodes
+- [x] `rule-auditor` run scoped to rules 1/2/25/I2/I6/I7 and the new files
+- [x] `PRD/PRD-11-rl-training-simulator.md` written and built; `TODO11.md` executed in full; commit
+
 ## Cross-cutting / submission
 
 - [x] `README.md` written — "Running it" (install/usage), thief-repo link (confirmed: `https://github.com/yamandahle/thief-peer`) — [ ] screenshots (`screenshots/live_gui_verified.png`, `replay_verified_ok.png`, `replay_tampered.png`) still need a human with a display to run `scripts/watch_prd7_live_gui.py`/`watch_prd7_replay.py` and capture them (`instructions.md` §7 has the exact steps)

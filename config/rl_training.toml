@@ -1,0 +1,27 @@
+# config/rl_training.toml — RL-only tunables for the tabular Q-learning
+# pipeline (PRD 11). NOT an Appendix F / negotiated game parameter — same
+# status PARAMETERS.md's own closing section already gives belief.py's
+# _HINT_RELIABILITY: each team's own algorithm tuning, never checked by
+# check_config.py, never part of the byte-identical config comparison
+# (rule 11), never committed to config/shared/.
+
+[episodes]
+episode_count = 2000        # self-play episodes per training run
+seed = 0                     # random.Random seed — determinism (same seed -> same trained table)
+curriculum_switch_episode = 1000   # stage 0 (random_walk_thief) before this episode, stage 1 (greedy_escape_thief) after
+
+[q_learning]
+alpha = 0.1                  # learning rate
+gamma = 0.95                 # discount factor
+epsilon_start = 1.0
+epsilon_end = 0.05
+epsilon_decay = 0.995         # multiplicative decay applied once per episode
+
+[reward_shaping]
+distance_shaping_weight = 0.1   # per-step reward for closing Manhattan distance to the target
+step_cost = 0.01                # small per-step penalty, encourages faster captures
+
+[refinement]
+max_refinement_rounds = 3        # PRD 13's bounded refinement loop — hard iteration cap
+win_rate_target = 0.6             # coverage criterion: win-rate vs. baseline CopBrain, in the training simulator
+wall_clock_budget_seconds = 300.0 # PRD 13's refinement loop stops before a round that would exceed this
