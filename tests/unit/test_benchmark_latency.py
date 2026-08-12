@@ -13,6 +13,7 @@ _RL_CONFIG = RLTrainingConfig(
     episode_count=1,
     seed=0,
     curriculum_switch_episode=0,
+    curriculum_switch_episode_2=0,
     alpha=0.1,
     gamma=0.95,
     epsilon_start=0.0,

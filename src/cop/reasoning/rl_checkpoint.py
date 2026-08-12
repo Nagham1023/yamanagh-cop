@@ -19,10 +19,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .rl_checkpoint_quant import QuantizationParams, dequantize_q_table
+from .rl_checkpoint_json import (
+    q_value_entries_from_json,
+    q_value_entries_to_json,
+    quantization_from_json,
+    quantization_to_json,
+)
+from .rl_checkpoint_quant import PerRowQuantizationParams, QuantizationParams, dequantize_any
 from .rl_state_encoding import State
 
-_CURRENT_ENCODING_VERSION = "v1"
+_CURRENT_ENCODING_VERSION = "v3"  # PRD 14 sub-layer B: State grew a 5th/6th (barrier/enclosure) element
 
 
 class RLQTable:
@@ -55,24 +61,23 @@ def save_checkpoint(
     q_values: dict[State, dict[str, float]] | dict[State, dict[str, int]],
     *,
     state_encoding_version: str = _CURRENT_ENCODING_VERSION,
-    quantization: QuantizationParams | None = None,
+    quantization: QuantizationParams | PerRowQuantizationParams | None = None,
 ) -> None:
     """`q_values` is a plain dict (`training/q_table.py::QTable.as_dict()`'s
-    output, or `training/quantize.py::quantize_q_table`'s quantized output
-    when `quantization` is given) — this function never depends on
+    output, or one of `training/quantize.py`'s two `quantize_q_table*`
+    outputs when `quantization` is given) — this function never depends on
     training's own `QTable` class. `quantization=None` (the PRD 11 shape)
-    means `q_values` are already the real floats; a `QuantizationParams`
-    here means they are int codes `load_checkpoint` must dequantize."""
+    means `q_values` are already the real floats; either quantization params
+    type means they are int codes `load_checkpoint` must dequantize.
+
+    A `"mode"` key inside `"quantization"` distinguishes the two
+    (`"per_row"` vs. `"per_table"`) — see `load_checkpoint`'s own
+    backward-compat handling of a file with no `"mode"` key at all (a real
+    PRD-12-era file, always per-table)."""
     payload: dict[str, Any] = {
         "state_encoding_version": state_encoding_version,
-        "quantization": (
-            None
-            if quantization is None
-            else {"dtype": quantization.dtype, "scale": quantization.scale, "min_q": quantization.min_q}
-        ),
-        "q_values": [
-            {"state": list(state), "values": values} for state, values in q_values.items()
-        ],
+        "quantization": quantization_to_json(quantization),
+        "q_values": q_value_entries_to_json(q_values, quantization),
     }
     Path(path).write_text(
         json.dumps(payload, sort_keys=True, separators=(",", ":")), encoding="utf-8"
@@ -102,15 +107,10 @@ def load_checkpoint(path: str | Path) -> RLQTable:
             f"{_CURRENT_ENCODING_VERSION!r}"
         )
 
-    raw_values: dict[State, dict[str, Any]] = {}
-    for entry in raw["q_values"]:
-        state = tuple(entry["state"])
-        raw_values[state] = entry["values"]
+    raw_values, per_row_scales = q_value_entries_from_json(raw["q_values"])
 
     quantization = raw.get("quantization")
     if quantization is None:
         return RLQTable(raw_values)
-    params = QuantizationParams(
-        dtype=quantization["dtype"], scale=quantization["scale"], min_q=quantization["min_q"]
-    )
-    return RLQTable(dequantize_q_table(raw_values, params))
+    params = quantization_from_json(quantization, per_row_scales)
+    return RLQTable(dequantize_any(raw_values, params))

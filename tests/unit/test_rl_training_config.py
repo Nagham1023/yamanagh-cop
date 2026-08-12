@@ -38,9 +38,19 @@ def test_from_toml_loads_the_real_repo_config_file():
     assert cfg.episode_count == 2000
     assert cfg.seed == 0
     assert cfg.win_rate_target == 0.6
+    assert cfg.curriculum_switch_episode_2 == 1500
 
 
 def test_missing_section_raises_key_error():
     incomplete = {k: v for k, v in _VALID_DICT.items() if k != "refinement"}
     with pytest.raises(KeyError):
         RLTrainingConfig.from_dict(incomplete)
+
+
+def test_missing_curriculum_switch_episode_2_defaults_to_stage_2_never_triggering():
+    """PRD 14: a config file written before this field existed (exactly
+    what _VALID_DICT's own `episodes` section already is, deliberately not
+    updated above) must still load — falling back to `episode_count`, so
+    the third curriculum stage simply never kicks in rather than raising."""
+    cfg = RLTrainingConfig.from_dict(_VALID_DICT)
+    assert cfg.curriculum_switch_episode_2 == cfg.episode_count

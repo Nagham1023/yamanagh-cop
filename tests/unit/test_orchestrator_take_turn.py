@@ -11,18 +11,22 @@ too, not just the hint exchange.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import socket
 import threading
 import time
+from unittest.mock import patch
 
 from cop.domain.board import Position
+from cop.integrity.capture_protocol import CaptureClaim, respond_to_capture_claim
 from cop.memory.belief import BeliefMap
 from cop.orchestrator import Orchestrator
 from cop.reasoning.brain_base import BrainBase, Move, PlaceBarrier
 from cop.reasoning.cop_brain import CopBrain
 from cop.reasoning.hint import interpret_hint
 from cop.shared.private_config import PrivateConfig
+from cop.tools.mcp_client_prd6 import send_capture_response
 
 
 class _AlwaysProposesAnOffBoardMove(BrainBase):
@@ -65,6 +69,97 @@ def _start_server(config, tmp_path, name: str) -> tuple[Orchestrator, int]:
     ).start()
     time.sleep(0.5)
     return server, port
+
+
+def _client_url_for(port: int) -> str:
+    return f"http://127.0.0.1:{port}/mcp"
+
+
+def _make_capture_responder(answer_to_url: str):
+    """Test-only stand-in for the thief's own rule 21/22 obligation (book
+    ch. 3.4: only the thief is ever obligated to answer a Capture Claim,
+    never the cop). Production `_on_capture_claim_received` stays a
+    deliberate no-op — giving the cop's own live code this capability
+    would let any peer extract its exact position on demand, since
+    `CaptureResponse` always carries `true_thief_pos` unconditionally (see
+    `TODO.md`'s "capture-claim collision" entry for the full reasoning and
+    the reverted production attempt). This repo's own bilateral self-play
+    tests have no thief on either end (rule 1/2: no thief brain exists
+    here) — used only via `_start_server_answering`, patched onto the
+    *class* for the duration of constructing the one `Orchestrator`
+    standing in as the peer, not onto any instance afterward (a bound
+    method captured inside `Orchestrator.__init__` is fixed at
+    construction time — patching the instance later has no effect).
+
+    Plain `def`, not `async def`: production `receive_capture_claim`
+    (`mcp_server_prd6.py`) calls its `on_capture_claim` callback
+    synchronously and discards any return value — an `async def` callback
+    would just create an unawaited, never-run coroutine here. Same
+    sync-callback-spawns-a-thread shape `test_orchestrator_capture.py`'s
+    own `_start_thief_peer` already uses for the identical reason."""
+
+    def _answer(self, thief_col, thief_row, cop_col, cop_row, claimed_at_step):
+        claim = CaptureClaim(
+            thief_pos=Position(thief_col, thief_row),
+            cop_pos=Position(cop_col, cop_row),
+            claimed_at_step=claimed_at_step,
+        )
+        response = respond_to_capture_claim(claim, true_thief_pos=self.game_state.own_pos)
+
+        def _send() -> None:
+            # best-effort test double — an unreachable caller just times out
+            with contextlib.suppress(Exception):
+                asyncio.run(
+                    send_capture_response(
+                        answer_to_url,
+                        response.confirmed,
+                        response.true_thief_pos.col,
+                        response.true_thief_pos.row,
+                    )
+                )
+
+        threading.Thread(target=_send, daemon=True).start()
+
+    return _answer
+
+
+def _start_server_answering(config, tmp_path, name: str, answer_to_url: str) -> tuple[Orchestrator, int]:
+    """Like `_start_server`, but the peer it starts can actually resolve a
+    Capture Claim sent to it — needed by any test whose brain always/often
+    fires one (`_AlwaysPlacesABarrierOnItsOwnCell`'s barrier claims
+    unconditionally, rule 46; a fresh belief map's `most_likely_cell()`
+    also ties to `cop_start` here, so even plain `CopBrain` can land on it
+    turn one). `answer_to_url` is the calling client's own address —
+    reserve its port with `_free_port()` before calling this, since the
+    client needs to be listening there by the time the peer answers."""
+    port = _free_port()
+    with patch.object(
+        Orchestrator, "_on_capture_claim_received", _make_capture_responder(answer_to_url)
+    ):
+        server = Orchestrator(config, CopBrain(), log_path=str(tmp_path / f"{name}_trace.jsonl"))
+    threading.Thread(
+        target=server.run_as_server, kwargs={"host": "127.0.0.1", "port": port}, daemon=True
+    ).start()
+    time.sleep(0.5)
+    return server, port
+
+
+def _start_client_as_server(
+    config, brain, tmp_path, name: str, port: int, private_config=None
+) -> Orchestrator:
+    """Starts a peer as a real listening server too (not just a caller) —
+    needed so `_start_server_answering`'s own peer can route its Capture
+    Claim response back to it. `port` must be reserved by the caller
+    beforehand so `_start_server_answering`'s `answer_to_url` can name it
+    before this client exists."""
+    client = Orchestrator(
+        config, brain, log_path=str(tmp_path / f"{name}_trace.jsonl"), private_config=private_config
+    )
+    threading.Thread(
+        target=client.run_as_server, kwargs={"host": "127.0.0.1", "port": port}, daemon=True
+    ).start()
+    time.sleep(0.5)
+    return client
 
 
 def _sent_hint_text(trace_path) -> str:
@@ -180,8 +275,9 @@ def test_take_turn_against_an_unreachable_peer_reaches_technical_loss_before_com
 
 
 def test_take_turn_updates_belief_map_and_scent_field_not_just_game_state(config, tmp_path):
-    _, port = _start_server(config, tmp_path, "server")
-    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    client_port = _free_port()
+    _, port = _start_server_answering(config, tmp_path, "server", _client_url_for(client_port))
+    client = _start_client_as_server(config, CopBrain(), tmp_path, "client", client_port)
     belief_before = client.belief_map.probability(client.game_state.own_pos)
     scent_before = client.scent_field.sample(client.game_state.own_pos, client.board)
 
@@ -196,17 +292,18 @@ def test_take_turn_zeroes_belief_at_a_newly_placed_barrier(config, tmp_path):
     # construction — placing a barrier this turn must immediately zero the
     # belief map's own probability there, live, not only after a fresh
     # BeliefMap gets built.
-    _, port = _start_server(config, tmp_path, "server")
-    client = Orchestrator(
-        config, _AlwaysPlacesABarrierOnItsOwnCell(), log_path=str(tmp_path / "client_trace.jsonl")
+    client_port = _free_port()
+    _, port = _start_server_answering(config, tmp_path, "server", _client_url_for(client_port))
+    client = _start_client_as_server(
+        config, _AlwaysPlacesABarrierOnItsOwnCell(), tmp_path, "client", client_port
     )
     own_pos = client.game_state.own_pos
     assert client.belief_map.probability(own_pos) > 0.0
     # PRD 8: a fresh uniform belief's most_likely_cell() happens to tie-break
-    # to own_pos here — pointed elsewhere so this belief-zeroing test doesn't
-    # incidentally also trigger a real capture claim (own_pos == the belief
-    # target is exactly this new layer's own trigger condition, Design
-    # Question 1) against a server that, correctly, never answers one.
+    # to own_pos here — pointed elsewhere so this belief-zeroing test isn't
+    # also incidentally asserting something about capture-claim confirmation,
+    # which isn't this test's own concern (the peer now genuinely answers
+    # every claim honestly, via _start_server_answering).
     client.game_state.target_pos = Position(
         (own_pos.col + 3) % config.board_size, (own_pos.row + 3) % config.board_size
     )
@@ -219,8 +316,9 @@ def test_take_turn_zeroes_belief_at_a_newly_placed_barrier(config, tmp_path):
 
 
 def test_take_turn_logs_the_intent_flag(config, tmp_path):
-    _, port = _start_server(config, tmp_path, "server")
-    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    client_port = _free_port()
+    _, port = _start_server_answering(config, tmp_path, "server", _client_url_for(client_port))
+    client = _start_client_as_server(config, CopBrain(), tmp_path, "client", client_port)
 
     asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
 
@@ -238,10 +336,11 @@ def test_take_turn_pulls_and_applies_the_peers_real_scent_map(config, tmp_path):
     # fixed placeholder or a skipped step. The server's own ScentField is
     # primed with a real trail so there's something nonzero to pull and
     # observe the effect of.
-    server, port = _start_server(config, tmp_path, "server")
+    client_port = _free_port()
+    server, port = _start_server_answering(config, tmp_path, "server", _client_url_for(client_port))
     server.scent_field.advance(Position(6, 6), server.board)
 
-    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
+    client = _start_client_as_server(config, CopBrain(), tmp_path, "client", client_port)
     belief_before = client.belief_map.probability(Position(6, 6))
 
     asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
@@ -301,10 +400,10 @@ def _private_config_pointing_at(port: int) -> PrivateConfig:
 
 
 def test_take_turn_without_an_explicit_peer_url_uses_the_private_configs_opponent_url(config, tmp_path):
-    _, port = _start_server(config, tmp_path, "server")
-    client = Orchestrator(
-        config, CopBrain(),
-        log_path=str(tmp_path / "client_trace.jsonl"),
+    client_port = _free_port()
+    _, port = _start_server_answering(config, tmp_path, "server", _client_url_for(client_port))
+    client = _start_client_as_server(
+        config, CopBrain(), tmp_path, "client", client_port,
         private_config=_private_config_pointing_at(port),
     )
 

@@ -10,6 +10,7 @@ _RL_CONFIG = RLTrainingConfig(
     episode_count=1,
     seed=0,
     curriculum_switch_episode=0,
+    curriculum_switch_episode_2=0,
     alpha=0.1,
     gamma=0.95,
     epsilon_start=0.0,
@@ -56,3 +57,21 @@ def test_in_progress_step_moving_away_gives_a_negative_shaping_term(config):
         prev_distance=3, new_distance=5, outcome=None, game_config=config, rl_config=_RL_CONFIG
     )
     assert reward == _RL_CONFIG.distance_shaping_weight * (-2) - _RL_CONFIG.step_cost
+
+
+def test_shaping_term_is_exactly_potential_based_ng_harada_russell_1999(config):
+    """Turns reward.py's own module-docstring derivation into a checked
+    fact: with Φ(s) = -manhattan_distance, the shaping term must equal
+    weight * (Φ(new) - Φ(old)) exactly, for several distance pairs — not
+    just "looks like" potential-based shaping."""
+
+    def phi(distance: int) -> float:
+        return -distance
+
+    for prev_distance, new_distance in [(5, 3), (3, 5), (10, 0), (0, 0), (7, 7), (1, 9)]:
+        reward = step_reward(
+            prev_distance=prev_distance, new_distance=new_distance, outcome=None,
+            game_config=config, rl_config=_RL_CONFIG,
+        )
+        expected_shaping = _RL_CONFIG.distance_shaping_weight * (phi(new_distance) - phi(prev_distance))
+        assert reward == expected_shaping - _RL_CONFIG.step_cost

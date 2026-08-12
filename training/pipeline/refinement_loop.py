@@ -34,7 +34,7 @@ class RefinementResult:
 
 
 def run_train_eval_cycle(
-    game_config: GameConfig, rl_config: RLTrainingConfig, run_id_prefix: str
+    game_config: GameConfig, rl_config: RLTrainingConfig, run_id_prefix: str, game_config_path: str
 ) -> RefinementResult:
     """Each failing round doubles `episode_count` — one fixed, documented
     rule, never an LLM call or a judgement inside the loop. Returns the
@@ -60,7 +60,7 @@ def run_train_eval_cycle(
             break
 
         run_id = f"{run_id_prefix}_round{round_number}"
-        stages.run_train(game_config, cfg, run_id)
+        stages.run_train(game_config, cfg, run_id, game_config_path)
         eval_result = stages.run_evaluate(game_config, run_id)
         win_rate = eval_result["win_rate_vs_baseline"]
         log.append({"round": round_number, "episode_count": cfg.episode_count, "win_rate": win_rate})

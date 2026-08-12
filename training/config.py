@@ -19,6 +19,7 @@ class RLTrainingConfig:
     episode_count: int
     seed: int
     curriculum_switch_episode: int
+    curriculum_switch_episode_2: int
     alpha: float
     gamma: float
     epsilon_start: float
@@ -40,6 +41,15 @@ class RLTrainingConfig:
             episode_count=episodes["episode_count"],
             seed=episodes["seed"],
             curriculum_switch_episode=episodes["curriculum_switch_episode"],
+            # PRD 14: a third, harder curriculum stage. Defaulted via .get()
+            # so a config file written before this field existed still loads
+            # — falls back to episode_count (never reached, i.e. stage 2
+            # never kicks in), the same "absent means off" posture the rest
+            # of this dataclass avoids only because every other field here
+            # predates having an optional one.
+            curriculum_switch_episode_2=episodes.get(
+                "curriculum_switch_episode_2", episodes["episode_count"]
+            ),
             alpha=float(q_learning["alpha"]),
             gamma=float(q_learning["gamma"]),
             epsilon_start=float(q_learning["epsilon_start"]),

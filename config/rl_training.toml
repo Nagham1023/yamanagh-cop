@@ -9,6 +9,7 @@
 episode_count = 2000        # self-play episodes per training run
 seed = 0                     # random.Random seed — determinism (same seed -> same trained table)
 curriculum_switch_episode = 1000   # stage 0 (random_walk_thief) before this episode, stage 1 (greedy_escape_thief) after
+curriculum_switch_episode_2 = 1500 # PRD 14: stage 2 (lookahead_evader_thief) from here to episode_count
 
 [q_learning]
 alpha = 0.1                  # learning rate

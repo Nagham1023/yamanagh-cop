@@ -57,6 +57,43 @@ def greedy_escape_thief(own_pos: Position, board: Board, barriers: BarrierSet) -
     return max(candidates, key=lambda pair: pair[0])[1]
 
 
+def lookahead_evader_thief(own_pos: Position, board: Board, barriers: BarrierSet) -> str:
+    """Curriculum stage 2 (PRD 14): depth-2 escape-route lookahead — scores
+    each candidate first move by the *best* second-move open-neighbour count
+    reachable from there, not just the first move's own immediate openness
+    the way `greedy_escape_thief` does. Ties break on immediate openness,
+    the same criterion stage 1 uses alone.
+
+    Deliberately does not, and structurally cannot, react to the cop's own
+    position: `ThiefMover`'s own signature — `(own_pos, board, barriers) ->
+    str` — never receives it, the same fog-of-war posture every opponent in
+    this file already has (`SelfPlayEnv.step()`'s own call site confirms
+    this: `self._opponent(self.thief_pos, self._board, self._barriers)`, no
+    `cop_pos` argument exists to pass). A "distance the cop could close in
+    reply" opponent would need that argument added to the whole `ThiefMover`
+    interface — real scope beyond one new function — so this stage instead
+    goes deeper on the one signal already available: its own future
+    mobility, not the cop's position."""
+    candidates: list[tuple[int, int, str]] = []
+    for direction in _TIE_BREAK_ORDER:
+        destination = apply_move(own_pos, direction, board)
+        if destination is None or barriers.blocks(destination):
+            continue
+        immediate_openness = _count_open_neighbours(destination, board, barriers)
+        second_ply_best = 0
+        for second_direction in _TIE_BREAK_ORDER:
+            second_destination = apply_move(destination, second_direction, board)
+            if second_destination is None or barriers.blocks(second_destination):
+                continue
+            second_ply_best = max(
+                second_ply_best, _count_open_neighbours(second_destination, board, barriers)
+            )
+        candidates.append((second_ply_best, immediate_openness, direction))
+    if not candidates:
+        return "STAY"
+    return max(candidates, key=lambda triple: (triple[0], triple[1]))[2]
+
+
 def _legal_directions(own_pos: Position, board: Board, barriers: BarrierSet) -> list[str]:
     legal = []
     for direction in _TIE_BREAK_ORDER:

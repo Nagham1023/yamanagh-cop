@@ -15,8 +15,6 @@ from dataclasses import dataclass, field
 
 from cop.reasoning.rl_state_encoding import State
 
-_ACTIONS = ("N", "E", "S", "W", "STAY")
-
 
 @dataclass
 class QTable:

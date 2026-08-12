@@ -34,10 +34,27 @@ def _fast_shared_config(tmp_path) -> str:
     instances playing each other (rule 1/2: never a real thief brain) have
     no reason to converge on a capture quickly; a small step ceiling keeps
     this test fast regardless, same precedent `test_orchestrator_game_loop.py`
-    already uses for the same reason."""
+    already uses for the same reason.
+
+    `max_barriers` set to 0 for the same reason `scripts/watch_prd13_rl_deployment.py`
+    already does: per the book, only the cop ever sends a Capture Claim, and
+    only the thief is ever obligated to answer one (ch. 3.4) — this repo can
+    never run a thief brain (rule 1/2), so a self-play pair here is two real
+    cop-role peers with *neither* side able to legitimately answer a claim,
+    not a stand-in for a real match. `PlaceBarrier` claims unconditionally
+    (rule 46 — matching belief is not required), so without a real thief on
+    either end, a first-turn barrier placement is an unanswerable claim and
+    a guaranteed mutual `TECHNICAL_LOSS`, not a wiring bug in `run_peer()`
+    itself. Disabling barriers for this CLI-wiring test sidesteps a scenario
+    the protocol was never meant to face, rather than teaching the cop's own
+    production code to answer claims it should never receive for real —
+    that would leak this side's exact position to anyone willing to send it
+    a bogus claim, since `CaptureResponse` always carries `true_thief_pos`,
+    confirmed or not."""
     data = json.loads(REAL_SHARED_CONFIG.read_text())
     data["movement_and_barriers"]["max_moves"] = 2
     data["movement_and_barriers"]["survival_threshold"] = 2
+    data["movement_and_barriers"]["max_barriers"] = 0
     path = tmp_path / "fast_shared_config.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     return str(path)

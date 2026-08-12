@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.run_id_prefix:
             print("--run-id-prefix is required for --stage refine", file=sys.stderr)
             return 2
-        result = run_train_eval_cycle(game_config, rl_config, args.run_id_prefix)
+        result = run_train_eval_cycle(game_config, rl_config, args.run_id_prefix, args.config)
         print(f"converged={result.converged} rounds_run={result.rounds_run} best_run_id={result.best_run_id}")
         for entry in result.refinement_log:
             print(f"  round {entry['round']}: episode_count={entry['episode_count']} win_rate={entry['win_rate']}")
@@ -61,9 +61,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.stage in ("train", "all"):
-        print(stages.run_train(game_config, rl_config, args.run_id))
+        print(stages.run_train(game_config, rl_config, args.run_id, args.config))
     if args.stage in ("evaluate", "all"):
         print(stages.run_evaluate(game_config, args.run_id))
+        print(stages.run_evaluate_belief_aware(game_config, rl_config, args.run_id))
     if args.stage in ("quantize", "all"):
         print(stages.run_quantize(args.run_id))
     if args.stage in ("benchmark", "all"):

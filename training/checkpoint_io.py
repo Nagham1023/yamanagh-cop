@@ -12,7 +12,7 @@ from pathlib import Path
 from cop.reasoning.rl_checkpoint import save_checkpoint
 
 from .q_table import QTable
-from .quantize import quantize_q_table
+from .quantize import quantize_q_table_per_row
 
 
 def save(path: str | Path, q_table: QTable) -> None:
@@ -20,7 +20,10 @@ def save(path: str | Path, q_table: QTable) -> None:
 
 
 def save_quantized(path: str | Path, q_table: QTable) -> None:
-    """PRD 12: quantizes before writing — `load_checkpoint` dequantizes
-    transparently, so `RLCopBrain` needs no code path change either way."""
-    quantized, params = quantize_q_table(q_table.as_dict())
+    """PRD 14: per-row quantization — PRD 12's original per-table scheme
+    left a real, twice-measured resolution shortfall (90.84%, 91.22%
+    argmax-agreement) for states whose own value spread sits far from the
+    table's global extremes; `load_checkpoint` still dequantizes
+    transparently either way, so `RLCopBrain` needs no code path change."""
+    quantized, params = quantize_q_table_per_row(q_table.as_dict())
     save_checkpoint(path, quantized, quantization=params)

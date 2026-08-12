@@ -14,11 +14,27 @@ import dataclasses
 
 from greedy_thief_mover import greedy_thief_move
 
-from cop.domain.board import Board
+from cop.domain.board import Board, Position
+from cop.domain.movement import DELTAS
+from cop.reasoning.brain_base import Action, Move, PlaceBarrier
 from cop.reasoning.cop_brain import CopBrain
 from cop.reasoning.subgame import run_local_subgame
 from training.config import RLTrainingConfig
 from training.env import SelfPlayEnv
+
+
+def _action_to_env_string(action: Action, own_pos: Position) -> str:
+    """`SelfPlayEnv.step` takes a flat action string; `_decide_move` returns
+    a typed `Action` — this is the one-way translation the parity test needs
+    to drive `SelfPlayEnv` from `CopBrain`'s own real decisions."""
+    if isinstance(action, Move):
+        return action.direction
+    assert isinstance(action, PlaceBarrier)
+    delta = Position(action.target.col - own_pos.col, action.target.row - own_pos.row)
+    for direction, candidate_delta in DELTAS.items():
+        if candidate_delta == delta:
+            return f"BARRIER_{direction}"
+    raise AssertionError(f"barrier target {action.target} is not orthogonally adjacent to {own_pos}")
 
 
 def test_selfplay_env_matches_run_local_subgame_given_the_same_policy_and_opponent(config):
@@ -33,6 +49,7 @@ def test_selfplay_env_matches_run_local_subgame_given_the_same_policy_and_oppone
         episode_count=1,
         seed=0,
         curriculum_switch_episode=0,
+        curriculum_switch_episode_2=0,
         alpha=0.1,
         gamma=0.95,
         epsilon_start=0.0,
@@ -52,5 +69,46 @@ def test_selfplay_env_matches_run_local_subgame_given_the_same_policy_and_oppone
     while not done:
         direction = cop_brain._pick_move(env.cop_pos, env.thief_pos, board, env._barriers)
         _next_state, _reward, done, env_outcome = env.step(direction)
+
+    assert env_outcome == subgame_outcome
+
+
+def test_selfplay_env_matches_run_local_subgame_with_real_barriers_enabled(config):
+    """PRD 14 sub-layer B: `config`'s real `barrier_quota` (14, not 0) drives
+    both sides through `CopBrain._decide_move` (movement *and* its barrier
+    heuristic), covering all three capture shapes for the first time in
+    `SelfPlayEnv` — coordinate, barrier/rule-46, and imprisonment/rule-47,
+    the last only reachable once barriers are real. Guards the exact physics
+    gap `env.py`'s own docstring calls out: before this sub-layer, rule 47
+    was structurally unreachable in `SelfPlayEnv`."""
+    board = Board(size=config.board_size)
+
+    subgame_outcome = run_local_subgame(CopBrain(), greedy_thief_move, board, config)
+
+    rl_config = RLTrainingConfig(
+        episode_count=1,
+        seed=0,
+        curriculum_switch_episode=0,
+        curriculum_switch_episode_2=0,
+        alpha=0.1,
+        gamma=0.95,
+        epsilon_start=0.0,
+        epsilon_end=0.0,
+        epsilon_decay=1.0,
+        distance_shaping_weight=0.1,
+        step_cost=0.01,
+        max_refinement_rounds=1,
+        win_rate_target=0.0,
+        wall_clock_budget_seconds=1.0,
+    )
+    env = SelfPlayEnv(board, config, rl_config, greedy_thief_move)
+    env.reset()
+    cop_brain = CopBrain()
+    done = False
+    env_outcome = None
+    while not done:
+        action = cop_brain._decide_move(env.cop_pos, env.thief_pos, board, env._barriers)
+        action_string = _action_to_env_string(action, env.cop_pos)
+        _next_state, _reward, done, env_outcome = env.step(action_string)
 
     assert env_outcome == subgame_outcome

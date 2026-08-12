@@ -49,8 +49,9 @@ Every stage writes exactly one file under `training/runs/<run_id>/`:
 | `quantize_metrics.json` | `argmax_agreement_rate`, `size_before_bytes`, `size_after_bytes`, `size_reduction_fraction` |
 | `benchmark_metrics.json` | `p50/p95/p99_seconds`, `response_timeout_seconds`, `margin_multiple` |
 | `refinement_metrics.json` | (only for `--stage refine`) `best_run_id`, `rounds_run`, `converged`, `refinement_log` |
+| `provenance_metrics.json` | `git_commit_hash`, `hardware`, `rl_training_config`, `game_config_path`, `game_config_sha256` — written once per `train` run, not per stage |
 
-Thresholds worth eyeballing before invoking any agent: `win_rate_vs_baseline` against `config/rl_training.toml`'s `win_rate_target`; `margin_multiple` should be many orders of magnitude for the tabular fork (see PRD 12's own honest framing — anything close to 1 is a red flag worth investigating, not expected); `argmax_agreement_rate` below ~0.95 is worth a human's attention before Mode 3.
+Thresholds worth eyeballing before invoking any agent: `win_rate_vs_baseline` against `config/rl_training.toml`'s `win_rate_target`; `margin_multiple` should be many orders of magnitude for the tabular fork (see PRD 12's own honest framing — anything close to 1 is a red flag worth investigating, not expected); `argmax_agreement_rate` below ~0.95 is worth a human's attention before Mode 3. `run_quantize` uses PRD 14's per-row scheme by default — `size_reduction_fraction` going slightly **negative** (a real measured run: -0.054, 218KB -> 230KB) is an expected, honestly-reported trade for `argmax_agreement_rate` reaching ~1.0 (vs. per-table's ~0.89-0.91), not itself a red flag; a *large* negative value (checkpoint far bigger than unquantized) would be, since that's the specific bug shape `rl_checkpoint_json.py` was fixed against.
 
 ## Mode 3 — Pre-promotion gate
 

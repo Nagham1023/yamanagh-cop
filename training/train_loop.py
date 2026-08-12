@@ -1,9 +1,11 @@
 """Episode loop: epsilon-greedy tabular Q-learning over `SelfPlayEnv` (PRD 11).
 
 Curriculum: episodes before `curriculum_switch_episode` train against
-`make_random_walk_thief` (stage 0, easy), episodes after against
-`greedy_escape_thief` (stage 1, harder) — early Q-values form over a
-low-variance opponent before the harder one is introduced.
+`make_random_walk_thief` (stage 0, easy), episodes from there to
+`curriculum_switch_episode_2` against `greedy_escape_thief` (stage 1,
+harder), episodes after that against `lookahead_evader_thief` (PRD 14
+stage 2, hardest — depth-2 escape-route lookahead) — early Q-values form
+over a low-variance opponent before harder ones are introduced.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from cop.shared.config import GameConfig
 
 from .config import RLTrainingConfig
 from .env import SelfPlayEnv
-from .opponent_policies import greedy_escape_thief, make_random_walk_thief
+from .opponent_policies import greedy_escape_thief, lookahead_evader_thief, make_random_walk_thief
 from .q_table import QTable
 
 
@@ -38,11 +40,12 @@ def train(game_config: GameConfig, rl_config: RLTrainingConfig) -> tuple[QTable,
     random_walk_thief = make_random_walk_thief(rng)
 
     for episode in range(rl_config.episode_count):
-        opponent = (
-            random_walk_thief
-            if episode < rl_config.curriculum_switch_episode
-            else greedy_escape_thief
-        )
+        if episode < rl_config.curriculum_switch_episode:
+            opponent = random_walk_thief
+        elif episode < rl_config.curriculum_switch_episode_2:
+            opponent = greedy_escape_thief
+        else:
+            opponent = lookahead_evader_thief
         env = SelfPlayEnv(board, game_config, rl_config, opponent)
         state = env.reset()
         total_reward = 0.0

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from cop.reasoning.rl_checkpoint import load_checkpoint, save_checkpoint
-from cop.reasoning.rl_checkpoint_quant import QuantizationParams
+from cop.reasoning.rl_checkpoint_quant import PerRowQuantizationParams, QuantizationParams
 
 _Q_VALUES = {(1, 2, 0): {"N": 4.5, "E": 1.0}, (-1, 0, 3): {"STAY": 0.2}}
 
@@ -74,14 +74,84 @@ def test_a_quantized_checkpoint_dequantizes_transparently_on_load(tmp_path):
     assert table.ranked_actions((0, 0, 0)) == ["N", "E"]
 
 
-def test_a_prd11_era_checkpoint_with_no_quantization_key_at_all_still_loads(tmp_path):
+def test_a_real_pre_per_row_mode_quantized_checkpoint_still_loads_unchanged(tmp_path):
+    """PRD 14 added a `"mode"` key inside `"quantization"` to distinguish
+    per-row from per-table. A real file `save_checkpoint` produced before
+    that key existed (the exact PRD-12/13 shape: `"quantization"` has
+    `dtype`/`scale`/`min_q` and nothing else) must still load as per-table,
+    not raise or silently misread as per-row — verified against a real,
+    hand-constructed file matching that exact old shape, not re-asserted
+    from `quantization_from_json`'s own docstring."""
+    path = tmp_path / "checkpoint.json"
+    payload = {
+        "state_encoding_version": "v3",
+        "quantization": {"dtype": "int8", "scale": 2.0, "min_q": -10.0},
+        "q_values": [{"state": [0, 0, 0, 0, 0, 0], "values": {"N": 127, "E": -128}}],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    table = load_checkpoint(path)
+    assert table.ranked_actions((0, 0, 0, 0, 0, 0)) == ["N", "E"]
+
+
+def test_a_per_row_quantized_checkpoint_dequantizes_each_state_with_its_own_params(tmp_path):
+    path = tmp_path / "checkpoint.json"
+    quantized_values = {
+        (0, 0, 0, 0, 0, 0): {"N": 127, "E": -128},
+        (1, 1, 0, 0, 0, 0): {"STAY": 0},
+    }
+    params = PerRowQuantizationParams(
+        dtype="int8", rows={(0, 0, 0, 0, 0, 0): (2.0, -10.0), (1, 1, 0, 0, 0, 0): (0.5, 3.0)}
+    )
+    save_checkpoint(path, quantized_values, quantization=params)
+    table = load_checkpoint(path)
+    assert table.ranked_actions((0, 0, 0, 0, 0, 0)) == ["N", "E"]
+    assert table.as_dict()[(1, 1, 0, 0, 0, 0)]["STAY"] == (0 + 128) * 0.5 + 3.0
+
+
+def test_a_checkpoint_with_no_quantization_key_at_all_still_loads(tmp_path):
     """Simulates a file written before PRD 12 existed — `quantization` is
-    entirely absent, not present-and-null."""
+    entirely absent, not present-and-null. Tagged with the *current* encoding
+    version, since "missing quantization key" and "old encoding version" are
+    two independent concerns (see the v1/v2-specific tests below, which check
+    the latter alone)."""
+    path = tmp_path / "checkpoint.json"
+    payload = {
+        "state_encoding_version": "v3",
+        "q_values": [{"state": [1, 2, 0, 3, 0, 2], "values": {"N": 4.5, "E": 1.0}}],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    table = load_checkpoint(path)
+    assert table.ranked_actions((1, 2, 0, 3, 0, 2)) == ["N", "E"]
+
+
+def test_a_real_prd11_era_v1_checkpoint_now_fails_closed_not_silently(tmp_path):
+    """PRD 14 sub-layer B bumped the current version to "v3" (State grew a
+    5th/6th element). A genuine PRD-11-era "v1" file — the actual shape
+    training produced before either sub-layer existed — must raise, not be
+    silently misread as a 3-tuple. `RLCopBrain._load_or_none` is what turns
+    this raise into a safe heuristic fallback (see test_rl_cop_brain.py's own
+    counterpart test) — this test only proves the raise itself."""
     path = tmp_path / "checkpoint.json"
     payload = {
         "state_encoding_version": "v1",
         "q_values": [{"state": [1, 2, 0], "values": {"N": 4.5, "E": 1.0}}],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
-    table = load_checkpoint(path)
-    assert table.ranked_actions((1, 2, 0)) == ["N", "E"]
+    with pytest.raises(ValueError):
+        load_checkpoint(path)
+
+
+def test_a_real_prd14_sub_layer_a_v2_checkpoint_now_fails_closed_not_silently(tmp_path):
+    """PRD 14 sub-layer B bumped the current version to "v3" — a genuine
+    "v2" file (sub-layer A's own 4-tuple shape, the state this session's
+    earlier training runs actually produced) must now also raise, the same
+    fail-closed treatment "v1" already gets, not be silently misread as a
+    6-tuple."""
+    path = tmp_path / "checkpoint.json"
+    payload = {
+        "state_encoding_version": "v2",
+        "q_values": [{"state": [1, 2, 0, 3], "values": {"N": 4.5, "E": 1.0}}],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_checkpoint(path)

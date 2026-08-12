@@ -37,10 +37,17 @@ def test_save_quantized_round_trips_and_preserves_ranking(tmp_path):
     assert loaded.ranked_actions((0, 0, 0)) == ["N", "E"]
 
 
-def test_save_quantized_file_is_smaller_than_the_float_original_for_a_larger_table(tmp_path):
+def test_save_quantized_file_is_smaller_than_the_float_original_for_a_realistic_row_width(tmp_path):
+    """PRD 14: `save_quantized` now writes per-row mode, which inlines each
+    state's own `(scale, min_q)` — a real, fixed per-row cost a single-action
+    row can't amortize (see the adjacent worst-case test below). At a
+    realistic row width (multiple actions per state, the normal shape once
+    barrier actions exist) that cost *is* amortized and the file is still
+    smaller, confirmed here rather than assumed."""
     table = QTable()
     for i in range(200):
-        table.update((i, 0, 0), "N", i / 3.0)  # non-round floats, worst case for JSON size
+        for action in ("N", "E", "S", "W", "STAY"):
+            table.update((i, 0, 0, 0, 0, 0), action, (i + hash(action) % 7) / 3.0)  # non-round floats
     float_path = tmp_path / "float.json"
     quantized_path = tmp_path / "quantized.json"
 
@@ -48,3 +55,25 @@ def test_save_quantized_file_is_smaller_than_the_float_original_for_a_larger_tab
     save_quantized(quantized_path, table)
 
     assert quantized_path.stat().st_size < float_path.stat().st_size
+
+
+def test_save_quantized_stays_within_a_sane_size_multiple_even_at_the_worst_case_row_width(tmp_path):
+    """The inverse case — one action per row is per-row quantization's own
+    worst case (its fixed `(scale, min_q)` overhead has nothing to
+    amortize against), and can legitimately end up *larger* than the float
+    original, a real measured trade-off (see `training/quantize.py`'s
+    module docstring), not a bug. This only guards against a *runaway*
+    blow-up — the kind a real duplicated-serialization bug produced once
+    during development (roughly 1.5x the float original) before that bug
+    was fixed — not "always smaller," which per-row mode no longer promises
+    at this row width."""
+    table = QTable()
+    for i in range(200):
+        table.update((i, 0, 0, 0, 0, 0), "N", i / 3.0)  # non-round floats, one action per row
+    float_path = tmp_path / "float.json"
+    quantized_path = tmp_path / "quantized.json"
+
+    save(float_path, table)
+    save_quantized(quantized_path, table)
+
+    assert quantized_path.stat().st_size < float_path.stat().st_size * 1.5

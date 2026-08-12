@@ -56,9 +56,11 @@ Wholly new entries — no prior art in this repo before this correction pass. No
 |---|---|---|---|---|
 | 1 | `pheromone_center_intensity` | pheromone intensity in the emitting cell | **0.9** | FIXED |
 | 2 | `pheromone_decay` | decay proportion per turn | **0.10** | FIXED |
-| 3 | `pheromone_grid_size` | side of the emission window around the agent | **5 × 5** | FIXED |
+| 3 | `pheromone_grid_size` | side of the **single-deposit emission kernel** — the radial falloff pattern one `advance()` call paints around the agent's current cell (ch. 4.3, Fig. 4: centre τ=0.9 falling to 0.04 at the corners) | **5 × 5** | FIXED |
 
 > All three are FIXED **and** must be cryptographically locked before the game starts (rule 23; ch. 4.5's negotiation ceremony — see `WIRE-CONTRACT.md`). A deviation in the decay formula voids the game.
+
+> **Not a transmission window.** `pheromone_grid_size` bounds one deposit event's spatial shape, not how much of the accumulated field a peer may read or share. Ch. 4.4, read directly: "each agent can sample **the board** and receive its opponent's scent map" — and its own worked example reads a distant, explicitly-empty cell (τ=0.00) alongside a fresh one, which only makes sense over the board-wide accumulated trail, not a fixed 5×5 patch. `share_scent_map()`/`ScentField.full_field()` sending the whole field (unwindowed) is the book-correct reading of ch. 4.4, not a deviation from it — confirmed by two independent direct re-reads of ch. 4.3/4.4 (see `FULLFIX.md`'s "Rule 27 legal review"). This is worth stating explicitly because the two "5×5" concepts are easy to conflate — a claim that the opponent "receives a 5×5 scent grid" is describing the emission kernel, not what actually crosses the wire.
 
 ## `scoring` — Table 17
 
