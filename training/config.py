@@ -27,6 +27,7 @@ class RLTrainingConfig:
     epsilon_decay: float
     distance_shaping_weight: float
     step_cost: float
+    barrier_restriction_bonus_weight: float
     max_refinement_rounds: int
     win_rate_target: float
     wall_clock_budget_seconds: float
@@ -57,6 +58,12 @@ class RLTrainingConfig:
             epsilon_decay=float(q_learning["epsilon_decay"]),
             distance_shaping_weight=float(reward_shaping["distance_shaping_weight"]),
             step_cost=float(reward_shaping["step_cost"]),
+            # PRD 14 post-gate follow-up: absent means 0.0 (no behavior
+            # change), same "config predates this field" backward-compat
+            # posture curriculum_switch_episode_2 already established above.
+            barrier_restriction_bonus_weight=float(
+                reward_shaping.get("barrier_restriction_bonus_weight", 0.0)
+            ),
             max_refinement_rounds=refinement["max_refinement_rounds"],
             win_rate_target=float(refinement["win_rate_target"]),
             wall_clock_budget_seconds=float(refinement["wall_clock_budget_seconds"]),

@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from cop.domain.barriers import BarrierSet
 from cop.domain.board import Board, Position
-from training.env_actions import apply_cop_action, legal_cop_actions
+from training.env_actions import (
+    apply_cop_action,
+    barrier_restricts_believed_target,
+    legal_cop_actions,
+)
 
 _BOARD = Board(size=7)
 
@@ -72,3 +76,41 @@ def test_a_barrier_that_leaves_at_least_one_other_open_move_is_still_allowed():
     assert "BARRIER_E" in legal
     assert "BARRIER_S" in legal
     assert "BARRIER_W" in legal
+
+
+def test_barrier_restricts_believed_target_true_when_the_placed_barrier_neighbours_it():
+    cop_pos_before = Position(3, 3)
+    believed_target = Position(5, 3)  # orthogonally adjacent to BARRIER_E's own target cell, (4,3)
+    barriers = BarrierSet(quota=14)
+    apply_cop_action("BARRIER_E", cop_pos_before, Position(0, 0), _BOARD, barriers)
+    assert barrier_restricts_believed_target(
+        "BARRIER_E", cop_pos_before, believed_target, barriers
+    ) is True
+
+
+def test_barrier_restricts_believed_target_false_when_far_from_it():
+    cop_pos_before = Position(3, 3)
+    believed_target = Position(0, 0)  # nowhere near BARRIER_E's own target, (4,3)
+    barriers = BarrierSet(quota=14)
+    apply_cop_action("BARRIER_E", cop_pos_before, Position(0, 0), _BOARD, barriers)
+    assert barrier_restricts_believed_target(
+        "BARRIER_E", cop_pos_before, believed_target, barriers
+    ) is False
+
+
+def test_barrier_restricts_believed_target_false_for_a_non_barrier_action():
+    barriers = BarrierSet(quota=14)
+    assert barrier_restricts_believed_target("E", Position(3, 3), Position(4, 3), barriers) is False
+
+
+def test_barrier_restricts_believed_target_false_when_the_placement_never_actually_succeeded():
+    # Quota exhausted -> apply_cop_action is a safe no-op, nothing recorded
+    # in barriers.placed -> the bonus must not fire for an action that only
+    # *looked* like a restricting barrier placement but never happened.
+    cop_pos_before = Position(3, 3)
+    believed_target = Position(4, 3)
+    barriers = BarrierSet(quota=0)
+    apply_cop_action("BARRIER_E", cop_pos_before, Position(0, 0), _BOARD, barriers)
+    assert barrier_restricts_believed_target(
+        "BARRIER_E", cop_pos_before, believed_target, barriers
+    ) is False

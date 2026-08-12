@@ -23,7 +23,7 @@ from ..env import SelfPlayEnv
 from ..opponent_policies import make_random_walk_thief
 from . import artifacts
 
-_EVAL_EPISODES = 20
+_EVAL_EPISODES = 200  # PRD 14 follow-up: 20 was too thin for a confident win-rate margin
 _EVAL_SEED = 20260812
 
 

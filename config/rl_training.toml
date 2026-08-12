@@ -21,6 +21,7 @@ epsilon_decay = 0.995         # multiplicative decay applied once per episode
 [reward_shaping]
 distance_shaping_weight = 0.1   # per-step reward for closing Manhattan distance to the target
 step_cost = 0.01                # small per-step penalty, encourages faster captures
+barrier_restriction_bonus_weight = 0.1  # PRD 14 post-gate: bonus when a barrier placement restricts the *believed* target's escape routes (see reward.py's own docstring — NOT provably policy-invariant). 0.1 chosen from a real controlled 5-seed sweep: 0.5 collapsed belief-aware win-rate to 0.00, 0.1 roughly doubled the 5-seed average (0.112 -> 0.272) with no ground-truth cost — see TODO.md's PRD 14 entry for the full sweep.
 
 [refinement]
 max_refinement_rounds = 3        # PRD 13's bounded refinement loop — hard iteration cap

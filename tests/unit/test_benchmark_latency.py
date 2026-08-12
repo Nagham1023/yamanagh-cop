@@ -21,6 +21,7 @@ _RL_CONFIG = RLTrainingConfig(
     epsilon_decay=1.0,
     distance_shaping_weight=0.1,
     step_cost=0.01,
+    barrier_restriction_bonus_weight=0.0,
     max_refinement_rounds=1,
     win_rate_target=0.0,
     wall_clock_budget_seconds=1.0,

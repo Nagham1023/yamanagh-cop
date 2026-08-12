@@ -9,6 +9,7 @@ from cop.domain.barriers import BarrierSet
 from cop.domain.board import Board, Position
 from cop.domain.capture import is_barrier_capture
 from cop.domain.movement import DELTAS, apply_move
+from cop.reasoning.cop_brain import CopBrain
 
 _ORTHOGONAL_DIRECTIONS = ("N", "E", "S", "W")
 
@@ -86,3 +87,23 @@ def apply_cop_action(
     if destination is None or barriers.blocks(destination):
         return cop_pos, False
     return destination, False
+
+
+def barrier_restricts_believed_target(
+    action: str, cop_pos_before_action: Position, believed_target_pos: Position, barriers: BarrierSet
+) -> bool:
+    """PRD 14 post-gate follow-up: True iff `action` was a barrier placement
+    that (a) actually succeeded — confirmed via `barriers.placed`, not
+    assumed from `action`'s shape alone, since an illegal proposal is a
+    safe no-op above — and (b) restricts the *believed* target's escape
+    routes, reusing `CopBrain._restricts_target` directly (the same
+    already-tested definition `CopBrain`'s own barrier heuristic uses,
+    never re-derived). See `reward.py`'s own docstring for why this feeds a
+    reward bonus and its honesty caveat; see `env.py::step`'s own docstring
+    for why `believed_target_pos` must be read *before* this action runs."""
+    if not action.startswith("BARRIER_"):
+        return False
+    candidate = cop_pos_before_action + DELTAS[action.removeprefix("BARRIER_")]
+    if candidate not in barriers.placed:
+        return False
+    return CopBrain._restricts_target(candidate, believed_target_pos)

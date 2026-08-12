@@ -1,37 +1,34 @@
 """SelfPlayEnv: step-based training environment over `domain/` primitives directly (PRD 11).
 
-Deliberately not built on `reasoning/subgame.py::run_local_subgame` even
-though that function already is a pure-Python local turn loop: training's
-epsilon-greedy exploration must choose the *movement* action itself (with
-exploration noise), not delegate it to an already-decided
-`BrainBase._decide_move` call the way `run_local_subgame` does. Reusing it
-would mean no way to inject the action being learned.
+Deliberately not built on `reasoning/subgame.py::run_local_subgame`: that
+function delegates to an already-decided `BrainBase._decide_move`, leaving
+no way to inject the exploring action epsilon-greedy training needs to
+choose itself. Reimplements the same physics shape directly instead;
+`tests/unit/test_training_env_parity.py` proves the two stay physics-
+identical (same outcome, same fixed policy/opponent) — regression-tested,
+not assumed.
 
-Instead this reimplements the same physics shape directly, and
-`tests/unit/test_training_env_parity.py` proves the two are physics-
-identical (same outcome, given the same fixed movement policy and the same
-seeded thief mover) — a regression-tested fact, not an assumed one.
+**PRD 14 sub-layer B**: barrier placement is simulated (PRD 11's original
+"out of scope" call, reversed deliberately) — the cop's 4 orthogonal
+neighbours, filtered through real `BarrierSet.can_place`, resolved via
+`env_actions.py` (split out once this file hit the house cap). A barrier
+on the thief's true cell is an instant capture (rule 46, ground-truth);
+placing one also makes rule 47 (imprisonment) reachable here for the first
+time — `step()`'s capture check is `run_local_subgame`'s own three-way check.
 
-**PRD 14 sub-layer B**: barrier placement *is* now simulated (PRD 11's
-original "explicitly out of scope" call, reversed deliberately). Four
-`BARRIER_<dir>` actions — the cop's orthogonal neighbours only, matching
-`CopBrain._barrier_candidates`' shape — filtered through the real
-`BarrierSet.can_place`, resolved via `env_actions.apply_cop_action`
-(split out once this file hit the house cap). A barrier on the thief's
-true cell is an instant capture (rule 46, unconditional, ground-truth,
-mirroring `run_local_subgame`); placing one also makes rule 47
-(imprisonment) reachable here for the first time — `step()`'s capture
-check is the same three-way check `run_local_subgame` already used.
+**PRD 14 sub-layer A**: the policy observes a belief estimate, never true
+`thief_pos` — `_belief` (`belief_tracker.BeliefTracker`) advances every
+step exactly like `orchestrator_turn.py::take_turn` does; `_encode()` feeds
+its estimate (plus confidence) to the state encoder. Physics — capture,
+terminal reward — stays ground-truth throughout; only what the policy
+*observes* is uncertain. Deliberately-not-simulated channels, and why:
+`belief_tracker.py`'s own docstring.
 
-**PRD 14 sub-layer A**: the policy no longer observes the true `thief_pos`
-directly. `_belief` (`belief_tracker.BeliefTracker`) tracks the same two
-objects a real turn updates, advanced every step exactly like
-`orchestrator_turn.py::take_turn` does; `_encode()` feeds its belief
-estimate (plus how confident it is) to the state encoder instead of
-`thief_pos`. Physics — the capture check, the terminal reward — stays
-ground-truth throughout; only what the *policy observes* is now uncertain.
-Deliberately-not-simulated channels, and why: `belief_tracker.py`'s own
-module docstring.
+**PRD 14 post-gate follow-up**: a barrier restricting the *believed*
+target's escape routes earns a small reward bonus (`reward.py`'s own
+docstring covers why this term is a heuristic, not provably-safe like the
+distance term) — built only after `barrier_restriction_metric.py` measured
+this was genuinely rare (14.8%) in the trained policy's own choices.
 """
 
 from __future__ import annotations
@@ -47,7 +44,7 @@ from cop.shared.config import GameConfig
 
 from .belief_tracker import BeliefTracker
 from .config import RLTrainingConfig
-from .env_actions import apply_cop_action, legal_cop_actions
+from .env_actions import apply_cop_action, barrier_restricts_believed_target, legal_cop_actions
 from .opponent_policies import ThiefMover
 from .reward import step_reward
 
@@ -81,10 +78,8 @@ class SelfPlayEnv:
         self.cop_pos = Position(*self._game_config.cop_start)
         self.thief_pos = Position(*self._game_config.thief_start)
         self.steps_taken = 0
-        # PRD 14 sub-layer B: barriers must not persist across episodes.
-        # Cleared in place (not reassigned to a new BarrierSet) — `_belief`
-        # holds a reference to this exact object; a fresh object here would
-        # silently desync it.
+        # Cleared in place, not reassigned — `_belief` holds a reference to
+        # this exact object; a fresh BarrierSet here would silently desync it.
         self._barriers.placed.clear()
         self._belief.reset()
         return self._encode()
@@ -93,21 +88,27 @@ class SelfPlayEnv:
         return legal_cop_actions(self.cop_pos, self._board, self._barriers)
 
     def step(self, action: str) -> tuple[State, float, bool, Outcome | None]:
-        """One cop action (move, or a barrier placement that forgoes
-        movement — `env_actions.apply_cop_action`), then a capture check,
-        then, only if the game continues, one thief move for the *next*
-        round. Capture is checked exactly once, immediately after the cop's
-        own action, matching `run_local_subgame`'s exact order and its
-        exact three-way check (coordinate, barrier/rule-46, imprisonment/
-        rule-47 — the last two only reachable now that barriers are real).
-        The thief walking onto the cop's cell is never itself a capture, so
-        checking again after the thief moves would be physics-wrong, not
-        just redundant. Returns `(next_state, reward, done, outcome)`."""
+        """One cop action, then a capture check (coordinate, barrier/rule-46,
+        imprisonment/rule-47 — `run_local_subgame`'s own three-way check,
+        exact order), then, only if the game continues, one thief move for
+        the *next* round — the thief walking onto the cop is never itself a
+        capture. Returns `(next_state, reward, done, outcome)`.
+
+        `believed_target_pos` is read before this action mutates anything
+        and before `self._belief.advance(...)` runs below — the belief the
+        policy actually conditioned its choice on, for
+        `env_actions.barrier_restricts_believed_target`."""
         prev_distance = _manhattan(self.cop_pos, self.thief_pos)
+        believed_target_pos, _confidence = self._belief.believed_target()
+        cop_pos_before_action = self.cop_pos
         self.cop_pos, barrier_capture = apply_cop_action(
             action, self.cop_pos, self.thief_pos, self._board, self._barriers
         )
         self.steps_taken += 1
+
+        restricts_believed_target = barrier_restricts_believed_target(
+            action, cop_pos_before_action, believed_target_pos, self._barriers
+        )
 
         captured = (
             barrier_capture
@@ -127,8 +128,7 @@ class SelfPlayEnv:
             # next_state's Q-value at all (`best_next = 0.0 if done`), so
             # there is nothing for an un-updated final belief to affect.
             self._belief.advance(self.cop_pos)
-            # Thief moves only when the round didn't already end on the
-            # cop's own action — same order run_local_subgame uses.
+            # Thief moves only when the round didn't already end on the cop's own action.
             thief_direction = self._opponent(self.thief_pos, self._board, self._barriers)
             self.thief_pos = apply_move(self.thief_pos, thief_direction, self._board) or self.thief_pos
 
@@ -139,6 +139,7 @@ class SelfPlayEnv:
             outcome=outcome,
             game_config=self._game_config,
             rl_config=self._rl_config,
+            restricts_believed_target=restricts_believed_target,
         )
         return self._encode(), reward, outcome is not None, outcome
 

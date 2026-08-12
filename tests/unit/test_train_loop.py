@@ -18,6 +18,7 @@ _SMALL_CONFIG_KWARGS = {
     "epsilon_decay": 0.97,
     "distance_shaping_weight": 0.1,
     "step_cost": 0.01,
+    "barrier_restriction_bonus_weight": 0.0,
     "max_refinement_rounds": 1,
     "win_rate_target": 0.5,
     "wall_clock_budget_seconds": 60.0,
