@@ -301,6 +301,21 @@ Status: **Built & verified.** Extends PRD 11's checkpoint format (backward compa
 - [x] `rule-auditor` run
 - [x] `PRD/PRD-12-quantization-and-benchmarking.md` written and built; `TODO12.md` executed in full; commit
 
+## PRD 13 — ML pipeline orchestration and human-gated deployment
+
+Status: **Built & verified through the gate; promotion commit intentionally not made.** Closes the loop on PRD 11/12: a real end-to-end pipeline run, a real scoped `rule-auditor` pass, and a real `ml-promotion-gate` `PASS` verdict all exist for a genuine candidate checkpoint — but creating `training/promoted/` and making the commit that would ever change `RLCopBrain` from an override into the default is left for a human, per `PLAN.md` §8's own checkpoint table. Full detail in `PRD/PRD-13-ml-pipeline-and-deployment.md`.
+
+- [x] rule 25/I7, I2, I6 — see `PRD-13-ml-pipeline-and-deployment.md`'s own rules-owned table
+- [x] build: `src/cop/shared/strategy_loader.py` (dynamic `police_class` loader), `src/cop/shared/promotion_guard.py` (hard runtime guard for counted games), `src/cop/cli_peer_build.py` (split from `cli_peer.py` for the 150-line cap)
+- [x] build: `training/pipeline/{artifacts,stages,refinement_loop}.py` — the pipeline's substantial, testable logic; `scripts/ml/orchestrate_pipeline.py` — the thin CLI wrapper
+- [x] build: `.claude/agents/{ml-training-runner,ml-experiment-reporter,ml-promotion-gate}.md`, `.claude/skills/ml-pipeline-guard/SKILL.md` — all exercised for real this session, not just written
+- [x] found only by running it: `artifacts.py`'s `checkpoint_path` didn't ensure the run directory existed (fixed); `run_train_eval_cycle` didn't persist its own result for a cold reader (fixed, see PRD's Design Question 2)
+- [x] found only by running the real two-process milestone: a pre-existing, unrelated mutual-Capture-Claim `TECHNICAL_LOSS` bug (PRD 6/8 territory) — reproduced, root-caused, routed around, recorded as a known issue below, not fixed here
+- [x] test: 33 new tests, ~99% coverage; zero regressions on `cli_peer`-adjacent tests
+- [x] real run: `--stage refine` converged round 1 (win_rate=1.0 vs. target 0.6); quantize/benchmark on the winner (91.22% argmax-agreement, p99 latency millions-of-times under budget); scoped `rule-auditor` CLEAN; `ml-promotion-gate` verdict **PASS** (with an honest thin-eval-sample caveat, not smoothed over)
+- [x] milestone watched, repeatable: two real `run_peer()` processes, one running `RLCopBrain` via `police_class`, both reach a completed, reported match
+- [x] `PRD/PRD-13-ml-pipeline-and-deployment.md` written and built; `TODO13.md` executed in full; commit — training/promoted/ and the promotion commit itself deliberately not included
+
 ## Cross-cutting / submission
 
 - [x] `README.md` written — "Running it" (install/usage), thief-repo link (confirmed: `https://github.com/yamandahle/thief-peer`) — [ ] screenshots (`screenshots/live_gui_verified.png`, `replay_verified_ok.png`, `replay_tampered.png`) still need a human with a display to run `scripts/watch_prd7_live_gui.py`/`watch_prd7_replay.py` and capture them (`instructions.md` §7 has the exact steps)
@@ -313,3 +328,4 @@ Status: **Built & verified.** Extends PRD 11's checkpoint format (backward compa
 - [ ] ≥2 counted games played against different teams (`instructions.md` §6)
 - [ ] config values agreed with the thief-repo partner (`instructions.md` §2 — now includes `WIRE-CONTRACT.md` exchange and `initiate_step0` assignment, not just the shared config file)
 - [ ] Gmail OAuth `token.json` obtained, ngrok authtoken configured (`instructions.md` §3-4) — needed before `email.mode = "send"` or `--tunnel` work for real
+- [ ] **Known issue, found during PRD 13**: a mutual `TECHNICAL_LOSS` when both peers place a barrier or land a capturing `Move` on an overlapping turn — each side's outgoing Capture Claim collides with the peer's incoming one (`unexpected_capture_claim_received`, then both time out `AWAITING_REVEAL`). Pre-existing capture-claim protocol concurrency gap (PRD 6/8), unrelated to PRD 11-13's RL/quantization/pipeline code — reproduction steps and full trace analysis in `PRD/PRD-13-ml-pipeline-and-deployment.md`'s own "Found while building the real two-process milestone" section. Not fixed here (out of scope for the ML pipeline layer) — needs its own PRD/fix pass before a real match risks hitting it.

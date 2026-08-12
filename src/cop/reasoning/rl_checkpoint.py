@@ -42,6 +42,13 @@ class RLQTable:
             return None
         return sorted(row, key=row.__getitem__, reverse=True)
 
+    def as_dict(self) -> dict[State, dict[str, float]]:
+        """Already-dequantized real floats regardless of the checkpoint's
+        own on-disk format — PRD 13's pipeline uses this to re-quantize (or
+        re-benchmark) a checkpoint independently of the process that
+        trained it, without caring whether it loaded a PRD-11 or PRD-12 file."""
+        return dict(self._values)
+
 
 def save_checkpoint(
     path: str | Path,

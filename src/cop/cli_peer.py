@@ -5,16 +5,13 @@ independently testable core, callable directly (no argv needed) — the
 same "logic in a plain function, CLI is just the caller" split every
 other testable-CLI convention uses.
 
-Sequence, unconditional regardless of `initiate_step0` (confirmed by
-reading `orchestrator_turn.py::take_turn` before designing this: both
-sides always drive their *own* turns — "initiator" only ever matters for
-Step-0, not for who "goes first" in the match): construct `Orchestrator`
-→ start `run_as_server` in a background thread → negotiate Step-0 (as
-initiator or passively, per `[network].initiate_step0`) → `play_game` →
-`report_game`. `sub_game_scores`/`cumulative_score` are derived from
-`domain/scoring.py::score_outcome` (already built, reused) — the only
-honest source for a single CLI-run match with no cross-game history to
-draw on.
+Sequence (see `_run_match_body`'s own docstring) is unconditional
+regardless of `initiate_step0` — confirmed by reading
+`orchestrator_turn.py::take_turn` before designing this: both sides always
+drive their *own* turns, "initiator" only ever matters for Step-0.
+`sub_game_scores`/`cumulative_score` are derived from
+`domain/scoring.py::score_outcome` — the only honest source for a single
+CLI-run match with no cross-game history to draw on.
 """
 
 from __future__ import annotations
@@ -22,47 +19,17 @@ from __future__ import annotations
 import asyncio
 import threading
 
+from .cli_peer_build import build_orchestrator
 from .domain.scoring import score_outcome
 from .observability.live_gui import LiveGuiSession
 from .orchestrator import Orchestrator
-from .policy.league_ledger import LeagueLedger
-from .reasoning.cop_brain import CopBrain
 from .shared.config import GameConfig
 from .shared.private_config import PrivateConfig
-from .tools.report_bundle import log_filename
+from .shared.promotion_guard import require_fresh_promotion_report_for_counted_game
 
 DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
 DEFAULT_SHARED_CONFIG_PATH = "config/shared/config_dev_g01.json"
 _SERVER_STARTUP_GRACE_SECONDS = 0.5
-
-
-def _build_orchestrator(
-    private_config_path: str,
-    shared_config_path: str,
-    *,
-    log_path: str | None = None,
-    league_ledger_path: str | None = None,
-) -> tuple[Orchestrator, PrivateConfig, GameConfig, str]:
-    private_config = PrivateConfig.from_file(private_config_path)
-    config = GameConfig.from_file(shared_config_path)
-    game_id = f"{private_config.group_id}_g{private_config.sub_game_number:02d}"
-    if log_path is None:
-        # log_filename appends its own "_g{NN}" from sub_game_number — the
-        # bare group_id, not the already-suffixed game_id (report_game()'s
-        # own docstring has the full story; found by literally running
-        # `uv run python -m cop peer`, not by any unit test).
-        log_path = f"logs/{log_filename(private_config.group_id, private_config.sub_game_number)}"
-
-    orchestrator = Orchestrator(
-        config,
-        CopBrain(),
-        log_path=log_path,
-        private_config=private_config,
-        shared_config_path=shared_config_path,
-    )
-    if league_ledger_path is not None:
-        orchestrator.league_ledger = LeagueLedger(path=league_ledger_path)
-    return orchestrator, private_config, config, game_id
 
 
 async def _run_match_body(
@@ -74,6 +41,12 @@ async def _run_match_body(
     counted: bool,
     use_tunnel: bool,
 ) -> Orchestrator:
+    """Server up, negotiate Step-0, play, report — the sequence both
+    `run_peer` entry points share. PRD 13: refuses a counted game against
+    `RLCopBrain` with no current promotion report, before the server
+    thread even starts."""
+    require_fresh_promotion_report_for_counted_game(orchestrator.brain, counted=counted)
+
     threading.Thread(
         target=orchestrator.run_as_server,
         kwargs={"port": private_config.my_port, "use_tunnel": use_tunnel},
@@ -124,7 +97,7 @@ async def run_peer(
     the flag so callers that accidentally pass it still get a correct
     headless match rather than a blank Tk window under asyncio."""
     del gui  # CLI routes --gui to run_peer_with_gui; kept for call-site compat
-    orchestrator, private_config, config, game_id = _build_orchestrator(
+    orchestrator, private_config, config, game_id = build_orchestrator(
         private_config_path,
         shared_config_path,
         log_path=log_path,
@@ -151,7 +124,7 @@ def run_peer_with_gui(
 ) -> Orchestrator:
     """Same match as `run_peer`, but Tk mainloop owns the main thread and the
     async match runs in a background thread (Thief LiveSession pattern)."""
-    orchestrator, private_config, config, game_id = _build_orchestrator(
+    orchestrator, private_config, config, game_id = build_orchestrator(
         private_config_path,
         shared_config_path,
         log_path=log_path,
@@ -159,6 +132,7 @@ def run_peer_with_gui(
     )
 
     def match_fn() -> Orchestrator:
+        """Synchronous wrapper `LiveGuiSession.run` calls from Tk's own thread."""
         return asyncio.run(
             _run_match_body(
                 orchestrator,

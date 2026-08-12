@@ -58,6 +58,13 @@ ngrok.yml
 .vscode/
 *Zone.Identifier*
 
+# PRD 13: bulk, per-run ML pipeline artifacts (training/runs/<run_id>/) —
+# not secrets, just build-artifact-shaped noise that would otherwise bloat
+# history on every pipeline run. training/promoted/ (the one gated,
+# committed checkpoint) is deliberately NOT covered by this — see its own
+# note in PRD-13-ml-pipeline-and-deployment.md.
+training/runs/
+
 # Course-supplied reference material — copyrighted (all rights reserved),
 # not required by any rule to be *in* the repo, and not ours to redistribute.
 # Keep them on disk for local reference; never commit them.
