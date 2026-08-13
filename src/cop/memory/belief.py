@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from ..domain.barriers import BarrierSet
 from ..domain.board import Board, Position
 from ..domain.movement import DELTAS
+from .belief_queries import BeliefQueriesMixin
 from .scent import ScentField
 
 _HINT_RELIABILITY = 0.6
@@ -42,7 +43,11 @@ _SCENT_MAP_BOOST_SCALE = 20.0
 
 
 @dataclass
-class BeliefMap:
+class BeliefMap(BeliefQueriesMixin):
+    """`most_likely_cell`/`entropy` live in `BeliefQueriesMixin`
+    (`belief_queries.py`) — split out once this file hit the 150-line
+    house cap; everything that *mutates* `_probabilities` stays here."""
+
     _probabilities: dict[Position, float] = field(default_factory=dict)
     _barrier_positions: frozenset[Position] = field(default_factory=frozenset)
 
@@ -74,12 +79,6 @@ class BeliefMap:
             if pos in self._probabilities:
                 self._probabilities[pos] = 0.0
         self._normalize()
-
-    def most_likely_cell(self) -> Position:
-        candidates = {c: p for c, p in self._probabilities.items() if c not in self._barrier_positions}
-        if not candidates:
-            candidates = self._probabilities  # defensive: should never happen (barriers < board cells)
-        return max(candidates, key=candidates.get)
 
     def _normalize(self) -> None:
         total = self.total_probability()

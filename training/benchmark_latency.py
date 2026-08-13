@@ -45,7 +45,8 @@ def sample_realistic_states(
     the sampled positions/barrier-adjacency states cover a realistic
     spread, not just whatever one deterministic trajectory visits."""
     rng = random.Random(seed)
-    env = SelfPlayEnv(board, game_config, rl_config, opponent)
+    belief_rng = random.Random(rng.random())
+    env = SelfPlayEnv(board, game_config, rl_config, opponent, belief_rng)
     samples: list[RealisticState] = []
     while len(samples) < sample_count:
         env.reset()

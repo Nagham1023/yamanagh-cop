@@ -138,16 +138,15 @@ def test_a_real_prd11_era_v1_checkpoint_falls_back_to_the_heuristic_not_a_crash(
     )
 
 
-def test_belief_confidence_provider_is_actually_read_not_decorative(tmp_path):
-    """PRD 14 sub-layer A: two checkpoint entries at the *same* own_pos/
-    target_pos but different belief-confidence buckets, with deliberately
-    different best actions — proves the provider's return value genuinely
-    changes which table row gets consulted, not just that the parameter
-    exists."""
+def test_belief_entropy_provider_is_actually_read_not_decorative(tmp_path):
+    """PRD 14 post-gate: two checkpoint entries at the *same* own_pos/
+    target_pos but different entropy buckets, with deliberately different
+    best actions — proves the provider's return value genuinely changes
+    which table row gets consulted, not just that the parameter exists."""
     own_pos, target_pos = Position(0, 0), Position(3, 3)
     barriers = BarrierSet(quota=14)
-    confident_state = encode_state(own_pos, target_pos, _BOARD, barriers, belief_confidence=1.0)
-    unsure_state = encode_state(own_pos, target_pos, _BOARD, barriers, belief_confidence=0.05)
+    confident_state = encode_state(own_pos, target_pos, _BOARD, barriers, belief_entropy=0.0)
+    unsure_state = encode_state(own_pos, target_pos, _BOARD, barriers, belief_entropy=3.9)
     assert confident_state != unsure_state  # sanity: buckets really do differ
 
     save_checkpoint(
@@ -156,16 +155,16 @@ def test_belief_confidence_provider_is_actually_read_not_decorative(tmp_path):
     )
 
     confident_brain = RLCopBrain(
-        checkpoint_path=tmp_path / "checkpoint.json", belief_confidence_provider=lambda: 1.0
+        checkpoint_path=tmp_path / "checkpoint.json", belief_entropy_provider=lambda: 0.0
     )
     unsure_brain = RLCopBrain(
-        checkpoint_path=tmp_path / "checkpoint.json", belief_confidence_provider=lambda: 0.05
+        checkpoint_path=tmp_path / "checkpoint.json", belief_entropy_provider=lambda: 3.9
     )
     default_brain = RLCopBrain(checkpoint_path=tmp_path / "checkpoint.json")  # no provider at all
 
     assert confident_brain._pick_move(own_pos, target_pos, _BOARD, barriers) == "S"
     assert unsure_brain._pick_move(own_pos, target_pos, _BOARD, barriers) == "E"
-    # No provider bound -> the documented default (1.0, "confident") -> same as confident_brain.
+    # No provider bound -> the documented default (0.0, zero entropy, "confident") -> same as confident_brain.
     assert default_brain._pick_move(own_pos, target_pos, _BOARD, barriers) == "S"
 
 

@@ -9,7 +9,8 @@
 episode_count = 2000        # self-play episodes per training run
 seed = 0                     # random.Random seed — determinism (same seed -> same trained table)
 curriculum_switch_episode = 1000   # stage 0 (random_walk_thief) before this episode, stage 1 (greedy_escape_thief) after
-curriculum_switch_episode_2 = 1500 # PRD 14: stage 2 (lookahead_evader_thief) from here to episode_count
+curriculum_switch_episode_2 = 1500 # PRD 14: stage 2 (lookahead_evader_thief) from here to curriculum_switch_episode_3
+curriculum_switch_episode_3 = 1800 # PRD 14 round-2 post-gate: stage 3 (scent-backtracking thief) from here to episode_count -- deliberately conservative (200 episodes); raise if a real learning-curve run shows it needs more room, not guessed upfront
 
 [q_learning]
 alpha = 0.1                  # learning rate
@@ -22,6 +23,10 @@ epsilon_decay = 0.995         # multiplicative decay applied once per episode
 distance_shaping_weight = 0.1   # per-step reward for closing Manhattan distance to the target
 step_cost = 0.01                # small per-step penalty, encourages faster captures
 barrier_restriction_bonus_weight = 0.1  # PRD 14 post-gate: bonus when a barrier placement restricts the *believed* target's escape routes (see reward.py's own docstring — NOT provably policy-invariant). 0.1 chosen from a real controlled 5-seed sweep: 0.5 collapsed belief-aware win-rate to 0.00, 0.1 roughly doubled the 5-seed average (0.112 -> 0.272) with no ground-truth cost — see TODO.md's PRD 14 entry for the full sweep.
+belief_expected_distance_shaping_weight = 0.05  # PRD 14 post-gate (belief realism): chosen from a real controlled 5-seed sweep over {0.0, 0.02, 0.05, 0.1} on the real production config — 0.05 won on BOTH metrics simultaneously (5-seed avg win_rate_vs_baseline 0.705->0.845, avg win_rate_vs_baseline_belief_aware 0.426->0.469), not a tradeoff like barrier_restriction_bonus_weight's own sweep found. 0.1 alone looked plausible on ground truth (0.817) but gave back some of the belief-aware gain (0.417) — full sweep recorded in TODO.md's PRD 14 entry.
+
+[belief_simulation]
+synthetic_thief_lie_probability = 0.0  # PRD 14 post-gate (belief realism): matches the real match's own honest _DEFAULT_LIE_PROBABILITY. A lightweight single-seed check (0.0/0.15/0.3) found no clear, robust benefit to a nonzero value -- belief-aware win-rate was actually highest at 0.0 (0.49 vs 0.435 vs 0.305) -- so shipping a nonzero guess from one noisy run would repeat the exact mistake barrier_restriction_bonus_weight's own sweep already caught once. A real multi-seed sweep, same discipline as that one, is a legitimate follow-up before trusting a nonzero default here.
 
 [refinement]
 max_refinement_rounds = 3        # PRD 13's bounded refinement loop — hard iteration cap

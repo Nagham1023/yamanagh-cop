@@ -28,7 +28,7 @@ from .rl_checkpoint_json import (
 from .rl_checkpoint_quant import PerRowQuantizationParams, QuantizationParams, dequantize_any
 from .rl_state_encoding import State
 
-_CURRENT_ENCODING_VERSION = "v3"  # PRD 14 sub-layer B: State grew a 5th/6th (barrier/enclosure) element
+_CURRENT_ENCODING_VERSION = "v5"  # PRD 14 round-2 post-gate: State grew from a 6-tuple to an 8-tuple (dx2, dy2 -- an optional second belief mode) -- a real shape change this time, not just a semantic one like v3->v4; a stale v4 file (correct old shape) must fail closed too, not be silently misread as having two extra trailing fields
 
 
 class RLQTable:

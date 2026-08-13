@@ -39,6 +39,7 @@ def test_from_toml_loads_the_real_repo_config_file():
     assert cfg.seed == 0
     assert cfg.win_rate_target == 0.6
     assert cfg.curriculum_switch_episode_2 == 1500
+    assert cfg.curriculum_switch_episode_3 == 1800
 
 
 def test_missing_section_raises_key_error():
@@ -54,3 +55,11 @@ def test_missing_curriculum_switch_episode_2_defaults_to_stage_2_never_triggerin
     the third curriculum stage simply never kicks in rather than raising."""
     cfg = RLTrainingConfig.from_dict(_VALID_DICT)
     assert cfg.curriculum_switch_episode_2 == cfg.episode_count
+
+
+def test_missing_curriculum_switch_episode_3_defaults_to_stage_3_never_triggering():
+    """PRD 14 round-2 post-gate: same backward-compat posture as
+    curriculum_switch_episode_2 above — a config predating this field falls
+    back to episode_count, so the fourth curriculum stage never kicks in."""
+    cfg = RLTrainingConfig.from_dict(_VALID_DICT)
+    assert cfg.curriculum_switch_episode_3 == cfg.episode_count

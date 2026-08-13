@@ -11,6 +11,7 @@ _RL_CONFIG = RLTrainingConfig(
     seed=0,
     curriculum_switch_episode=0,
     curriculum_switch_episode_2=0,
+    curriculum_switch_episode_3=0,
     alpha=0.1,
     gamma=0.95,
     epsilon_start=0.0,
@@ -19,6 +20,8 @@ _RL_CONFIG = RLTrainingConfig(
     distance_shaping_weight=0.5,
     step_cost=0.2,
     barrier_restriction_bonus_weight=0.3,
+    synthetic_thief_lie_probability=0.0,
+    belief_expected_distance_shaping_weight=0.0,
     max_refinement_rounds=1,
     win_rate_target=0.0,
     wall_clock_budget_seconds=1.0,
@@ -85,6 +88,51 @@ def test_restricts_believed_target_is_ignored_on_a_terminal_step(config):
         rl_config=_RL_CONFIG, restricts_believed_target=True,
     )
     assert reward == float(config.score_capture_cop)  # the bonus never leaks into a terminal score
+
+
+def test_belief_expected_distance_shaping_weight_of_zero_is_byte_identical_to_pre_piece_4(config):
+    # "Off means off" — same precedent test barrier_restriction_bonus_weight
+    # already has. _RL_CONFIG's belief_expected_distance_shaping_weight is
+    # 0.0, so passing wildly different prev/new belief-expected-distance
+    # values must not move the reward by even a rounding error, proving the
+    # new term is inert at its shipped default regardless of what
+    # expected_manhattan_distance() itself returns in a real run.
+    reward_with_belief_inputs = step_reward(
+        prev_distance=5, new_distance=3, outcome=None, game_config=config, rl_config=_RL_CONFIG,
+        prev_expected_distance=40.0, new_expected_distance=0.5,
+    )
+    reward_without_belief_inputs = step_reward(
+        prev_distance=5, new_distance=3, outcome=None, game_config=config, rl_config=_RL_CONFIG,
+    )
+    assert reward_with_belief_inputs == reward_without_belief_inputs
+    assert reward_with_belief_inputs == _RL_CONFIG.distance_shaping_weight * 2 - _RL_CONFIG.step_cost
+
+
+def test_belief_shaping_can_disagree_in_sign_with_ground_truth_shaping(config):
+    # The phantom-chasing risk the module docstring warns about, made
+    # concrete: the cop can close real ground-truth distance on the actual
+    # thief while its belief (pointed elsewhere, wrongly) says expected
+    # distance grew — the two shaping terms pull in opposite directions in
+    # the same step. This is exactly why the weight needs a real sweep
+    # before shipping nonzero, not proof either term is buggy.
+    rl_config = RLTrainingConfig(
+        episode_count=1, seed=0, curriculum_switch_episode=0, curriculum_switch_episode_2=0,
+        curriculum_switch_episode_3=0,
+        alpha=0.1, gamma=0.95, epsilon_start=0.0, epsilon_end=0.0, epsilon_decay=1.0,
+        distance_shaping_weight=1.0, step_cost=0.0, barrier_restriction_bonus_weight=0.0,
+        synthetic_thief_lie_probability=0.0, belief_expected_distance_shaping_weight=1.0,
+        max_refinement_rounds=1, win_rate_target=0.0, wall_clock_budget_seconds=1.0,
+    )
+    reward = step_reward(
+        prev_distance=5, new_distance=3, outcome=None, game_config=config, rl_config=rl_config,
+        prev_expected_distance=2.0, new_expected_distance=6.0,
+    )
+    ground_truth_shaping = rl_config.distance_shaping_weight * (5 - 3)
+    belief_shaping = rl_config.belief_expected_distance_shaping_weight * (2.0 - 6.0)
+
+    assert ground_truth_shaping > 0
+    assert belief_shaping < 0
+    assert reward == ground_truth_shaping + belief_shaping
 
 
 def test_shaping_term_is_exactly_potential_based_ng_harada_russell_1999(config):

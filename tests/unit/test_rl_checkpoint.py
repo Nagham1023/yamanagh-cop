@@ -84,13 +84,13 @@ def test_a_real_pre_per_row_mode_quantized_checkpoint_still_loads_unchanged(tmp_
     from `quantization_from_json`'s own docstring."""
     path = tmp_path / "checkpoint.json"
     payload = {
-        "state_encoding_version": "v3",
+        "state_encoding_version": "v5",
         "quantization": {"dtype": "int8", "scale": 2.0, "min_q": -10.0},
-        "q_values": [{"state": [0, 0, 0, 0, 0, 0], "values": {"N": 127, "E": -128}}],
+        "q_values": [{"state": [0, 0, 0, 0, 0, 0, 0, 0], "values": {"N": 127, "E": -128}}],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     table = load_checkpoint(path)
-    assert table.ranked_actions((0, 0, 0, 0, 0, 0)) == ["N", "E"]
+    assert table.ranked_actions((0, 0, 0, 0, 0, 0, 0, 0)) == ["N", "E"]
 
 
 def test_a_per_row_quantized_checkpoint_dequantizes_each_state_with_its_own_params(tmp_path):
@@ -116,20 +116,20 @@ def test_a_checkpoint_with_no_quantization_key_at_all_still_loads(tmp_path):
     the latter alone)."""
     path = tmp_path / "checkpoint.json"
     payload = {
-        "state_encoding_version": "v3",
-        "q_values": [{"state": [1, 2, 0, 3, 0, 2], "values": {"N": 4.5, "E": 1.0}}],
+        "state_encoding_version": "v5",
+        "q_values": [{"state": [1, 2, 0, 3, 0, 2, 0, 0], "values": {"N": 4.5, "E": 1.0}}],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     table = load_checkpoint(path)
-    assert table.ranked_actions((1, 2, 0, 3, 0, 2)) == ["N", "E"]
+    assert table.ranked_actions((1, 2, 0, 3, 0, 2, 0, 0)) == ["N", "E"]
 
 
 def test_a_real_prd11_era_v1_checkpoint_now_fails_closed_not_silently(tmp_path):
-    """PRD 14 sub-layer B bumped the current version to "v3" (State grew a
-    5th/6th element). A genuine PRD-11-era "v1" file — the actual shape
-    training produced before either sub-layer existed — must raise, not be
-    silently misread as a 3-tuple. `RLCopBrain._load_or_none` is what turns
-    this raise into a safe heuristic fallback (see test_rl_cop_brain.py's own
+    """The current version ("v5") has moved on four times since PRD 11's
+    original "v1" (3-tuple). A genuine PRD-11-era "v1" file — the actual
+    shape training produced before any sub-layer existed — must raise, not
+    be silently misread. `RLCopBrain._load_or_none` is what turns this
+    raise into a safe heuristic fallback (see test_rl_cop_brain.py's own
     counterpart test) — this test only proves the raise itself."""
     path = tmp_path / "checkpoint.json"
     payload = {
@@ -142,15 +142,47 @@ def test_a_real_prd11_era_v1_checkpoint_now_fails_closed_not_silently(tmp_path):
 
 
 def test_a_real_prd14_sub_layer_a_v2_checkpoint_now_fails_closed_not_silently(tmp_path):
-    """PRD 14 sub-layer B bumped the current version to "v3" — a genuine
-    "v2" file (sub-layer A's own 4-tuple shape, the state this session's
-    earlier training runs actually produced) must now also raise, the same
-    fail-closed treatment "v1" already gets, not be silently misread as a
-    6-tuple."""
+    """A genuine "v2" file (sub-layer A's own 4-tuple shape, belief-
+    confidence not yet entropy) must raise, the same fail-closed treatment
+    "v1" already gets, not be silently misread as a 6-tuple with
+    entropy-bucket semantics at index 3."""
     path = tmp_path / "checkpoint.json"
     payload = {
         "state_encoding_version": "v2",
         "q_values": [{"state": [1, 2, 0, 3], "values": {"N": 4.5, "E": 1.0}}],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_checkpoint(path)
+
+
+def test_a_real_prd14_sub_layer_b_v3_checkpoint_now_fails_closed_not_silently(tmp_path):
+    """PRD 14 post-gate bumped the version to "v4" — a real "v3"
+    file (sub-layer B's own 6-tuple shape, but index 3 still peak-
+    probability semantics, not entropy) must now also raise. Same tuple
+    *shape* as that version, different *meaning* at one position — exactly
+    the silent-misread failure mode the version guard exists to catch, not
+    just a shape mismatch."""
+    path = tmp_path / "checkpoint.json"
+    payload = {
+        "state_encoding_version": "v3",
+        "q_values": [{"state": [1, 2, 0, 3, 0, 2], "values": {"N": 4.5, "E": 1.0}}],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_checkpoint(path)
+
+
+def test_a_real_prd14_round2_v4_checkpoint_now_fails_closed_not_silently(tmp_path):
+    """PRD 14 round-2 post-gate bumped the current version to "v5" — a real
+    "v4" file (the correct OLD 6-tuple shape, no `dx2`/`dy2` at all) must
+    now also raise rather than being silently misread as an 8-tuple with
+    two trailing fields it never had. A real shape change this time, not
+    just a semantic one like v3->v4."""
+    path = tmp_path / "checkpoint.json"
+    payload = {
+        "state_encoding_version": "v4",
+        "q_values": [{"state": [1, 2, 0, 3, 0, 2], "values": {"N": 4.5, "E": 1.0}}],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError):

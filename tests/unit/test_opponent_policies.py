@@ -12,6 +12,7 @@ from training.opponent_policies import (
     greedy_escape_thief,
     lookahead_evader_thief,
     make_random_walk_thief,
+    make_scent_backtracking_thief,
 )
 
 _BOARD = Board(size=7)
@@ -102,3 +103,87 @@ def test_lookahead_evader_thief_genuinely_looks_two_ply_deep_not_just_one():
     )
     assert greedy_escape_thief(pos, _BOARD, barriers) == "N"
     assert lookahead_evader_thief(pos, _BOARD, barriers) == "E"
+
+
+def test_scent_backtracking_thief_always_returns_a_legal_move(config):
+    rng = random.Random(20260812)
+    mover = make_scent_backtracking_thief(config, rng)
+    barriers = BarrierSet(quota=14)
+    for _ in range(200):
+        pos = Position(rng.randrange(7), rng.randrange(7))
+        direction = mover(pos, _BOARD, barriers)
+        assert direction == "STAY" or apply_move(pos, direction, _BOARD) is not None
+
+
+def test_scent_backtracking_thief_is_deterministic_for_a_given_seeded_rng(config):
+    barriers = BarrierSet(quota=14)
+    path = [Position(3, 3), Position(3, 2), Position(3, 3)]
+
+    def _walk(seed):
+        mover = make_scent_backtracking_thief(config, random.Random(seed))
+        moves = []
+        for pos in path:
+            moves.append(mover(pos, _BOARD, barriers))
+        return moves
+
+    assert _walk(1) == _walk(1)
+
+
+def test_scent_backtracking_thief_stays_when_fully_boxed_in(config):
+    rng = random.Random(0)
+    mover = make_scent_backtracking_thief(config, rng)
+    corner = Position(0, 0)
+    barriers = BarrierSet(quota=14, placed={Position(1, 0), Position(0, 1)})
+    assert mover(corner, _BOARD, barriers) == "STAY"
+
+
+def test_scent_backtracking_thief_genuinely_prefers_its_own_high_scent_cell_over_a_fresh_one(config):
+    # Walk the mover back and forth over (3,3) a few times so its own scent
+    # field builds a clear high point there, then confirm from a branching
+    # position it picks the direction back toward that high-scent cell over
+    # an equally-legal, never-visited direction -- proving this is genuinely
+    # different behavior from every other stage, not just a relabeled
+    # random walk (every other mover is indifferent to its own history).
+    rng = random.Random(20260813)
+    mover = make_scent_backtracking_thief(config, rng)
+    barriers = BarrierSet(quota=14)
+    hot_cell = Position(3, 3)
+    branch_point = Position(3, 4)  # south of hot_cell; "N" returns to it, "S" is fresh
+
+    for _ in range(5):
+        mover(hot_cell, _BOARD, barriers)  # repeatedly "visit" hot_cell to build up its scent
+
+    direction = mover(branch_point, _BOARD, barriers)
+    assert direction == "N"
+
+
+def test_scent_backtracking_thief_needs_a_fresh_scent_field_per_episode_not_a_reused_one(config):
+    # The RNG-lifetime-inverse risk this piece's own docstring warns about,
+    # demonstrated concretely: reusing one mover object across two
+    # "episodes" (not rebuilding it, the exact bug train_loop.py's own
+    # per-episode construction avoids) lets episode 1's trail bias episode
+    # 2's very first decision, even though episode 2 never actually visited
+    # that cell. A freshly-built mover, by contrast, has no such bias --
+    # both branches start genuinely tied (zero scent each), so across many
+    # seeds it must pick each side at least once, not deterministically favor
+    # the cell a *different*, no-longer-relevant mover happened to visit.
+    barriers = BarrierSet(quota=14)
+    hot_cell = Position(3, 3)
+    branch_point = Position(3, 4)  # "N" returns toward hot_cell; "S" is the fresh direction
+
+    reused_mover = make_scent_backtracking_thief(config, random.Random(1))
+    for _ in range(5):
+        reused_mover(hot_cell, _BOARD, barriers)  # "episode 1" heavily visits hot_cell
+    # "episode 2" incorrectly reuses the same object, never revisiting
+    # hot_cell itself -- yet the stale trail still biases the very first
+    # decision, exactly the corruption a fresh-per-episode rebuild avoids.
+    assert reused_mover(branch_point, _BOARD, barriers) == "N"
+
+    # A genuinely fresh mover, one per attempt (matching train_loop.py's own
+    # correct per-episode rebuild), has no such bias -- across several
+    # different seeds it must choose the fresh direction at least once.
+    fresh_choices = {
+        make_scent_backtracking_thief(config, random.Random(seed))(branch_point, _BOARD, barriers)
+        for seed in range(10)
+    }
+    assert "S" in fresh_choices

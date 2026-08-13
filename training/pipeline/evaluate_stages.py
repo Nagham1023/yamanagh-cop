@@ -84,13 +84,13 @@ def run_evaluate_belief_aware(
     existing renamed or removed, `ml-promotion-gate`'s checklist unaffected."""
     board = Board(size=game_config.board_size)
     rl_rate, rl_avg_steps = _belief_aware_capture_stats(
-        lambda confidence_fn: RLCopBrain(
-            checkpoint_path=artifacts.checkpoint_path(run_id), belief_confidence_provider=confidence_fn
+        lambda entropy_fn: RLCopBrain(
+            checkpoint_path=artifacts.checkpoint_path(run_id), belief_entropy_provider=entropy_fn
         ),
         board, game_config, rl_config,
     )
     baseline_rate, baseline_avg_steps = _belief_aware_capture_stats(
-        lambda _confidence_fn: CopBrain(), board, game_config, rl_config
+        lambda _entropy_fn: CopBrain(), board, game_config, rl_config
     )
     payload_update = {
         "win_rate_vs_baseline_belief_aware": rl_rate,
@@ -115,18 +115,19 @@ def _belief_aware_capture_stats(
     game_config: GameConfig,
     rl_config: RLTrainingConfig,
 ) -> tuple[float, float | None]:
-    """`brain_factory` receives one argument — a zero-arg confidence
-    callable bound to whichever `SelfPlayEnv` instance is driving that
-    episode — so an `RLCopBrain` factory can pass it straight through as
-    its own `belief_confidence_provider` and genuinely exercise every
-    confidence bucket the checkpoint learned, not just the default. A
-    `CopBrain` factory simply ignores the argument (no Q-table to query)."""
+    """`brain_factory` receives one argument — a zero-arg entropy callable
+    bound to whichever `SelfPlayEnv` instance is driving that episode — so
+    an `RLCopBrain` factory can pass it straight through as its own
+    `belief_entropy_provider` and genuinely exercise every entropy bucket
+    the checkpoint learned, not just the default. A `CopBrain` factory
+    simply ignores the argument (no Q-table to query)."""
     rng = random.Random(_EVAL_SEED)
+    belief_rng = random.Random(rng.random())  # one stream for the whole eval pass, not per-episode
     captures = 0
     capture_steps: list[int] = []
     for _ in range(_EVAL_EPISODES):
         thief_mover = make_random_walk_thief(random.Random(rng.random()))
-        env = SelfPlayEnv(board, game_config, rl_config, thief_mover)
+        env = SelfPlayEnv(board, game_config, rl_config, thief_mover, belief_rng)
         env.reset()
         brain = brain_factory(lambda env=env: env._belief.believed_target()[1])
 
@@ -134,7 +135,7 @@ def _belief_aware_capture_stats(
         outcome = None
         steps = 0
         while not done:
-            believed_pos, _confidence = env._belief.believed_target()
+            believed_pos, _entropy = env._belief.believed_target()
             direction = brain._pick_move(env.cop_pos, believed_pos, env._board, env._barriers)
             _next_state, _reward, done, outcome = env.step(direction)
             steps += 1

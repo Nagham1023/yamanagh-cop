@@ -227,6 +227,93 @@ def test_a_barrier_cell_never_wins_most_likely_cell_even_though_it_would_under_u
     assert belief.most_likely_cell() != barrier_cell
 
 
+def test_expected_manhattan_distance_reduces_to_ground_truth_at_a_point_mass():
+    # Piece 4's own load-bearing claim: expected_manhattan_distance() must
+    # equal the plain ground-truth Manhattan distance exactly once belief
+    # collapses to a single cell — not merely "close," since that's the
+    # exact case reward.py's docstring uses to justify calling this a
+    # generalization of the existing distance term, not a different metric.
+    board = Board(size=7)
+    belief = BeliefMap.uniform(board)
+    thief_pos = Position(5, 2)
+    cop_pos = Position(1, 1)
+    belief._probabilities = {cell: 0.0 for cell in belief._probabilities}
+    belief._probabilities[thief_pos] = 1.0
+
+    ground_truth = abs(thief_pos.col - cop_pos.col) + abs(thief_pos.row - cop_pos.row)
+    assert belief.expected_manhattan_distance(cop_pos) == ground_truth
+
+
+def test_second_mode_finds_a_genuinely_separated_second_peak():
+    board = Board(size=7)
+    belief = BeliefMap.uniform(board)
+    belief._probabilities = {cell: 0.0 for cell in belief._probabilities}
+    primary = Position(1, 1)
+    real_second = Position(5, 5)
+    belief._probabilities[primary] = 1.0
+    belief._probabilities[real_second] = 0.5  # >= min_relative_mass (0.3) of primary
+
+    assert belief.second_mode(primary) == real_second
+
+
+def test_second_mode_returns_none_for_a_sharp_unimodal_distribution():
+    board = Board(size=7)
+    belief = BeliefMap.uniform(board)
+    primary = belief.most_likely_cell()
+    belief._probabilities = {cell: 0.0001 for cell in belief._probabilities}
+    belief._probabilities[primary] = 1.0
+
+    assert belief.second_mode(primary) is None
+
+
+def test_second_mode_rejects_a_near_cell_as_not_a_real_second_mode():
+    # The key rejection/boundary test: two adjacent high cells are a soft
+    # shoulder of ONE peak, not two real modes -- must not be reported as
+    # bimodal just because a nearby cell also happens to carry real mass.
+    board = Board(size=7)
+    belief = BeliefMap.uniform(board)
+    belief._probabilities = {cell: 0.0 for cell in belief._probabilities}
+    primary = Position(3, 3)
+    near_cell = Position(4, 3)  # Manhattan distance 1, well under min_separation (3)
+    belief._probabilities[primary] = 1.0
+    belief._probabilities[near_cell] = 0.9
+
+    assert belief.second_mode(primary) is None
+
+
+def test_second_mode_rejects_a_far_but_too_faint_cell():
+    # Far enough apart (clears min_separation) but too little mass (below
+    # min_relative_mass) -- noise, not a genuine second mode.
+    board = Board(size=7)
+    belief = BeliefMap.uniform(board)
+    belief._probabilities = {cell: 0.0 for cell in belief._probabilities}
+    primary = Position(1, 1)
+    faint_far_cell = Position(6, 6)
+    belief._probabilities[primary] = 1.0
+    belief._probabilities[faint_far_cell] = 0.1  # < min_relative_mass (0.3)
+
+    assert belief.second_mode(primary) is None
+
+
+def test_expected_manhattan_distance_is_a_true_weighted_average_not_just_the_peak():
+    # A genuinely bimodal belief must land strictly between the two modes'
+    # own distances — proves the method sums over the whole distribution
+    # rather than silently collapsing to most_likely_cell()'s argmax.
+    board = Board(size=7)
+    belief = BeliefMap.uniform(board)
+    cop_pos = Position(0, 0)
+    near, far = Position(1, 0), Position(6, 6)
+    belief._probabilities = {cell: 0.0 for cell in belief._probabilities}
+    belief._probabilities[near] = 0.5
+    belief._probabilities[far] = 0.5
+
+    near_distance = abs(near.col - cop_pos.col) + abs(near.row - cop_pos.row)
+    far_distance = abs(far.col - cop_pos.col) + abs(far.row - cop_pos.row)
+    expected = belief.expected_manhattan_distance(cop_pos)
+
+    assert near_distance < expected < far_distance
+
+
 def test_most_likely_cell_falls_back_when_every_cell_is_somehow_a_barrier():
     # Genuinely unreachable in real play (barrier_quota is well under board
     # cell count per Appendix F), but most_likely_cell()'s own defensive

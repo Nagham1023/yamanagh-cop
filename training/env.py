@@ -33,24 +33,19 @@ this was genuinely rare (14.8%) in the trained policy's own choices.
 
 from __future__ import annotations
 
+import random
+
 from cop.domain.barriers import BarrierSet
 from cop.domain.board import Board, Position
-from cop.domain.capture import is_coordinate_capture, thief_has_no_legal_move
-from cop.domain.end_conditions import determine_outcome
-from cop.domain.movement import apply_move
 from cop.domain.scoring import Outcome
 from cop.reasoning.rl_state_encoding import State, encode_state
 from cop.shared.config import GameConfig
 
 from .belief_tracker import BeliefTracker
 from .config import RLTrainingConfig
-from .env_actions import apply_cop_action, barrier_restricts_believed_target, legal_cop_actions
+from .env_actions import legal_cop_actions
+from .env_step import resolve_step
 from .opponent_policies import ThiefMover
-from .reward import step_reward
-
-
-def _manhattan(a: Position, b: Position) -> int:
-    return abs(a.col - b.col) + abs(a.row - b.row)
 
 
 class SelfPlayEnv:
@@ -63,7 +58,15 @@ class SelfPlayEnv:
         game_config: GameConfig,
         rl_config: RLTrainingConfig,
         opponent: ThiefMover,
+        belief_rng: random.Random,
     ) -> None:
+        """`belief_rng` drives the synthetic thief-hint lie/truth coin flip
+        (`BeliefTracker.fold_synthetic_hint`) — required, not defaulted, so
+        every caller makes an explicit, considered choice about it. Must be
+        a single stream reused across every episode of one training run,
+        never reconstructed per episode: see `belief_tracker.py`'s own
+        docstring for why a fresh stream each episode would teach a
+        spurious step-index-correlated artifact instead of a real skill."""
         self._board = board
         self._game_config = game_config
         self._rl_config = rl_config
@@ -72,7 +75,7 @@ class SelfPlayEnv:
         self.cop_pos = Position(*game_config.cop_start)
         self.thief_pos = Position(*game_config.thief_start)
         self.steps_taken = 0
-        self._belief = BeliefTracker(board, game_config, self._barriers)
+        self._belief = BeliefTracker(board, game_config, self._barriers, belief_rng)
 
     def reset(self) -> State:
         self.cop_pos = Position(*self._game_config.cop_start)
@@ -88,63 +91,15 @@ class SelfPlayEnv:
         return legal_cop_actions(self.cop_pos, self._board, self._barriers)
 
     def step(self, action: str) -> tuple[State, float, bool, Outcome | None]:
-        """One cop action, then a capture check (coordinate, barrier/rule-46,
-        imprisonment/rule-47 — `run_local_subgame`'s own three-way check,
-        exact order), then, only if the game continues, one thief move for
-        the *next* round — the thief walking onto the cop is never itself a
-        capture. Returns `(next_state, reward, done, outcome)`.
-
-        `believed_target_pos` is read before this action mutates anything
-        and before `self._belief.advance(...)` runs below — the belief the
-        policy actually conditioned its choice on, for
-        `env_actions.barrier_restricts_believed_target`."""
-        prev_distance = _manhattan(self.cop_pos, self.thief_pos)
-        believed_target_pos, _confidence = self._belief.believed_target()
-        cop_pos_before_action = self.cop_pos
-        self.cop_pos, barrier_capture = apply_cop_action(
-            action, self.cop_pos, self.thief_pos, self._board, self._barriers
-        )
-        self.steps_taken += 1
-
-        restricts_believed_target = barrier_restricts_believed_target(
-            action, cop_pos_before_action, believed_target_pos, self._barriers
-        )
-
-        captured = (
-            barrier_capture
-            or is_coordinate_capture(self.cop_pos, self.thief_pos)
-            or thief_has_no_legal_move(self.thief_pos, self._board, self._barriers)
-        )
-
-        outcome = determine_outcome(
-            captured=captured,
-            steps_taken=self.steps_taken,
-            step_ceiling=self._game_config.step_ceiling,
-            survival_threshold=self._game_config.survival_threshold,
-        )
-        if outcome is None:
-            # Belief update happens only when the episode continues: on a
-            # terminal step, train_loop.py's own Bellman update never reads
-            # next_state's Q-value at all (`best_next = 0.0 if done`), so
-            # there is nothing for an un-updated final belief to affect.
-            self._belief.advance(self.cop_pos)
-            # Thief moves only when the round didn't already end on the cop's own action.
-            thief_direction = self._opponent(self.thief_pos, self._board, self._barriers)
-            self.thief_pos = apply_move(self.thief_pos, thief_direction, self._board) or self.thief_pos
-
-        new_distance = _manhattan(self.cop_pos, self.thief_pos)
-        reward = step_reward(
-            prev_distance=prev_distance,
-            new_distance=new_distance,
-            outcome=outcome,
-            game_config=self._game_config,
-            rl_config=self._rl_config,
-            restricts_believed_target=restricts_believed_target,
-        )
-        return self._encode(), reward, outcome is not None, outcome
+        """One cop action, capture check, and (if the game continues) one
+        thief move for the next round — see `env_step.resolve_step`'s own
+        docstring for the exact order and reasoning; extracted there once
+        this file hit the house cap for a second time."""
+        return resolve_step(self, action)
 
     def _encode(self) -> State:
-        believed_pos, confidence = self._belief.believed_target()
+        believed_pos, entropy, second_mode = self._belief.believed_targets()
         return encode_state(
-            self.cop_pos, believed_pos, self._board, self._barriers, belief_confidence=confidence
+            self.cop_pos, believed_pos, self._board, self._barriers,
+            belief_entropy=entropy, second_mode_pos=second_mode,
         )

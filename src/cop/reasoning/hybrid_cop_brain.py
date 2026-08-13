@@ -11,7 +11,7 @@ inert" posture `RLCopBrain` itself has held since PRD 11: no
 `orchestrator_turn.py`, `cli_peer_build.py`, or `config/game.toml` change.
 `cli_peer_build.py` constructs any `police_class` brain with zero arguments,
 so pointing `police_class` at this class alone — without separate
-`Orchestrator` plumbing to bind a real `belief_confidence_provider` — is not
+`Orchestrator` plumbing to bind a real `belief_entropy_provider` — is not
 sufficient for genuine hybrid behavior; that wiring is a future PRD's job,
 not this one's.
 
@@ -20,19 +20,23 @@ to two independent, already-correct brains rather than inheriting one of
 them — `isinstance(hybrid, CopBrain)` being true would be misleading given
 most decisions may come from the Q-table path.
 
-**Switch point**: reuses `rl_state_encoding.py`'s own `_CONFIDENCE_THRESHOLDS`/
-`_bucket_confidence` rather than a new standalone magic number — bucket 3
-("confident", `>= 0.6`) routes to `CopBrain`, anything lower routes to
+**Switch point**: reuses `belief_entropy_bucket.py`'s own `ENTROPY_THRESHOLDS`/
+`bucket_entropy` rather than a new standalone magic number — the top bucket
+(lowest entropy, "confident") routes to `CopBrain`, anything lower routes to
 `RLCopBrain`. Comparing via the real function rather than a re-derived
-`>= 0.6` literal means this router's "is this confident" predicate
-structurally can't drift from the Q-table's own bucketing even if the
-comparison changes later.
+literal means this router's "is this confident" predicate structurally
+can't drift from the Q-table's own bucketing even if the comparison changes
+later. Renamed end-to-end from the original peak-probability-based
+`belief_confidence_provider`/`_bucket_confidence` once entropy replaced
+that metric — keeping the old name while inverting its meaning (entropy is
+lower-is-better, the old probability was higher-is-better) would have been
+exactly the misleading-name problem this repo's docstrings exist to avoid.
 
-**Shared-provider invariant**: the same `belief_confidence_provider` object
-is passed straight through to the inner `RLCopBrain`, not wrapped or
+**Shared-provider invariant**: the same `belief_entropy_provider` object is
+passed straight through to the inner `RLCopBrain`, not wrapped or
 re-derived — but it is genuinely called *twice* per decision when the unsure
 branch is taken (once here to route, once inside `RLCopBrain`'s own
-`_belief_confidence()`). Nothing in this class's synchronous call chain
+`_belief_entropy()`). Nothing in this class's synchronous call chain
 mutates belief state between those two reads, so as long as the bound
 provider is a plain, side-effect-free synchronous getter (the same shape
 `RLCopBrain`'s own docstring already assumes), both reads are identical
@@ -54,38 +58,39 @@ from pathlib import Path
 
 from ..domain.barriers import BarrierSet
 from ..domain.board import Board, Position
+from .belief_entropy_bucket import ENTROPY_THRESHOLDS, bucket_entropy
 from .brain_base import Action, BrainBase
 from .cop_brain import CopBrain
 from .rl_cop_brain import DEFAULT_CHECKPOINT_PATH, RLCopBrain
-from .rl_state_encoding import _CONFIDENCE_THRESHOLDS, _bucket_confidence
 
-_CONFIDENT_BUCKET = len(_CONFIDENCE_THRESHOLDS)  # the top bucket _bucket_confidence can return
+_CONFIDENT_BUCKET = len(ENTROPY_THRESHOLDS)  # the top (lowest-entropy) bucket bucket_entropy can return
 
 
 class HybridCopBrain(BrainBase):
-    """No provider bound -> `_is_confident()` always sees the same `1.0`
-    default every other brain in this repo uses -> always routes to
-    `CopBrain`, never touches the Q-table. Same "inert until wired" posture
-    as `RLCopBrain` itself: even a mistaken `police_class` pointed at this
-    class today would silently degrade to plain `CopBrain`, never crash or
-    accidentally exercise the RL path."""
+    """No provider bound -> `_is_confident()` always sees the same `0.0`
+    (zero entropy, exact for a point mass) default every other brain in
+    this repo uses -> always routes to `CopBrain`, never touches the
+    Q-table. Same "inert until wired" posture as `RLCopBrain` itself: even
+    a mistaken `police_class` pointed at this class today would silently
+    degrade to plain `CopBrain`, never crash or accidentally exercise the
+    RL path."""
 
     def __init__(
         self,
         checkpoint_path: str | Path = DEFAULT_CHECKPOINT_PATH,
         *,
-        belief_confidence_provider: Callable[[], float] | None = None,
+        belief_entropy_provider: Callable[[], float] | None = None,
     ) -> None:
-        self._belief_confidence_provider = belief_confidence_provider
+        self._belief_entropy_provider = belief_entropy_provider
         self._confident_brain = CopBrain()
         self._unsure_brain = RLCopBrain(
             checkpoint_path=checkpoint_path,
-            belief_confidence_provider=belief_confidence_provider,
+            belief_entropy_provider=belief_entropy_provider,
         )
 
     def _is_confident(self) -> bool:
-        confidence = self._belief_confidence_provider() if self._belief_confidence_provider else 1.0
-        return _bucket_confidence(confidence) >= _CONFIDENT_BUCKET
+        entropy = self._belief_entropy_provider() if self._belief_entropy_provider else 0.0
+        return bucket_entropy(entropy) >= _CONFIDENT_BUCKET
 
     def _active_brain(self) -> BrainBase:
         return self._confident_brain if self._is_confident() else self._unsure_brain

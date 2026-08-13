@@ -22,6 +22,8 @@ from collections.abc import Callable
 from cop.domain.barriers import BarrierSet
 from cop.domain.board import Board, Position
 from cop.domain.movement import DELTAS, apply_move
+from cop.memory.scent import ScentField
+from cop.shared.config import GameConfig
 
 ThiefMover = Callable[[Position, Board, BarrierSet], str]
 
@@ -92,6 +94,39 @@ def lookahead_evader_thief(own_pos: Position, board: Board, barriers: BarrierSet
     if not candidates:
         return "STAY"
     return max(candidates, key=lambda triple: (triple[0], triple[1]))[2]
+
+
+def make_scent_backtracking_thief(game_config: GameConfig, rng: random.Random) -> ThiefMover:
+    """Curriculum stage 3 (PRD 14 round-2 post-gate): prefers cells where
+    ITS OWN scent is already strong — deliberately backtracks into its
+    recent trail or lingers where that trail has only partially decayed —
+    to stress-test whether the cop's belief system can tell fresh presence
+    from stale residue, rather than a thief that (like every other stage)
+    simply never revisits itself. Owns its own `ScentField` via closure,
+    exactly like `make_random_walk_thief` owns its own `rng` — no
+    `ThiefMover` signature change, no new call-site plumbing anywhere.
+
+    **Must be rebuilt fresh every episode when this stage is active** — the
+    inverse of `belief_tracker.py`'s own RNG-lifetime lesson: there, a
+    stream reused across episodes was required; here, a `ScentField` reused
+    across episodes would let "old trail" accumulate across unrelated
+    games, corrupting the training distribution. See `train_loop.py`'s own
+    construction site — this factory is deliberately NOT built once outside
+    the episode loop the way the other three stage-movers are."""
+    own_scent = ScentField.from_config(game_config)
+
+    def _mover(own_pos: Position, board: Board, barriers: BarrierSet) -> str:
+        own_scent.advance(own_pos, board)
+        legal = _legal_directions(own_pos, board, barriers)
+        if not legal:
+            return "STAY"
+        field = own_scent.full_field()
+        scored = [(field.get(apply_move(own_pos, d, board), 0.0), d) for d in legal]
+        best_score = max(score for score, _ in scored)
+        best = [d for score, d in scored if score == best_score]
+        return rng.choice(best)
+
+    return _mover
 
 
 def _legal_directions(own_pos: Position, board: Board, barriers: BarrierSet) -> list[str]:

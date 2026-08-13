@@ -20,6 +20,7 @@ class RLTrainingConfig:
     seed: int
     curriculum_switch_episode: int
     curriculum_switch_episode_2: int
+    curriculum_switch_episode_3: int
     alpha: float
     gamma: float
     epsilon_start: float
@@ -28,6 +29,8 @@ class RLTrainingConfig:
     distance_shaping_weight: float
     step_cost: float
     barrier_restriction_bonus_weight: float
+    synthetic_thief_lie_probability: float
+    belief_expected_distance_shaping_weight: float
     max_refinement_rounds: int
     win_rate_target: float
     wall_clock_budget_seconds: float
@@ -51,6 +54,12 @@ class RLTrainingConfig:
             curriculum_switch_episode_2=episodes.get(
                 "curriculum_switch_episode_2", episodes["episode_count"]
             ),
+            # PRD 14 round-2 post-gate: a fourth, adversarial-scent curriculum
+            # stage. Same "absent means off" backward-compat posture
+            # curriculum_switch_episode_2 already established.
+            curriculum_switch_episode_3=episodes.get(
+                "curriculum_switch_episode_3", episodes["episode_count"]
+            ),
             alpha=float(q_learning["alpha"]),
             gamma=float(q_learning["gamma"]),
             epsilon_start=float(q_learning["epsilon_start"]),
@@ -63,6 +72,21 @@ class RLTrainingConfig:
             # posture curriculum_switch_episode_2 already established above.
             barrier_restriction_bonus_weight=float(
                 reward_shaping.get("barrier_restriction_bonus_weight", 0.0)
+            ),
+            # PRD 14 post-gate follow-up (belief realism): absent means 0.0
+            # (never lies, today's real-match default too) — a config
+            # written before this field existed, or that doesn't opt in,
+            # sees no behavior change. Its own [belief_simulation] table is
+            # entirely optional for the same reason.
+            synthetic_thief_lie_probability=float(
+                data.get("belief_simulation", {}).get("synthetic_thief_lie_probability", 0.0)
+            ),
+            # PRD 14 post-gate follow-up: absent means 0.0 -- byte-identical
+            # reward to before this term existed (see reward.py's own
+            # "off means off" test). Never shipped nonzero without the same
+            # seed-controlled sweep barrier_restriction_bonus_weight required.
+            belief_expected_distance_shaping_weight=float(
+                reward_shaping.get("belief_expected_distance_shaping_weight", 0.0)
             ),
             max_refinement_rounds=refinement["max_refinement_rounds"],
             win_rate_target=float(refinement["win_rate_target"]),

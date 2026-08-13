@@ -11,6 +11,7 @@ _SMALL_CONFIG_KWARGS = {
     "seed": 20260812,
     "curriculum_switch_episode": 75,
     "curriculum_switch_episode_2": 150,  # never reached at the base episode_count -> stage 2 off
+    "curriculum_switch_episode_3": 150,  # never reached at the base episode_count -> stage 3 off
     "alpha": 0.2,
     "gamma": 0.9,
     "epsilon_start": 1.0,
@@ -19,6 +20,8 @@ _SMALL_CONFIG_KWARGS = {
     "distance_shaping_weight": 0.1,
     "step_cost": 0.01,
     "barrier_restriction_bonus_weight": 0.0,
+    "synthetic_thief_lie_probability": 0.0,
+    "belief_expected_distance_shaping_weight": 0.0,
     "max_refinement_rounds": 1,
     "win_rate_target": 0.5,
     "wall_clock_budget_seconds": 60.0,
@@ -128,3 +131,49 @@ def test_the_third_curriculum_stage_never_fires_before_its_own_switch_episode(co
     )
     train(config, rl_config)
     assert not calls, "stage 2 fired before curriculum_switch_episode_2, or with it never reached"
+
+
+def test_the_fourth_curriculum_stage_is_actually_reached_and_used_not_just_declared(config, monkeypatch):
+    calls: list[int] = []
+    real_factory = train_loop.make_scent_backtracking_thief
+
+    def _recording_factory(game_config, rng):
+        calls.append(1)
+        return real_factory(game_config, rng)
+
+    monkeypatch.setattr(train_loop, "make_scent_backtracking_thief", _recording_factory)
+    rl_config = RLTrainingConfig(
+        **{
+            **_SMALL_CONFIG_KWARGS,
+            "episode_count": 30,
+            "curriculum_switch_episode": 10,
+            "curriculum_switch_episode_2": 20,
+            "curriculum_switch_episode_3": 25,
+        }
+    )
+    train(config, rl_config)
+    assert calls, "stage 3 (scent-backtracking thief) was configured to run but never got called"
+    # Rebuilt fresh every stage-3 episode (5 of them: episodes 25-29), not
+    # hoisted once outside the loop like the other three stages -- exactly
+    # the asymmetry this piece's own docstring requires.
+    assert len(calls) == 5
+
+
+def test_the_fourth_curriculum_stage_never_fires_before_its_own_switch_episode(config, monkeypatch):
+    calls: list[int] = []
+    monkeypatch.setattr(
+        train_loop,
+        "make_scent_backtracking_thief",
+        lambda *a: (calls.append(1) or (lambda *b: "STAY")),
+    )
+    rl_config = RLTrainingConfig(
+        **{
+            **_SMALL_CONFIG_KWARGS,
+            "episode_count": 30,
+            "curriculum_switch_episode": 10,
+            "curriculum_switch_episode_2": 20,
+            "curriculum_switch_episode_3": 30,  # never reached within episode_count
+        }
+    )
+    train(config, rl_config)
+    assert not calls, "stage 3 fired before curriculum_switch_episode_3, or with it never reached"

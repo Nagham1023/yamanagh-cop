@@ -1,6 +1,14 @@
-"""HybridCopBrain: routes to CopBrain when confident, RLCopBrain when unsure,
-reusing the exact _bucket_confidence boundary the Q-table's own encoding
-already uses. See hybrid_cop_brain.py's own module docstring for the design.
+"""HybridCopBrain: routes to CopBrain when confident (low entropy), RLCopBrain
+when unsure (high entropy), reusing the exact `bucket_entropy` boundary the
+Q-table's own encoding already uses. See hybrid_cop_brain.py's own module
+docstring for the design.
+
+Entropy is the inverse of the old peak-probability metric: LOWER entropy
+means MORE certain, so the boundary tests below deliberately test the
+*first* (lowest) `ENTROPY_THRESHOLDS` value, not the last one the old
+`_CONFIDENCE_THRESHOLDS`-based tests used — the top ("confident") bucket
+only includes entropy strictly *below* that first threshold, not at or
+above it (`bucket_entropy`'s own `<` semantics, not `<=`).
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ _SEED = 20260812
 _ITERATIONS = 500
 
 
-_BUCKET_REPRESENTATIVES = (0.05, 0.2, 0.45, 0.8)  # one confidence value per _bucket_confidence bucket
+_BUCKET_REPRESENTATIVES = (3.5, 1.8, 0.3)  # one entropy value per bucket_entropy bucket (0, 1, 2)
 
 
 def _disagreement_checkpoint(tmp_path):
@@ -31,17 +39,17 @@ def _disagreement_checkpoint(tmp_path):
     Q-table to strongly prefer the other tied option, "S", so a genuine,
     checkable disagreement exists between the two delegates.
 
-    encode_state's key includes a confidence bucket (the 4th element), so a
-    single saved state only matches a query whose confidence falls in the
+    encode_state's key includes an entropy bucket (the 4th element), so a
+    single saved state only matches a query whose entropy falls in the
     same bucket — populate one disagreement entry per bucket so any test's
-    confidence value (whichever bucket it lands in) finds it."""
+    entropy value (whichever bucket it lands in) finds it."""
     own_pos, target_pos = Position(0, 0), Position(3, 3)
     barriers = BarrierSet(quota=14)
     q_values = {
-        encode_state(own_pos, target_pos, _BOARD, barriers, belief_confidence=c): {
+        encode_state(own_pos, target_pos, _BOARD, barriers, belief_entropy=h): {
             "S": 99.0, "E": 1.0
         }
-        for c in _BUCKET_REPRESENTATIVES
+        for h in _BUCKET_REPRESENTATIVES
     }
     path = tmp_path / "checkpoint.json"
     save_checkpoint(path, q_values)
@@ -59,14 +67,14 @@ def test_no_provider_bound_behaves_exactly_like_cop_brain(tmp_path):
 
 def test_the_same_provider_object_is_passed_through_to_the_inner_rl_brain(tmp_path):
     checkpoint_path, *_ = _disagreement_checkpoint(tmp_path)
-    provider = lambda: 0.5  # noqa: E731
-    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_confidence_provider=provider)
-    assert hybrid._unsure_brain._belief_confidence_provider is provider
+    provider = lambda: 1.5  # noqa: E731
+    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_entropy_provider=provider)
+    assert hybrid._unsure_brain._belief_entropy_provider is provider
 
 
-def test_confidence_above_threshold_routes_to_cop_brain_not_rl(tmp_path):
+def test_low_entropy_routes_to_cop_brain_not_rl(tmp_path):
     checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
-    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_confidence_provider=lambda: 0.9)
+    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_entropy_provider=lambda: 0.2)
     baseline = CopBrain()
     assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == baseline._decide_move(
         own_pos, target_pos, _BOARD, barriers
@@ -74,47 +82,54 @@ def test_confidence_above_threshold_routes_to_cop_brain_not_rl(tmp_path):
     assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="E")
 
 
-def test_confidence_below_threshold_routes_to_rl_cop_brain_not_cop_brain(tmp_path):
+def test_high_entropy_routes_to_rl_cop_brain_not_cop_brain(tmp_path):
     checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
-    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_confidence_provider=lambda: 0.1)
-    rl_direct = RLCopBrain(checkpoint_path=checkpoint_path, belief_confidence_provider=lambda: 0.1)
+    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_entropy_provider=lambda: 3.5)
+    rl_direct = RLCopBrain(checkpoint_path=checkpoint_path, belief_entropy_provider=lambda: 3.5)
     assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == rl_direct._decide_move(
         own_pos, target_pos, _BOARD, barriers
     )
     assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="S")
 
 
-def test_confidence_of_exactly_the_threshold_value_routes_to_cop_brain(tmp_path):
-    checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
-    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_confidence_provider=lambda: 0.6)
-    assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="E")
-
-
-def test_confidence_just_below_threshold_routes_to_rl_cop_brain(tmp_path):
+def test_entropy_just_below_the_first_threshold_routes_to_cop_brain(tmp_path):
     checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
     hybrid = HybridCopBrain(
-        checkpoint_path=checkpoint_path, belief_confidence_provider=lambda: 0.5999999
+        checkpoint_path=checkpoint_path, belief_entropy_provider=lambda: 0.999999
     )
-    assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="S")
-
-
-def test_negative_confidence_does_not_crash_and_routes_to_the_least_confident_bucket(tmp_path):
-    checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
-    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_confidence_provider=lambda: -1.0)
-    assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="S")
-
-
-def test_confidence_above_one_does_not_crash_and_still_routes_to_cop_brain(tmp_path):
-    checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
-    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_confidence_provider=lambda: 5.0)
     assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="E")
 
 
-def test_decide_move_output_is_always_legal_across_all_confidence_buckets(tmp_path):
+def test_entropy_of_exactly_the_first_threshold_routes_to_rl_cop_brain(tmp_path):
+    """Rejection/boundary test: `bucket_entropy` uses `<`, not `<=` — entropy
+    exactly *at* the first threshold has already crossed out of the top
+    ("confident") bucket, unlike the old probability system where being at
+    its own boundary threshold stayed in the top bucket. A real, deliberate
+    semantic inversion, not a copy-paste of the old test's expectation."""
+    checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
+    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_entropy_provider=lambda: 1.0)
+    assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="S")
+
+
+def test_negative_entropy_does_not_crash_and_routes_to_the_most_confident_bucket(tmp_path):
+    # Negative entropy can't happen in practice (Shannon entropy is >= 0),
+    # but robustness matters: it must not crash, and the sensible failsafe
+    # direction is "even more certain than certain" -> still CopBrain.
+    checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
+    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_entropy_provider=lambda: -1.0)
+    assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="E")
+
+
+def test_entropy_far_above_the_max_does_not_crash_and_still_routes_to_rl_cop_brain(tmp_path):
+    checkpoint_path, own_pos, target_pos, barriers = _disagreement_checkpoint(tmp_path)
+    hybrid = HybridCopBrain(checkpoint_path=checkpoint_path, belief_entropy_provider=lambda: 100.0)
+    assert hybrid._decide_move(own_pos, target_pos, _BOARD, barriers) == Move(direction="S")
+
+
+def test_decide_move_output_is_always_legal_across_all_entropy_buckets(tmp_path):
     rng = random.Random(_SEED)
     board = Board(size=7)
     action_pool = ("N", "E", "S", "W", "STAY", "BARRIER_N", "BARRIER_E", "BARRIER_S", "BARRIER_W")
-    confidence_pool = (0.05, 0.2, 0.45, 0.8)  # one representative value per bucket
 
     populated: dict = {}
     for _ in range(50):
@@ -127,9 +142,9 @@ def test_decide_move_output_is_always_legal_across_all_confidence_buckets(tmp_pa
     save_checkpoint(checkpoint_path, populated)
 
     for i in range(_ITERATIONS):
-        confidence = confidence_pool[i % len(confidence_pool)]
+        entropy = _BUCKET_REPRESENTATIVES[i % len(_BUCKET_REPRESENTATIVES)]
         hybrid = HybridCopBrain(
-            checkpoint_path=checkpoint_path, belief_confidence_provider=lambda c=confidence: c
+            checkpoint_path=checkpoint_path, belief_entropy_provider=lambda h=entropy: h
         )
         own_pos = Position(rng.randrange(7), rng.randrange(7))
         target_pos = Position(rng.randrange(7), rng.randrange(7))

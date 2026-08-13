@@ -58,38 +58,38 @@ def test_deterministic_for_the_same_inputs():
     assert first == second
 
 
-def test_default_belief_confidence_is_the_top_bucket():
+def test_default_belief_entropy_is_the_top_zero_entropy_bucket():
     # Every pre-sub-layer-A caller (ground-truth training, run_local_subgame)
-    # never passes belief_confidence at all — the default must land in the
-    # same "maximally confident" bucket a real 1.0 reading would.
+    # never passes belief_entropy at all — the default must land in the
+    # same "zero entropy, maximally certain" bucket a real point mass would.
     barriers = BarrierSet(quota=14)
     default = encode_state(Position(0, 0), Position(3, 3), _BOARD, barriers)
-    explicit_full_confidence = encode_state(
-        Position(0, 0), Position(3, 3), _BOARD, barriers, belief_confidence=1.0
+    explicit_zero_entropy = encode_state(
+        Position(0, 0), Position(3, 3), _BOARD, barriers, belief_entropy=0.0
     )
-    assert default == explicit_full_confidence
+    assert default == explicit_zero_entropy
 
 
-def test_near_uniform_confidence_lands_in_the_bottom_bucket():
+def test_high_entropy_lands_in_the_bottom_high_ambiguity_bucket():
     barriers = BarrierSet(quota=14)
-    near_uniform = 1.0 / 49  # a 7x7 board's own uniform-prior peak probability
+    high_entropy = 3.9  # above the ENTROPY_THRESHOLDS top boundary (2.5)
     state = encode_state(
-        Position(0, 0), Position(3, 3), _BOARD, barriers, belief_confidence=near_uniform
+        Position(0, 0), Position(3, 3), _BOARD, barriers, belief_entropy=high_entropy
     )
-    top_confidence = encode_state(
-        Position(0, 0), Position(3, 3), _BOARD, barriers, belief_confidence=1.0
+    zero_entropy = encode_state(
+        Position(0, 0), Position(3, 3), _BOARD, barriers, belief_entropy=0.0
     )
     assert state[3] == 0
-    assert state[3] != top_confidence[3]
+    assert state[3] != zero_entropy[3]
 
 
-def test_confidence_bucket_is_monotonic_in_confidence():
+def test_entropy_bucket_is_monotonic_in_entropy_higher_entropy_never_a_higher_bucket():
     barriers = BarrierSet(quota=14)
     buckets = [
-        encode_state(Position(0, 0), Position(3, 3), _BOARD, barriers, belief_confidence=c)[3]
-        for c in (0.01, 0.1, 0.2, 0.4, 0.7, 1.0)
+        encode_state(Position(0, 0), Position(3, 3), _BOARD, barriers, belief_entropy=h)[3]
+        for h in (0.0, 0.5, 1.0, 1.5, 2.5, 3.9)
     ]
-    assert buckets == sorted(buckets)  # a higher confidence never produces a lower bucket
+    assert buckets == sorted(buckets, reverse=True)  # higher entropy never a higher bucket
 
 
 def test_barrier_count_bucket_is_quota_relative_not_a_fixed_literal():
@@ -141,6 +141,43 @@ def test_belief_based_state_can_genuinely_disagree_with_ground_truth():
     barriers = BarrierSet(quota=14)
 
     ground_truth_state = encode_state(own_pos, true_thief_pos, _BOARD, barriers)
-    belief_state = encode_state(own_pos, believed_pos, _BOARD, barriers, belief_confidence=0.2)
+    belief_state = encode_state(own_pos, believed_pos, _BOARD, barriers, belief_entropy=1.8)
 
     assert ground_truth_state != belief_state
+
+
+def test_no_second_mode_encodes_dx2_dy2_as_zero():
+    barriers = BarrierSet(quota=14)
+    state = encode_state(Position(0, 0), Position(3, 3), _BOARD, barriers)
+    assert state[6:8] == (0, 0)
+    explicit_none = encode_state(
+        Position(0, 0), Position(3, 3), _BOARD, barriers, second_mode_pos=None
+    )
+    assert explicit_none == state
+
+
+def test_a_real_second_mode_produces_correctly_clamped_relative_values():
+    barriers = BarrierSet(quota=14)
+    own_pos = Position(0, 0)
+    state = encode_state(
+        own_pos, Position(3, 3), _BOARD, barriers, second_mode_pos=Position(3, 1)
+    )
+    assert state[6:8] == (3, 1)
+
+
+def test_second_mode_displacement_beyond_clamp_radius_saturates_same_as_the_primary():
+    barriers = BarrierSet(quota=14)
+    own_pos = Position(0, 0)
+    near = encode_state(own_pos, Position(3, 3), _BOARD, barriers, second_mode_pos=Position(4, 0))
+    far = encode_state(own_pos, Position(3, 3), _BOARD, barriers, second_mode_pos=Position(6, 0))
+    assert near[6] == far[6]  # both saturate to the same clamped value
+
+
+def test_state_shape_is_now_an_eight_tuple():
+    # A real, checked shape assertion -- not just "it doesn't crash" -- since
+    # a silent 6-vs-8 shape drift is exactly what the checkpoint version
+    # guard (rl_checkpoint.py) exists to catch at load time; this confirms
+    # the encoder side produces the shape that guard expects.
+    barriers = BarrierSet(quota=14)
+    state = encode_state(Position(0, 0), Position(3, 3), _BOARD, barriers)
+    assert len(state) == 8

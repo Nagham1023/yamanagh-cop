@@ -107,3 +107,32 @@ def barrier_restricts_believed_target(
     if candidate not in barriers.placed:
         return False
     return CopBrain._restricts_target(candidate, believed_target_pos)
+
+
+def barrier_restricts_chokepoint(
+    action: str,
+    cop_pos_before_action: Position,
+    primary_mode: Position,
+    second_mode: Position | None,
+    barriers: BarrierSet,
+) -> bool:
+    """PRD 14 round-2 post-gate: only meaningful when belief is genuinely
+    bimodal (`second_mode` not `None` — always `False` otherwise, nothing to
+    restrict). `chokepoint` is the Manhattan midpoint between the two modes;
+    "restricts it" reuses `CopBrain._restricts_target`'s own single-point-
+    adjacency definition pointed at that midpoint instead of a single
+    target — deliberately *not* graph-theoretic chokepoint detection (out of
+    scope for a tabular Q-learner), the same heuristic spirit
+    `_restricts_target` already is. Reuses the same, already-swept
+    `barrier_restriction_bonus_weight` as `barrier_restricts_believed_target`
+    above — see `training/reward.py`'s own docstring for why this doesn't
+    need a new, separately-swept weight of its own."""
+    if second_mode is None or not action.startswith("BARRIER_"):
+        return False
+    candidate = cop_pos_before_action + DELTAS[action.removeprefix("BARRIER_")]
+    if candidate not in barriers.placed:
+        return False
+    chokepoint = Position(
+        (primary_mode.col + second_mode.col) // 2, (primary_mode.row + second_mode.row) // 2
+    )
+    return CopBrain._restricts_target(candidate, chokepoint)

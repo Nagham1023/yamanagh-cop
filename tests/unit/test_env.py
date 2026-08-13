@@ -17,9 +17,12 @@ from training.opponent_policies import make_random_walk_thief
 def _rl_config(**overrides) -> RLTrainingConfig:
     base = {
         "episode_count": 1, "seed": 0, "curriculum_switch_episode": 0, "curriculum_switch_episode_2": 0,
+        "curriculum_switch_episode_3": 0,
         "alpha": 0.1, "gamma": 0.95,
         "epsilon_start": 0.0, "epsilon_end": 0.0, "epsilon_decay": 1.0, "distance_shaping_weight": 0.1,
         "step_cost": 0.01, "barrier_restriction_bonus_weight": 0.0,
+        "synthetic_thief_lie_probability": 0.0,
+        "belief_expected_distance_shaping_weight": 0.0,
         "max_refinement_rounds": 1, "win_rate_target": 0.0,
         "wall_clock_budget_seconds": 1.0,
     }
@@ -30,7 +33,7 @@ def _rl_config(**overrides) -> RLTrainingConfig:
 def test_belief_stays_a_genuine_probability_distribution_after_several_steps(config):
     board = Board(size=config.board_size)
     opponent = make_random_walk_thief(random.Random(1))
-    env = SelfPlayEnv(board, config, _rl_config(), opponent)
+    env = SelfPlayEnv(board, config, _rl_config(), opponent, random.Random(101))
     env.reset()
 
     for _ in range(5):
@@ -48,10 +51,10 @@ def test_encoded_target_can_differ_from_the_true_thief_position(config):
     # actually driven by the belief, not silently still reading thief_pos.
     board = Board(size=config.board_size)
     opponent = make_random_walk_thief(random.Random(2))
-    env = SelfPlayEnv(board, config, _rl_config(), opponent)
+    env = SelfPlayEnv(board, config, _rl_config(), opponent, random.Random(102))
     env.reset()
 
-    believed_pos, _confidence = env._belief.believed_target()
+    believed_pos, _entropy = env._belief.believed_target()
     state_from_belief = env._encode()
 
     # Directly construct the ground-truth encoding for comparison, proving
@@ -65,34 +68,38 @@ def test_encoded_target_can_differ_from_the_true_thief_position(config):
     else:
         # A uniform prior can legitimately tie-break onto the true cell by
         # chance at step 0 — not a failure, just not the interesting case.
-        assert state_from_belief[3] == 0  # still the "no idea yet" confidence bucket
+        # A uniform prior's own entropy (~ln(49)) is near the maximum, so it
+        # still lands in bucket 0 ("high ambiguity") under the new
+        # entropy-based bucketing too — same index, different reason.
+        assert state_from_belief[3] == 0
 
 
-def test_belief_confidence_grows_as_the_cop_gathers_scent_evidence(config):
+def test_belief_entropy_shrinks_as_the_cop_gathers_scent_evidence(config):
     board = Board(size=config.board_size)
     opponent = make_random_walk_thief(random.Random(3))
-    env = SelfPlayEnv(board, config, _rl_config(), opponent)
+    env = SelfPlayEnv(board, config, _rl_config(), opponent, random.Random(103))
     env.reset()
 
-    _pos0, confidence_at_reset = env._belief.believed_target()
+    _pos0, entropy_at_reset = env._belief.believed_target()
 
     for _ in range(10):
         _next_state, _reward, done, _outcome = env.step("N")
         if done:
             break
 
-    _pos_n, confidence_after_steps = env._belief.believed_target()
+    _pos_n, entropy_after_steps = env._belief.believed_target()
 
-    # A uniform 7x7 prior's own peak is already ~1/49 ≈ 0.02 — confidence
-    # should not *shrink* below that floor as real evidence accumulates.
-    assert confidence_after_steps >= confidence_at_reset
+    # A uniform 7x7 prior's own entropy is already near the maximum
+    # (ln(49)) — it should not *grow* further as real evidence accumulates,
+    # only shrink toward a more concentrated (lower-entropy) distribution.
+    assert entropy_after_steps <= entropy_at_reset
 
 
 def test_exhausting_the_real_barrier_quota_removes_barrier_actions_from_legal_actions(config):
     quota_one_config = dataclasses.replace(config, barrier_quota=1)
     board = Board(size=quota_one_config.board_size)
     opponent = make_random_walk_thief(random.Random(4))
-    env = SelfPlayEnv(board, quota_one_config, _rl_config(), opponent)
+    env = SelfPlayEnv(board, quota_one_config, _rl_config(), opponent, random.Random(104))
     env.reset()
 
     # cop_start is a corner (0,0): N/W are off-board, so only S/E are real
@@ -107,7 +114,7 @@ def test_an_over_quota_barrier_step_is_a_safe_no_op_not_a_crash(config):
     quota_one_config = dataclasses.replace(config, barrier_quota=1)
     board = Board(size=quota_one_config.board_size)
     opponent = make_random_walk_thief(random.Random(5))
-    env = SelfPlayEnv(board, quota_one_config, _rl_config(), opponent)
+    env = SelfPlayEnv(board, quota_one_config, _rl_config(), opponent, random.Random(105))
     env.reset()
 
     env.step("BARRIER_S")  # spends the one available placement

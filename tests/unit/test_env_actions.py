@@ -12,6 +12,7 @@ from cop.domain.board import Board, Position
 from training.env_actions import (
     apply_cop_action,
     barrier_restricts_believed_target,
+    barrier_restricts_chokepoint,
     legal_cop_actions,
 )
 
@@ -113,4 +114,46 @@ def test_barrier_restricts_believed_target_false_when_the_placement_never_actual
     apply_cop_action("BARRIER_E", cop_pos_before, Position(0, 0), _BOARD, barriers)
     assert barrier_restricts_believed_target(
         "BARRIER_E", cop_pos_before, believed_target, barriers
+    ) is False
+
+
+def test_barrier_restricts_chokepoint_true_when_the_placed_barrier_neighbours_the_midpoint():
+    # primary=(4,3), second=(6,3) -> chokepoint (Manhattan midpoint) = (5,3),
+    # orthogonally adjacent to BARRIER_E's own target cell (4,3).
+    cop_pos_before = Position(3, 3)
+    primary, second = Position(4, 3), Position(6, 3)
+    barriers = BarrierSet(quota=14)
+    apply_cop_action("BARRIER_E", cop_pos_before, Position(0, 0), _BOARD, barriers)
+    assert barrier_restricts_chokepoint(
+        "BARRIER_E", cop_pos_before, primary, second, barriers
+    ) is True
+
+
+def test_barrier_restricts_chokepoint_false_when_second_mode_is_none_unimodal():
+    # Even a placement that WOULD restrict a chokepoint if one existed must
+    # return False when belief is genuinely unimodal -- nothing to restrict.
+    cop_pos_before = Position(3, 3)
+    primary = Position(4, 3)
+    barriers = BarrierSet(quota=14)
+    apply_cop_action("BARRIER_E", cop_pos_before, Position(0, 0), _BOARD, barriers)
+    assert barrier_restricts_chokepoint(
+        "BARRIER_E", cop_pos_before, primary, None, barriers
+    ) is False
+
+
+def test_barrier_restricts_chokepoint_false_when_far_from_the_midpoint():
+    cop_pos_before = Position(3, 3)
+    primary, second = Position(0, 0), Position(0, 2)  # chokepoint (0,1), nowhere near (4,3)
+    barriers = BarrierSet(quota=14)
+    apply_cop_action("BARRIER_E", cop_pos_before, Position(6, 6), _BOARD, barriers)
+    assert barrier_restricts_chokepoint(
+        "BARRIER_E", cop_pos_before, primary, second, barriers
+    ) is False
+
+
+def test_barrier_restricts_chokepoint_false_for_a_non_barrier_action():
+    primary, second = Position(4, 3), Position(6, 3)
+    barriers = BarrierSet(quota=14)
+    assert barrier_restricts_chokepoint(
+        "E", Position(3, 3), primary, second, barriers
     ) is False

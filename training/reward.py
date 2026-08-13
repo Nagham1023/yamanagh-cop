@@ -54,6 +54,36 @@ ground-truth win-rate cost — but individual seeds still range 0.00-0.48,
 real variance this small a tabular setup doesn't fully average out. Full
 sweep recorded in `TODO.md`'s PRD 14 entry. Any future retuning of this
 weight should re-run that same controlled comparison, not eyeball one seed.
+
+**`belief_expected_distance_shaping_weight` (PRD 14 post-gate follow-up) —
+same `γΦ(s') − Φ(s)` shape as `distance_shaping_weight` above, but do NOT
+treat it as equally provably safe.** `Φ_belief(s) = -BeliefMap.
+expected_manhattan_distance(cop_pos)` — the expected distance under the
+*entire* belief distribution, not just distance to the argmax cell; it
+reduces to exactly the ground-truth term when belief is a point mass. The
+existing ground-truth `Φ` is a near-direct function of `State`'s own
+`(dx, dy)` (up to clamping) — the Q-learner's encoding already sees almost
+exactly what `Φ` measures. `Φ_belief` is not: two distributions can share
+the same argmax cell (identical `dx, dy`, identical encoded state) while
+having very different expected distances (sharp unimodal vs. bimodal-
+split), so `Φ_belief(s)` depends on information the tabular encoding
+discards entirely. Ng's clean "same optimal policy" guarantee assumes `Φ`
+is well-defined over the learner's own state space; here it isn't, fully.
+Same real safety category as `barrier_restriction_bonus_weight` above —
+prove it empirically, don't trust the shape alone — and the same γ-omission
+approximation as the ground-truth term (two potential-based terms summed
+is still one combined potential under Ng's theorem, so this doesn't add a
+*new* approximation, just applies the existing one twice).
+
+**Shipped default: `0.05`, chosen from a real controlled 5-seed sweep over
+{0.0, 0.02, 0.05, 0.1}** on the real production config (same protocol as
+`barrier_restriction_bonus_weight`'s own sweep) — unlike that sweep, this
+one found no tradeoff: `0.05` won on *both* metrics at once (5-seed avg
+`win_rate_vs_baseline` 0.705 -> 0.845, avg `win_rate_vs_baseline_belief_aware`
+0.426 -> 0.469). `0.1` looked competitive on ground truth alone (0.817) but
+gave back part of the belief-aware gain (0.417) — the sweep, not the
+higher-looking single number, picked `0.05`. Full sweep in `TODO.md`'s
+PRD 14 entry.
 """
 
 from __future__ import annotations
@@ -72,16 +102,19 @@ def step_reward(
     game_config: GameConfig,
     rl_config: RLTrainingConfig,
     restricts_believed_target: bool = False,
+    prev_expected_distance: float = 0.0,
+    new_expected_distance: float = 0.0,
 ) -> float:
     """`outcome` is `None` while the episode is still in progress — the
-    common case, shaped by distance closed this step minus a small step
-    cost, plus `barrier_restriction_bonus_weight` when
-    `restricts_believed_target` (see the module docstring for why this
-    term is NOT the same provably-safe shape as the distance term below
-    it). A terminal `outcome` overrides shaping entirely with the real
-    Table 17 score, since the game's own scoring is a stronger, more
-    honest signal than any hand-tuned shaping term — `restricts_believed_target`
-    is deliberately ignored on a terminal step for the same reason."""
+    common case, shaped by ground-truth distance closed this step, belief-
+    expected distance closed this step, and `barrier_restriction_bonus_weight`
+    when `restricts_believed_target`, minus a small step cost (see the
+    module docstring for why the belief-weighted and barrier-bonus terms
+    are NOT the same provably-safe shape as the ground-truth distance term).
+    A terminal `outcome` overrides shaping entirely with the real Table 17
+    score, since the game's own scoring is a stronger, more honest signal
+    than any hand-tuned shaping term — every shaping input is deliberately
+    ignored on a terminal step for the same reason."""
     if outcome is Outcome.CAPTURE:
         return float(game_config.score_capture_cop)
     if outcome is Outcome.SURVIVAL:
@@ -89,5 +122,8 @@ def step_reward(
     if outcome is Outcome.TECHNICAL_LOSS:
         return 0.0
     shaping = rl_config.distance_shaping_weight * (prev_distance - new_distance)
+    belief_shaping = rl_config.belief_expected_distance_shaping_weight * (
+        prev_expected_distance - new_expected_distance
+    )
     bonus = rl_config.barrier_restriction_bonus_weight if restricts_believed_target else 0.0
-    return shaping + bonus - rl_config.step_cost
+    return shaping + belief_shaping + bonus - rl_config.step_cost

@@ -11,6 +11,7 @@ barrier-placement RL is out of scope (see training/env.py's own docstring).
 from __future__ import annotations
 
 import dataclasses
+import random
 
 from greedy_thief_mover import greedy_thief_move
 
@@ -50,6 +51,7 @@ def test_selfplay_env_matches_run_local_subgame_given_the_same_policy_and_oppone
         seed=0,
         curriculum_switch_episode=0,
         curriculum_switch_episode_2=0,
+        curriculum_switch_episode_3=0,
         alpha=0.1,
         gamma=0.95,
         epsilon_start=0.0,
@@ -58,11 +60,13 @@ def test_selfplay_env_matches_run_local_subgame_given_the_same_policy_and_oppone
         distance_shaping_weight=0.1,
         step_cost=0.01,
         barrier_restriction_bonus_weight=0.0,
+        synthetic_thief_lie_probability=0.0,
+        belief_expected_distance_shaping_weight=0.0,
         max_refinement_rounds=1,
         win_rate_target=0.0,
         wall_clock_budget_seconds=1.0,
     )
-    env = SelfPlayEnv(board, movement_only_config, rl_config, greedy_thief_move)
+    env = SelfPlayEnv(board, movement_only_config, rl_config, greedy_thief_move, random.Random(0))
     env.reset()
     cop_brain = CopBrain()
     done = False
@@ -91,6 +95,7 @@ def test_selfplay_env_matches_run_local_subgame_with_real_barriers_enabled(confi
         seed=0,
         curriculum_switch_episode=0,
         curriculum_switch_episode_2=0,
+        curriculum_switch_episode_3=0,
         alpha=0.1,
         gamma=0.95,
         epsilon_start=0.0,
@@ -99,11 +104,13 @@ def test_selfplay_env_matches_run_local_subgame_with_real_barriers_enabled(confi
         distance_shaping_weight=0.1,
         step_cost=0.01,
         barrier_restriction_bonus_weight=0.0,
+        synthetic_thief_lie_probability=0.0,
+        belief_expected_distance_shaping_weight=0.0,
         max_refinement_rounds=1,
         win_rate_target=0.0,
         wall_clock_budget_seconds=1.0,
     )
-    env = SelfPlayEnv(board, config, rl_config, greedy_thief_move)
+    env = SelfPlayEnv(board, config, rl_config, greedy_thief_move, random.Random(0))
     env.reset()
     cop_brain = CopBrain()
     done = False
