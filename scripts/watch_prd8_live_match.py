@@ -41,11 +41,11 @@ def _start_thief_peer(client_url: str, *, confirm: bool) -> int:
     mcp = FastMCP("watch_thief_peer")
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         return {"acknowledged": True}
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         return {"accepted": True, "word_count": len(hint_text.split())}
 
     @mcp.tool

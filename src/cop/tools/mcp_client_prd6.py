@@ -13,15 +13,22 @@ from typing import Any
 from fastmcp import Client
 
 
-async def send_commit(url: str, h_commit: str) -> dict[str, Any]:
+async def send_commit(url: str, h_commit: str, sent_at: float, deadline_at: float) -> dict[str, Any]:
     async with Client(url) as client:
-        result = await client.call_tool("receive_commit", {"h_commit": h_commit})
+        result = await client.call_tool(
+            "receive_commit", {"h_commit": h_commit, "sent_at": sent_at, "deadline_at": deadline_at}
+        )
         return result.data
 
 
-async def send_reveal(url: str, move: dict, hint_text: str) -> dict[str, Any]:
+async def send_reveal(
+    url: str, move: dict, hint_text: str, sent_at: float, deadline_at: float
+) -> dict[str, Any]:
     async with Client(url) as client:
-        result = await client.call_tool("receive_reveal", {"move": move, "hint_text": hint_text})
+        result = await client.call_tool(
+            "receive_reveal",
+            {"move": move, "hint_text": hint_text, "sent_at": sent_at, "deadline_at": deadline_at},
+        )
         return result.data
 
 

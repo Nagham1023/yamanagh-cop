@@ -21,7 +21,7 @@ import threading
 
 from .cli_peer_build import build_orchestrator
 from .domain.scoring import score_outcome
-from .observability.live_gui import LiveGuiSession
+from .observability.live_gui_session import LiveGuiSession
 from .orchestrator import Orchestrator
 from .shared.config import GameConfig
 from .shared.private_config import PrivateConfig

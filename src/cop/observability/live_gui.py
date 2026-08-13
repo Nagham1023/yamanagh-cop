@@ -1,129 +1,93 @@
 """The Live GUI (ch. 7.3, rules 8/9 **[FATAL]**): local-truth-only — this
 agent's own belief-map heatmap (deeper red = higher believed opponent
-probability) and a turn-state banner. Tkinter, stdlib, no new dependency
-(`PRD-7-reporting-shell.md`'s Design Question 1).
+probability) side by side with its own currently-sensed scent heatmap
+(deeper blue), a turn-state banner, this cop's own position, its own
+placed barriers, a star over the currently most-likely believed opponent
+cell, and the text of the last hint it received. Tkinter, stdlib, no new
+dependency (`PRD-7-reporting-shell.md`'s Design Question 1).
 
-`render_state` is the actual rule 8/9 enforcement point (Design Question
-2): a pure function whose own parameter list is `(own_pos, belief_probabilities,
-turn_state)` and nothing else — no parameter admits a true opponent
-`Position` or a full `GameState`/`Board`. Deliberately separated from
-`LiveGuiWindow`'s own Tkinter widget code so the boundary itself is
-testable by introspection alone, without needing a real display.
-
-`LiveGuiSession` mirrors the Thief peer's LiveSession pattern: the match
-runs on a background thread while Tk `mainloop` owns the main thread and
-polls orchestrator state via `.after()`. Creating a `Tk()` under
-`asyncio.run` and only calling `update_idletasks()` leaves a blank window
-on Windows — that was the live `--gui` failure mode.
+Pure rendering logic (`render_state`/`RenderedState`, the actual rule 8/9
+enforcement point) lives in `live_gui_render.py`; the background-thread
+poll-loop session wrapper lives in `live_gui_session.py` — both split out
+once this file grew past the 150-line house cap, the second time for a
+class-responsibility split (single window vs. the session that drives it)
+rather than a logic-vs-widget one.
 """
 
 from __future__ import annotations
 
-import threading
 import tkinter as tk
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
 
 from ..domain.board import Position
+from .live_gui_render import RenderedState, render_state
 
-_TURN_BANNER = {
-    "WAITING_FOR_OPPONENT": ("...", "gray"),
-    "COMPUTING_MOVE": ("YOUR TURN", "green"),
-    "COMMITTING": ("LOCKED", "gray"),
-    "AWAITING_REVEAL": ("LOCKED", "gray"),
-    "VERIFYING": ("LOCKED", "gray"),
-    "NEGOTIATING": ("STEP 0", "gray"),
-}
-
-
-def _probability_to_color(value: float, max_value: float) -> str:
-    """Deeper red for higher probability (ch. 7.3.1) — `max_value` is this
-    render's own peak, not a fixed constant, so the map stays visually
-    readable regardless of how concentrated or diffuse belief currently is.
-
-    `value` can be a tiny negative float (Bayesian floating-point rounding
-    in `BeliefMap` — a "should be zero" cell landing at e.g. `-1e-18`) — a
-    real bug found by running `scripts/watch_prd7_live_gui.py` live, not by
-    a unit test: `intensity` was only clamped on its upper bound, so a
-    negative `value`/`max_value` ratio produced a `green_blue` far outside
-    `0-255` and Tkinter rejected the resulting color string outright.
-    Clamped on both ends now, defensively double-clamped after rounding
-    too — never trust a single clamp for a value about to leave Python."""
-    intensity = 0.0 if max_value <= 0 else max(0.0, min(1.0, value / max_value))
-    green_blue = round(255 * (1 - intensity))
-    green_blue = max(0, min(255, green_blue))
-    return f"#ff{green_blue:02x}{green_blue:02x}"
-
-
-@dataclass(frozen=True)
-class RenderedState:
-    own_pos: Position
-    grid_colors: dict[Position, str]
-    banner_text: str
-    banner_color: str
-
-
-def render_state(
-    own_pos: Position, belief_probabilities: dict[Position, float], turn_state: str
-) -> RenderedState:
-    """The whole local-truth boundary lives in this one function's own
-    signature — it is *impossible* to pass a true opponent position or an
-    objective board through it, because no parameter admits one."""
-    max_value = max(belief_probabilities.values(), default=0.0)
-    grid_colors = {
-        pos: _probability_to_color(value, max_value) for pos, value in belief_probabilities.items()
-    }
-    banner_text, banner_color = _TURN_BANNER.get(turn_state, ("?", "gray"))
-    return RenderedState(
-        own_pos=own_pos, grid_colors=grid_colors, banner_text=banner_text, banner_color=banner_color
-    )
+__all__ = ["LiveGuiWindow", "RenderedState", "render_state"]
 
 
 class LiveGuiWindow:
     """The actual Tkinter widget tree — thin: builds a canvas cell per
-    believed-position color and a banner label, both sourced from
-    `render_state`'s own output, never from anything else."""
+    believed-position/sensed-scent color and a banner/hint label, all
+    sourced from `render_state`'s own output, never from anything else."""
 
     def __init__(self, board_size: int, cell_px: int = 40) -> None:
         self.root = tk.Tk()
         self.root.title("Cop Live GUI (Local Truth)")
         self._board_size = board_size
         self._cell_px = cell_px
-        self.canvas = tk.Canvas(
-            self.root, width=board_size * cell_px, height=board_size * cell_px, bg="white"
-        )
+        grids = tk.Frame(self.root)
+        grids.pack()
+        belief_col = tk.Frame(grids)
+        belief_col.pack(side=tk.LEFT)
+        tk.Label(belief_col, text="Belief").pack()
+        self.canvas = tk.Canvas(belief_col, width=board_size * cell_px, height=board_size * cell_px, bg="white")
         self.canvas.pack()
+        scent_col = tk.Frame(grids)
+        scent_col.pack(side=tk.LEFT)
+        tk.Label(scent_col, text="Scent Sensed").pack()
+        self.scent_canvas = tk.Canvas(scent_col, width=board_size * cell_px, height=board_size * cell_px, bg="white")
+        self.scent_canvas.pack()
         self.banner = tk.Label(self.root, text="...", font=("Helvetica", 16, "bold"), fg="gray")
         self.banner.pack()
-        self._paint_full_grid({Position(c, r): "#ffffff" for c in range(board_size) for r in range(board_size)})
+        self.hint_label = tk.Label(self.root, text="(no hint received yet)", font=("Helvetica", 11))
+        self.hint_label.pack()
+        empty = {Position(c, r): "#ffffff" for c in range(board_size) for r in range(board_size)}
+        self._paint_grid(self.canvas, empty)
+        self._paint_grid(self.scent_canvas, empty)
         self.root.update_idletasks()
         self.root.update()
 
-    def _paint_full_grid(self, grid_colors: dict[Position, str]) -> None:
-        self.canvas.delete("all")
+    def _paint_grid(self, canvas: tk.Canvas, grid_colors: dict[Position, str]) -> None:
+        canvas.delete("all")
         for col in range(self._board_size):
             for row in range(self._board_size):
                 pos = Position(col, row)
                 color = grid_colors.get(pos, "#ffffff")
                 x0, y0 = col * self._cell_px, row * self._cell_px
-                self.canvas.create_rectangle(
-                    x0,
-                    y0,
-                    x0 + self._cell_px,
-                    y0 + self._cell_px,
-                    fill=color,
-                    outline="black",
+                canvas.create_rectangle(
+                    x0, y0, x0 + self._cell_px, y0 + self._cell_px, fill=color, outline="black"
                 )
 
     def update(self, rendered: RenderedState) -> None:
-        self._paint_full_grid(rendered.grid_colors)
+        self._paint_grid(self.canvas, rendered.grid_colors)
+        self._paint_grid(self.scent_canvas, rendered.scent_grid_colors)
         px = self._cell_px
+        if rendered.most_likely_pos is not None:
+            star_x = rendered.most_likely_pos.col * px + px / 2
+            star_y = rendered.most_likely_pos.row * px + px / 2
+            self.canvas.create_text(
+                star_x, star_y, text="★", fill="gold", font=("Helvetica", int(px * 0.6), "bold"),
+                tags=("star",),
+            )
         own_x0, own_y0 = rendered.own_pos.col * px, rendered.own_pos.row * px
         self.canvas.create_oval(
-            own_x0 + 5, own_y0 + 5, own_x0 + px - 5, own_y0 + px - 5, fill="blue"
+            own_x0 + 5, own_y0 + 5, own_x0 + px - 5, own_y0 + px - 5, fill="blue", tags=("own_marker",)
+        )
+        self.canvas.create_text(
+            own_x0 + px / 2, own_y0 + px / 2, text="C", fill="white", font=("Helvetica", int(px * 0.4), "bold"),
+            tags=("own_label",),
         )
         self.banner.config(text=rendered.banner_text, fg=rendered.banner_color)
+        self.hint_label.config(text=rendered.hint_text or "(no hint received yet)")
         # `update()` (not only update_idletasks) is required on Windows or the
         # window stays blank / never maps its canvas contents.
         self.root.update_idletasks()
@@ -135,53 +99,5 @@ class LiveGuiWindow:
     def close(self) -> None:
         try:
             self.root.destroy()
-        except tk.TclError:
-            pass
-
-
-class LiveGuiSession:
-    """Match on a background thread; Tk mainloop + `.after` poll on the
-    thread that constructed this session (must be the process main thread
-    on Windows)."""
-
-    def __init__(self, orchestrator: Any, board_size: int, poll_interval_ms: int = 200) -> None:
-        self._orchestrator = orchestrator
-        self._window = LiveGuiWindow(board_size=board_size)
-        self._poll_interval_ms = poll_interval_ms
-        self._match_done = threading.Event()
-        self._error: BaseException | None = None
-        self.result: Any = None
-
-    def run(self, match_fn: Callable[[], Any]) -> Any:
-        thread = threading.Thread(target=self._run_match, args=(match_fn,), daemon=True)
-        thread.start()
-        self._schedule_poll()
-        self._window.run()
-        thread.join(timeout=5.0)
-        if self._error is not None:
-            raise self._error
-        return self.result
-
-    def _run_match(self, match_fn: Callable[[], Any]) -> None:
-        try:
-            self.result = match_fn()
-        except BaseException as exc:  # noqa: BLE001 — re-raised on the GUI thread
-            self._error = exc
-        finally:
-            self._match_done.set()
-
-    def _schedule_poll(self) -> None:
-        try:
-            orch = self._orchestrator
-            rendered = render_state(
-                orch.game_state.own_pos,
-                orch.belief_map._probabilities,
-                str(orch.state_machine.state),
-            )
-            self._window.update(rendered)
-            if not self._match_done.is_set():
-                self._window.root.after(self._poll_interval_ms, self._schedule_poll)
-            else:
-                self._window.root.after(800, self._window.root.quit)
         except tk.TclError:
             pass

@@ -11,12 +11,41 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from cop.orchestrator import Orchestrator
 from cop.shared.config import GameConfig
 
 sys.path.insert(0, str(Path(__file__).parent / "support"))
+
+
+@pytest.fixture(autouse=True)
+def _stop_watchdog_monitors_after_test():
+    """PRD 15's own follow-up finding: `run_as_server`'s watchdog poll
+    thread runs for the rest of the process's life by design (rule 7 says
+    "run" a watchdog continuously for a live match) — correct in
+    production, where one process holds exactly one `Orchestrator` and the
+    thread dies with the process at normal exit (rule 1/2). This shared
+    pytest process instead constructs hundreds of orchestrators across the
+    whole session; once any abandoned one goes >60s stale, its real
+    `os._exit(1)` used to kill the entire test run, unrelated to whatever
+    test happened to be running by then. Tracks every `Orchestrator`
+    constructed during one test and calls its (idempotent, PRD 15)
+    `stop_watchdog_monitor()` before the next test starts — a no-op for
+    any orchestrator that never called `run_as_server` at all."""
+    created: list[Orchestrator] = []
+    original_init = Orchestrator.__init__
+
+    def _tracking_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        created.append(self)
+
+    with patch.object(Orchestrator, "__init__", _tracking_init):
+        yield
+    for orchestrator in created:
+        orchestrator.stop_watchdog_monitor()
 
 
 @pytest.fixture

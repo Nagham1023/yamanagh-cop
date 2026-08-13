@@ -35,8 +35,8 @@ def register_prd6_tools(
     config: Any,
     caller_ip: Callable[[], str | None],
     on_receive: Callable[[str | None], None] | None,
-    on_commit: Callable[[str], None] | None = None,
-    on_reveal: Callable[[dict, str], None] | None = None,
+    on_commit: Callable[[str, float, float], None] | None = None,
+    on_reveal: Callable[[dict, str, float, float], None] | None = None,
     on_final_reveal: Callable[[dict, dict], None] | None = None,
     on_barrier_declaration: Callable[[int, int], None] | None = None,
     on_capture_claim: Callable[[int, int, int, int, int], None] | None = None,
@@ -47,25 +47,28 @@ def register_prd6_tools(
     surface don't need to stub every callback."""
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         """Step 1/2 (ch. 5.3.2): accept a peer's `Hcommit` for this turn;
         acknowledge — the Acknowledge step is this synchronous return, not a
-        separate tool/state (PRD 6 Design Question 4)."""
+        separate tool/state (PRD 6 Design Question 4). `sent_at`/`deadline_at`
+        (PRD 15, ch. 8.4): the peer's own declared request timing — logged
+        by the callback, never trusted (rule 9)."""
         if on_receive is not None:
             on_receive(caller_ip())
         if on_commit is not None:
-            on_commit(h_commit)
+            on_commit(h_commit, sent_at, deadline_at)
         return {"acknowledged": True}
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         """Step 3: `Move` (an unverified claim until Final Reveal, PRD 6
         Design Question 2) plus the tactical hint — no `nonce` parameter,
-        rule 18: the nonce stays hidden until `receive_final_reveal`."""
+        rule 18: the nonce stays hidden until `receive_final_reveal`.
+        `sent_at`/`deadline_at`: see `receive_commit` above."""
         if on_receive is not None:
             on_receive(caller_ip())
         if on_reveal is not None:
-            on_reveal(move, hint_text)
+            on_reveal(move, hint_text, sent_at, deadline_at)
         word_count = len(hint_text.split())
         accepted = word_count <= config.hint_word_limit
         return {"accepted": accepted, "word_count": word_count}

@@ -33,7 +33,13 @@ def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly
 
         # First attempt: the connection genuinely works.
         first_result = asyncio.run(
-            send_reveal(f"http://127.0.0.1:{port}/mcp", {"type": "move", "direction": "NORTH"}, "a test hint")
+            send_reveal(
+                f"http://127.0.0.1:{port}/mcp",
+                {"type": "move", "direction": "NORTH"},
+                "a test hint",
+                time.time(),
+                time.time() + 30.0,
+            )
         )
         assert first_result["accepted"] is True
 

@@ -148,16 +148,27 @@ implied and left unimplemented.
 
 ## 5. Live GUI and Replay App (Verified OK)
 
-**Live GUI** (`observability/live_gui.py::render_state`) renders local
-belief only (rules 8/9): exactly three inputs reach the render call — this
-side's own `Position`, `BeliefMap._probabilities`, and the current
-`PeerStateMachine` state string for the turn banner. It never receives
-`GameState.target_pos` or the true opponent position — this repo's own
-`Orchestrator` never even holds that value (rule 1/2). Enforced by
-introspecting `render_state`'s own parameter list
+**Live GUI** (`observability/live_gui_render.py::render_state`) renders
+local truth only (rules 8/9, ch. 7.2's own three-item definition — own
+position, scent sensed, hints received, no bird's-eye view): exactly six
+inputs reach the render call — this side's own `Position`,
+`BeliefMap._probabilities`, the current `PeerStateMachine` state string for
+the turn banner, this side's own placed `BarrierSet.placed`, this side's
+own currently-sensed `ScentField.full_field()`, and the most recent hint
+text this side actually received from the opponent (all local-truth-safe,
+same category as `own_pos` — nothing here is an opponent secret). It never
+receives `GameState.target_pos` or the true opponent position — this
+repo's own `Orchestrator` never even holds that value (rule 1/2). Enforced
+by introspecting `render_state`'s own parameter list
 (`test_render_state_signature_admits_no_true_opponent_position_or_board`),
-not by inspecting a screenshot. Demoed live end-to-end by
-`scripts/watch_prd7_live_gui.py`.
+not by inspecting a screenshot. The window shows two side-by-side heatmap
+panels — belief (red) and currently-sensed scent (blue), a deliberately
+different hue so the two signals never read as one — plus the turn banner
+and a hint-text label below it. The belief panel marks the cop's own cell
+with a blue circle and a 'C' label, stars the currently most-likely
+believed opponent cell, and paints placed barriers as solid dark squares
+that visually win over whatever heatmap color would otherwise show there.
+Demoed live end-to-end by `scripts/watch_prd7_live_gui.py`.
 
 **Replay App** (`observability/replay_viewer.py::ReplayViewer`) reads a
 recorded `log_<game_id>_g<NN>.json`, steps through it, and stamps
@@ -165,7 +176,114 @@ recorded `log_<game_id>_g<NN>.json`, steps through it, and stamps
 `integrity/audit.py::run_mutual_audit` — never a simplified sketch of the
 audit logic. Demoed live, both the honest path (`Verified OK`) and the
 adversarial path (a tampered log correctly flagged `TAMPERED`), by
-`scripts/watch_prd7_replay.py`.
+`scripts/watch_prd7_replay.py`. Navigation genuinely halts at the first
+tampered step — `Forward` disables and the step label reads "further steps
+blocked (disqualified)" — rather than letting you page straight past the
+point of disqualification.
+
+**A documented design contradiction, and how it was resolved.** This
+module's own docstring argues for a single bulk cryptographic audit — one
+pass/fail verdict computed once over the whole log on load. A separate
+product-style spec instead describes a per-step `verify_step`-shaped UI
+that recalculates hashes on every click. **Chosen**: the bulk, single-pass
+`run_mutual_audit` call stays exactly as built — computed once, never
+recomputed per step. **Why**: a mutual audit is mathematically one verdict
+over the whole committed history, not an incremental per-step state —
+there is no cryptographically meaningful "verified up to step N, but not
+yet step N+1" to recompute into, so redoing the identical deterministic
+computation on every button click would be wasted work dressed up as
+extra rigor, not real extra verification. The one genuine, actionable gap
+the spec surfaced *was* fixed instead: navigation now halts at the first
+tampered step (above), which is the real behavior a "no appeal past
+disqualification" reading calls for, independent of the recompute-
+granularity question.
+
+**A related gap, surfaced the same way, not yet fixed: "TAMPERED" doesn't
+by itself become a `TECHNICAL_LOSS`.** A product-style spec for this flow
+also states that a mismatch "results in a technical loss." In this repo, a
+failed audit never rewrites `Outcome` — by the time
+`report_game`/`run_mutual_audit`/`audit_peer` run, the match's `Outcome`
+is already fixed (capture, survival, ceiling, or an in-play technical
+loss from `play_game`'s own exception handling). What actually happens:
+`self_audit_passed`/`peer_audit_passed` are written into the real,
+mandatory `ResultBundle` every game reports (`orchestrator_end_of_game.py`)
+— tampering is caught and permanently on record — but disqualifying the
+match on that basis is left to the human/grader reading the report, not
+auto-scored by this code. This matches the book's own "no referee"
+design (there is no process with standing to unilaterally overwrite a
+peer's own already-computed `Outcome`), but it is a real difference from
+that spec's literal wording, so it's recorded here rather than left for a
+future reader to rediscover.
+
+**A third contradiction, same shape, in the state machine itself.** A
+product-style spec's prose implies the state machine natively transitions
+*itself* to `TECHNICAL_LOSS` the instant an illegal target is attempted,
+while the book's own `GamePhaseMachine` code sketch and rule 5 both imply
+raising an exception instead. **Chosen**: `PeerStateMachine.transition()`
+(`planner/state_machine.py`) strictly raises `ValueError` on an illegal
+target — it never rewrites its own `.state` to `TECHNICAL_LOSS` itself; an
+outer wrapper, `orchestrator_game_loop.py::play_game`'s own
+`except Exception` around each `take_turn()` call, catches whatever
+propagates and is the one place that formally applies the
+`Outcome.TECHNICAL_LOSS` result. **Why**: this exactly matches the book's
+own `GamePhaseMachine` code sketch, satisfies rule 5's own wording — the
+mandate is to *reject* an illegal move, not silently absorb it, which
+`raise` does and a self-mutating `.state` write would not — and still
+guarantees the same match-level outcome the spec describes: nothing hangs,
+nothing crashes past the boundary, the match safely and deterministically
+ends in `TECHNICAL_LOSS` either way.
+
+**A fourth note, on two "resilience" claims and one real gap those claims
+surfaced — the gap has since been fixed.** A product-style spec framed the
+state machine/deadline/watchdog trio as something that makes *your* agent
+"automatically beat any opponent whose agent suffers from unhandled
+network errors" and lets you "claim a technical win/draw" when the peer
+stalls. Neither is accurate here: `domain/scoring.py::score_outcome`
+returns a hard `Score(0, 0)` for every `TECHNICAL_LOSS`, and that is not a
+shortcut — `PARAMETERS.md`'s Table 17 row 6 marks `technical_loss: 0` as
+**FIXED**, explicitly covering "crash, timeout, cryptographic forgery."
+Whichever side's own wait or move computation fails, the score is 0-0 to
+both sides; this repo has no mechanism to attribute fault to the *other*
+peer and score a win off it (rule 1/2: neither side can see or adjudicate
+the other's process). The same spec also claimed the Deadline Tracker
+"guarantees your decision computation never exceeds the 30-second... timeout,"
+which, before this note, was false — `await_with_deadline` only ever
+wrapped waits on the *peer* (`orchestrator_capture.py`, `orchestrator_peer.py`,
+`orchestrator_commit_reveal.py`, `orchestrator_step0.py`,
+`orchestrator_peer_audit.py`), never `self.brain._decide_move(...)` itself,
+which ran as a plain, unbounded synchronous call. **Fixed**: `orchestrator_turn.py::_decide_and_apply_move`
+now runs the brain's own decision in a worker thread
+(`loop.run_in_executor`) and awaits it through the same `await_with_deadline`
+helper, reusing `response_timeout_seconds` — not a new `step_deadline_seconds`
+field, since Appendix F defines no separate compute-time budget and I6
+forbids inventing an ungrounded quantitative value. A stuck or pathologically
+slow brain now raises `DeadlineExceededError` and reaches `TECHNICAL_LOSS`
+the same way any other technical loss does, instead of blocking the
+process indefinitely; covered by
+`test_take_turn_with_a_brain_that_never_finishes_deciding_reaches_technical_loss`
+(`tests/unit/test_orchestrator_take_turn.py`). One caveat worth recording
+honestly: Python cannot forcibly kill a running thread, so a truly
+infinite-looping brain's worker thread keeps existing in the background
+even after `take_turn` raises — this bounds how long the *match* waits on
+a decision (the real requirement), not how long the OS thread itself
+survives.
+
+**A fifth note: why the Deadline Tracker's own "Retry" branch was never
+built.** Ch. 8.4.1 describes the Deadline Tracker as, on timeout,
+triggering "either a Retry or ... Technical Loss." **The systems risk**:
+`_on_reveal_received` applies the peer's hint to the belief map via
+`belief_map.update_from_hint` — not idempotent. If a `send_reveal` call
+times out because the *response* was slow rather than the request never
+arriving, the peer may have already applied it once; a blind retry would
+resend the same reveal and the peer would fold the same evidence into its
+belief map a second time, corrupting its own Bayesian math. **The choice**:
+route every peer-request timeout straight to `TECHNICAL_LOSS` — no retry
+branch was added anywhere in this repo's own request/response paths.
+**The reasoning**: the book's own wording is "Retry **or** Technical
+Loss," not "Retry, then Technical Loss" — Technical Loss alone is a fully
+compliant branch on its own, and it's the one that strictly preserves the
+Dec-POMDP belief state's mathematical integrity rather than risking a
+double-applied update in the name of one more attempt.
 
 `TODO: screenshots — screenshots/live_gui_verified.png,
 screenshots/replay_verified_ok.png, screenshots/replay_tampered.png (or

@@ -43,11 +43,11 @@ def _start_thief_peer(client_url: str, *, confirm: bool) -> int:
     mcp = FastMCP("thief_peer")
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         return {"acknowledged": True}
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         return {"accepted": True, "word_count": len(hint_text.split())}
 
     @mcp.tool
@@ -147,11 +147,11 @@ def test_no_claim_sent_when_the_move_does_not_land_on_the_belief_target(config, 
     mcp = FastMCP("thief_peer_no_claim_expected")
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         return {"acknowledged": True}
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         return {"accepted": True, "word_count": len(hint_text.split())}
 
     @mcp.tool
@@ -203,11 +203,11 @@ def test_a_peer_that_never_responds_to_a_claim_reaches_technical_loss_via_awaiti
     mcp = FastMCP("silent_thief_peer")
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         return {"acknowledged": True}
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         return {"accepted": True, "word_count": len(hint_text.split())}
 
     @mcp.tool
@@ -291,11 +291,11 @@ def test_a_peer_lacking_the_capture_claim_tool_reaches_technical_loss_on_the_sen
     mcp = FastMCP("no_capture_tool_peer")
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         return {"acknowledged": True}
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         return {"accepted": True, "word_count": len(hint_text.split())}
 
     thief_port = _free_port()

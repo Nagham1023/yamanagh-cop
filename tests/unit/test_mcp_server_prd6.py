@@ -44,9 +44,9 @@ def test_all_prd6_tools_are_registered(config):
 
 def test_receive_commit_acknowledges_and_fires_on_commit(config):
     received = []
-    mcp = build_server(config, on_commit=lambda h: received.append(h))
+    mcp = build_server(config, on_commit=lambda h, sent_at, deadline_at: received.append(h))
 
-    data = _call(mcp, "receive_commit", {"h_commit": "a" * 64})
+    data = _call(mcp, "receive_commit", {"h_commit": "a" * 64, "sent_at": 1.0, "deadline_at": 31.0})
 
     assert data == {"acknowledged": True}
     assert received == ["a" * 64]
@@ -128,7 +128,9 @@ def test_every_prd6_callback_is_optional(config):
     # still work with build_server's own bare defaults.
     mcp = build_server(config)
 
-    assert _call(mcp, "receive_commit", {"h_commit": "a" * 64}) == {"acknowledged": True}
+    assert _call(mcp, "receive_commit", {"h_commit": "a" * 64, "sent_at": 1.0, "deadline_at": 31.0}) == {
+        "acknowledged": True
+    }
     assert _call(mcp, "receive_final_reveal", {"nonces": {}, "intents": {}}) == {"acknowledged": True}
     assert _call(mcp, "receive_barrier_declaration", {"col": 0, "row": 0}) == {"acknowledged": True}
     assert _call(

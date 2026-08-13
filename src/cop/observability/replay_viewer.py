@@ -8,7 +8,16 @@ machinery every other layer already uses. Runs the full audit **once**, on
 load; per-step navigation only ever reads that one already-computed
 result, never re-verifies (ch. 7.4's own wording: the match is disqualified
 on the *first* mismatch, no appeal — there is no "partially verified" state
-to recompute into).
+to recompute into). A separate product-style spec described a per-step
+`verify_step`-shaped UI that recalculates hashes on each click — this is a
+genuine, documented contradiction, resolved in `README.md` §5 (bulk audit
+kept as-is; the real, actionable gap that surfaced alongside it — nothing
+stopped navigation past a confirmed tamper point — is fixed below instead).
+
+**Halt on tamper**: `step_forward()` refuses to advance past the first
+tampered step once one exists — you can review everything up to and
+including it, but never step beyond it. `step_backward()` is unrestricted;
+reviewing what led to disqualification stays fully available.
 """
 
 from __future__ import annotations
@@ -19,29 +28,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..integrity.audit import AuditResult, run_mutual_audit
+from .replay_nonces import nonces_from_log
 
-
-def nonces_from_log(log_path: str | Path) -> dict[str, str]:
-    """PRD 10: the only source of `nonces` a standalone `replay --log
-    <path>` run has, once the process that played the match has already
-    exited — `orchestrator_peer_audit.py::send_final_reveal_to_peer` logs
-    a `nonces_revealed` event at the moment they stop being secret (rule
-    18: *until* game end, not forever). Raises `ValueError` — not a crash,
-    not a silent empty dict — when no such event exists: a crashed or
-    otherwise incomplete match genuinely never revealed its nonces, and
-    that is itself the honest, correct answer for a replay attempt against
-    it, not a bug to paper over."""
-    lines = Path(log_path).read_text(encoding="utf-8").splitlines()
-    for line in reversed(lines):
-        if not line.strip():
-            continue
-        entry = json.loads(line)
-        if entry.get("event") == "nonces_revealed":
-            return entry["nonces"]
-    raise ValueError(
-        f"{log_path}: no 'nonces_revealed' event found — this match never reached "
-        f"Final Reveal, so its nonces were never (and should never be) recoverable"
-    )
+__all__ = ["ReplayViewer", "ReplayViewerWindow", "StepView", "nonces_from_log"]
 
 
 @dataclass(frozen=True)
@@ -57,6 +46,13 @@ class ReplayViewer:
         self.audit_result: AuditResult = run_mutual_audit(self.log_path, nonces)
         self.steps: list[StepView] = self._load_steps()
         self._index = 0
+        # Computed once here, never recomputed — the index (not step number)
+        # of the first unverified StepView, or None on a clean log. `next()`
+        # over `enumerate` rather than a second pass over the raw mismatch
+        # set, so this is defined purely in terms of self.steps' own order.
+        self._first_tampered_index: int | None = next(
+            (i for i, step in enumerate(self.steps) if not step.verified), None
+        )
 
     def _load_steps(self) -> list[StepView]:
         lines = self.log_path.read_text(encoding="utf-8").splitlines()
@@ -72,11 +68,20 @@ class ReplayViewer:
     def overall_status(self) -> str:
         return "Verified OK" if self.audit_result.passed else "TAMPERED"
 
+    @property
+    def halted(self) -> bool:
+        """True exactly when navigation is currently sitting at the first
+        tampered step — the point past which `step_forward()` refuses to
+        advance. `False` on a clean log (`_first_tampered_index is None`)
+        and `False` everywhere before that step too."""
+        return self._first_tampered_index is not None and self._index == self._first_tampered_index
+
     def current(self) -> StepView | None:
         return self.steps[self._index] if self.steps else None
 
     def step_forward(self) -> StepView | None:
-        if self._index < len(self.steps) - 1:
+        at_limit = self._first_tampered_index is not None and self._index >= self._first_tampered_index
+        if self._index < len(self.steps) - 1 and not at_limit:
             self._index += 1
         return self.current()
 
@@ -102,17 +107,27 @@ class ReplayViewerWindow:
         self.banner.pack()
         self.step_label = tk.Label(self.root, text="", font=("Helvetica", 12))
         self.step_label.pack()
-        tk.Button(self.root, text="< Back", command=self._back).pack(side=tk.LEFT)
-        tk.Button(self.root, text="Forward >", command=self._forward).pack(side=tk.RIGHT)
+        self.back_button = tk.Button(self.root, text="< Back", command=self._back)
+        self.back_button.pack(side=tk.LEFT)
+        self.forward_button = tk.Button(self.root, text="Forward >", command=self._forward)
+        self.forward_button.pack(side=tk.RIGHT)
         self._refresh()
 
     def _refresh(self) -> None:
+        # Named, stateful buttons (not the original anonymous pack()-only
+        # calls) so this can actually disable Forward once halted, rather
+        # than just labeling a step "TAMPERED" while still letting
+        # navigation walk straight past the disqualification point.
+        self.forward_button.config(state=tk.DISABLED if self.viewer.halted else tk.NORMAL)
         step = self.viewer.current()
         if step is None:
             self.step_label.config(text="(no committed steps in this log)")
             return
         status = "ok" if step.verified else "TAMPERED"
-        self.step_label.config(text=f"step {step.step}: {status}")
+        label = f"step {step.step}: {status}"
+        if self.viewer.halted:
+            label += " — further steps blocked (disqualified)"
+        self.step_label.config(text=label)
 
     def _forward(self) -> None:
         self.viewer.step_forward()

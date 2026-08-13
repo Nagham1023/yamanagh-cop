@@ -35,11 +35,11 @@ def test_commit_and_reveal_to_peer_tolerates_realistic_latency_within_the_deadli
     slow = FastMCP("realistic_latency_peer")
 
     @slow.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         return {"acknowledged": True}
 
     @slow.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         time.sleep(2.0)
         return {"accepted": True, "word_count": len(hint_text.split())}
 

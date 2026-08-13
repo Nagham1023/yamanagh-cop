@@ -88,6 +88,91 @@ def test_a_tampered_log_shows_tampered_and_the_step_is_flagged(config, tmp_path)
     assert viewer.current().verified is False
 
 
+def test_halted_is_false_throughout_a_clean_log(config, tmp_path):
+    client = _run_one_real_committed_turn(config, tmp_path)
+    viewer = ReplayViewer(tmp_path / "client_trace.jsonl", client._pending_nonces)
+
+    assert viewer.halted is False
+    viewer.step_forward()
+    assert viewer.halted is False
+
+
+def test_step_forward_never_advances_past_the_first_tampered_step(config, tmp_path):
+    client = _run_two_real_committed_turns(config, tmp_path)
+    trace_path = tmp_path / "client_trace.jsonl"
+
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    tampered_lines = []
+    for line in lines:
+        entry = json.loads(line)
+        if entry["event"] == "committing" and entry["step"] == 2:
+            entry["move"] = {"type": "move", "direction": "S"}  # only the SECOND step is tampered
+        tampered_lines.append(json.dumps(entry))
+    trace_path.write_text("\n".join(tampered_lines) + "\n", encoding="utf-8")
+
+    viewer = ReplayViewer(trace_path, client._pending_nonces)
+    assert viewer.current().step == 1
+    assert viewer.halted is False  # step 1 itself is clean
+
+    viewer.step_forward()
+    assert viewer.current().step == 2
+    assert viewer.current().verified is False
+    assert viewer.halted is True  # arrived at the first tampered step
+
+    # Further Forward presses must not advance beyond it, repeatedly.
+    for _ in range(3):
+        viewer.step_forward()
+        assert viewer.current().step == 2
+
+
+def test_step_backward_from_the_halted_step_is_unrestricted(config, tmp_path):
+    client = _run_two_real_committed_turns(config, tmp_path)
+    trace_path = tmp_path / "client_trace.jsonl"
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    tampered_lines = []
+    for line in lines:
+        entry = json.loads(line)
+        if entry["event"] == "committing" and entry["step"] == 2:
+            entry["move"] = {"type": "move", "direction": "S"}
+        tampered_lines.append(json.dumps(entry))
+    trace_path.write_text("\n".join(tampered_lines) + "\n", encoding="utf-8")
+
+    viewer = ReplayViewer(trace_path, client._pending_nonces)
+    viewer.step_forward()
+    assert viewer.halted is True
+
+    backed = viewer.step_backward()
+    assert backed.step == 1
+    assert viewer.halted is False  # reviewing before the tamper point is unrestricted
+
+
+@pytest.mark.skipif(not _HAS_DISPLAY, reason="no display available for a real Tk window")
+def test_replay_viewer_window_disables_forward_at_the_tampered_step(config, tmp_path):
+    client = _run_two_real_committed_turns(config, tmp_path)
+    trace_path = tmp_path / "client_trace.jsonl"
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    tampered_lines = []
+    for line in lines:
+        entry = json.loads(line)
+        if entry["event"] == "committing" and entry["step"] == 2:
+            entry["move"] = {"type": "move", "direction": "S"}
+        tampered_lines.append(json.dumps(entry))
+    trace_path.write_text("\n".join(tampered_lines) + "\n", encoding="utf-8")
+
+    viewer = ReplayViewer(trace_path, client._pending_nonces)
+    window = ReplayViewerWindow(viewer)
+    try:
+        assert str(window.forward_button.cget("state")) == "normal"
+        window._forward()
+        assert str(window.forward_button.cget("state")) == "disabled"
+        assert "blocked" in window.step_label.cget("text")
+        step_before = viewer.current().step
+        window._forward()  # a real click while disabled must still be a no-op at the model level
+        assert viewer.current().step == step_before
+    finally:
+        window.close()
+
+
 def test_step_navigation_does_not_recompute_the_audit(config, tmp_path):
     client = _run_one_real_committed_turn(config, tmp_path)
     viewer = ReplayViewer(tmp_path / "client_trace.jsonl", client._pending_nonces)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import socket
 import threading
@@ -40,6 +41,19 @@ class _AlwaysProposesAnOffBoardMove(BrainBase):
 
     def _decide_move(self, own_pos, target_pos, board, barriers) -> Move:
         return Move(direction="N")
+
+
+class _NeverReturns(BrainBase):
+    """A brain whose own decision computation never finishes on its own —
+    proves `_decide_and_apply_move`'s deadline wrap actually bounds local
+    compute time, not just network waits. Sleeps well past the test's own
+    shrunk `response_timeout_seconds` rather than looping forever, so a
+    misbehaving test run still terminates even if the deadline wrap were
+    somehow broken."""
+
+    def _pick_move(self, own_pos, target_pos, board, barriers) -> str:
+        time.sleep(1.5)
+        return "E"
 
 
 class _AlwaysPlacesABarrierOnItsOwnCell(BrainBase):
@@ -254,6 +268,45 @@ def test_take_turn_with_a_brain_that_proposes_an_illegal_action_reaches_technica
     assert "technical_loss" in events
 
 
+def test_take_turn_with_a_brain_that_never_finishes_deciding_reaches_technical_loss(config, tmp_path):
+    # Appendix F defines no separate compute-time budget, so this reuses
+    # response_timeout_seconds (shrunk here so the test doesn't take
+    # anywhere near the real 30s) rather than a new, ungrounded config
+    # field — same reasoning as the README's note on this.
+    fast_config = dataclasses.replace(config, response_timeout_seconds=0.2)
+    _, port = _start_server(fast_config, tmp_path, "server")
+    client = Orchestrator(fast_config, _NeverReturns(), log_path=str(tmp_path / "trace.jsonl"))
+
+    # A plain run_until_complete, not asyncio.run(): asyncio.run()'s own
+    # cleanup calls shutdown_default_executor(), which blocks until the
+    # runaway worker thread finishes — that's real, but it's a process-exit
+    # concern, not what this test measures. What matters here is whether
+    # take_turn() itself returns control within the deadline, which is
+    # exactly what a long-running peer process (never torn down mid-match)
+    # actually experiences.
+    loop = asyncio.new_event_loop()
+    start = time.monotonic()
+    try:
+        loop.run_until_complete(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+        raised = False
+    except Exception:  # noqa: BLE001 - DeadlineExceededError, asserted via the trace below
+        raised = True
+    finally:
+        elapsed = time.monotonic() - start
+        loop.close()
+
+    assert raised
+    assert elapsed < 1.0, "must not have waited anywhere near the brain's own 1.5s sleep"
+    assert client.state_machine.state == "TECHNICAL_LOSS"
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    technical_loss_events = [e for e in events if e["event"] == "technical_loss"]
+    assert technical_loss_events
+    assert technical_loss_events[0]["exception_type"] == "DeadlineExceededError"
+
+
 def test_take_turn_against_an_unreachable_peer_reaches_technical_loss_before_computing_a_move(
     config, tmp_path
 ):
@@ -363,7 +416,9 @@ def test_on_reveal_received_applies_the_tactical_claim(config, tmp_path):
     claim_focal = interpret_hint("Near the south east side.", client.board)
     claim_before = client.belief_map.probability(claim_focal)
 
-    client._on_reveal_received({"type": "move", "direction": "NORTH"}, "Near the south east side.")
+    client._on_reveal_received(
+        {"type": "move", "direction": "NORTH"}, "Near the south east side.", time.time(), time.time() + 30.0
+    )
 
     assert client.belief_map.probability(claim_focal) > claim_before
 
@@ -380,9 +435,43 @@ def test_on_reveal_received_does_not_apply_an_over_limit_claim(config, tmp_path)
 
     control = BeliefMap.uniform(client.board)
 
-    client._on_reveal_received({"type": "move", "direction": "NORTH"}, over_limit_text)
+    client._on_reveal_received(
+        {"type": "move", "direction": "NORTH"}, over_limit_text, time.time(), time.time() + 30.0
+    )
 
     assert client.belief_map._probabilities == control._probabilities
+
+
+def test_a_fresh_orchestrator_has_no_last_hint_received_yet(config, tmp_path):
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    assert client._last_hint_received is None
+
+
+def test_on_reveal_received_mirrors_the_hint_text_for_the_live_gui(config, tmp_path):
+    # PRD 7 round-2 (Local Truth): the live GUI needs the actual hint text,
+    # not just its effect on belief -- a real, persistent attribute, not a
+    # local variable this callback throws away once it's done with it.
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+
+    client._on_reveal_received(
+        {"type": "move", "direction": "NORTH"}, "Near the south east side.", time.time(), time.time() + 30.0
+    )
+
+    assert client._last_hint_received == "Near the south east side."
+
+
+def test_on_reveal_received_mirrors_the_hint_text_even_when_over_the_word_limit(config, tmp_path):
+    # The display mirror is unconditional -- unlike the belief-map gate
+    # above, an over-limit hint still genuinely arrived and should still
+    # show up in the GUI, even though it's correctly excluded from belief.
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    over_limit_text = " ".join(["south", "east"] * config.hint_word_limit)
+
+    client._on_reveal_received(
+        {"type": "move", "direction": "NORTH"}, over_limit_text, time.time(), time.time() + 30.0
+    )
+
+    assert client._last_hint_received == over_limit_text
 
 
 def _private_config_pointing_at(port: int) -> PrivateConfig:

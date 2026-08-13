@@ -37,11 +37,11 @@ def _start_slow_peer(delay_seconds: float) -> int:
     slow = FastMCP("genuinely_slow_but_real_peer")
 
     @slow.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         return {"acknowledged": True}
 
     @slow.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         time.sleep(delay_seconds)
         return {"accepted": True, "word_count": len(hint_text.split())}
 

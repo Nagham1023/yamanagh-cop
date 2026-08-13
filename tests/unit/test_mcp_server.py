@@ -42,16 +42,19 @@ def _call(mcp, tool: str, arguments: dict):
 _A_MOVE = {"type": "move", "direction": "NORTH"}
 
 
+_TIMING = {"sent_at": 1.0, "deadline_at": 31.0}
+
+
 def test_receive_reveal_decodes_a_valid_payload(config):
     mcp = build_server(config)
-    data = _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "quiet by the river"})
+    data = _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "quiet by the river", **_TIMING})
     assert data == {"accepted": True, "word_count": 4}
 
 
 def test_receive_reveal_flags_a_hint_over_the_word_limit(config):
     mcp = build_server(config)
     over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))
-    data = _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": over_limit_text})
+    data = _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": over_limit_text, **_TIMING})
     assert data["accepted"] is False
     assert data["word_count"] == config.hint_word_limit + 1
 
@@ -59,21 +62,21 @@ def test_receive_reveal_flags_a_hint_over_the_word_limit(config):
 def test_receive_reveal_rejects_a_non_string_hint_payload(config):
     mcp = build_server(config)
     with pytest.raises(ToolError):
-        _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": 12345})
+        _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": 12345, **_TIMING})
 
 
 def test_receive_reveal_rejects_a_missing_argument(config):
     mcp = build_server(config)
     with pytest.raises(ToolError):
-        _call(mcp, "receive_reveal", {"move": _A_MOVE})
+        _call(mcp, "receive_reveal", {"move": _A_MOVE, **_TIMING})
 
 
 def test_on_receive_hook_fires_on_every_successful_receive_reveal_call(config):
     calls = []
     mcp = build_server(config, on_receive=lambda ip: calls.append(ip))
 
-    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "north of the market"})
-    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "south of the bridge"})
+    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "north of the market", **_TIMING})
+    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "south of the bridge", **_TIMING})
 
     assert len(calls) == 2
 
@@ -84,7 +87,7 @@ def test_on_receive_hook_gets_none_over_the_in_process_test_transport(config):
     calls = []
     mcp = build_server(config, on_receive=lambda ip: calls.append(ip))
 
-    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "north of the market"})
+    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "north of the market", **_TIMING})
 
     assert calls == [None]
 
@@ -93,15 +96,17 @@ def test_on_receive_hook_is_optional(config):
     # build_server's default (no on_receive) must not raise — proves the
     # hook is genuinely optional, not just untested in the happy path.
     mcp = build_server(config)
-    data = _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "near the old market"})
+    data = _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "near the old market", **_TIMING})
     assert data == {"accepted": True, "word_count": 4}
 
 
 def test_on_reveal_hook_receives_the_move_and_hint(config):
     received = []
-    mcp = build_server(config, on_reveal=lambda move, text: received.append((move, text)))
+    mcp = build_server(
+        config, on_reveal=lambda move, text, sent_at, deadline_at: received.append((move, text))
+    )
 
-    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "north of the market"})
+    _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "north of the market", **_TIMING})
 
     assert received == [(_A_MOVE, "north of the market")]
 

@@ -21,7 +21,7 @@ from .domain.board import Position
 from .integrity.commit_payload import canonical_state_bytes
 from .integrity.commit_reveal import CommitEnvelope, commit, move_to_wire, verify
 from .integrity.nonce import generate_nonce
-from .planner.deadline import await_with_deadline
+from .planner.deadline import await_with_deadline, now_and_deadline
 from .reasoning.brain_base import Action, PlaceBarrier
 from .tools.mcp_client_prd6 import send_barrier_declaration, send_commit, send_reveal
 
@@ -41,21 +41,18 @@ class CommitRevealMixin:
         `(move, hint_text)` with the nonce still hidden (Step 3, rule 18),
         await that ack, then `VERIFYING`'s own lightweight, local
         self-check: recompute `Hcommit` from the envelope and this side's
-        own just-generated nonce (never the peer's, which this side never
-        has until Final Reveal) and confirm it matches what was actually
-        sent — catching a local bug where the committed and revealed data
-        diverged, not a cross-peer audit (that stays `integrity/audit.py`'s
-        own separate, end-of-game job, PRD 6 Design Question 4).
+        own just-generated nonce and confirm it matches what was actually
+        sent — a local bug check, not a cross-peer audit (that stays
+        `integrity/audit.py`'s own job, PRD 6 Design Question 4).
 
         The nonce is retained (`self._pending_nonces`), never transmitted
         here — only `receive_final_reveal`, at game end, sends it (rule 18).
         The `committing` trace entry logs the *rest* of the envelope
-        (`state`, `move`, `intent`, `hint_text`, `role` — everything except
-        the nonce) even though `state`/`intent` never cross the wire this
-        early — this is this process's own local log file, not the wire
-        rule 18 governs, and `integrity/audit.py::run_mutual_audit` needs
-        the full envelope back, keyed by step, to recompute `Hcommit` once
-        nonces are finally available.
+        (everything except the nonce) even though `state`/`intent` never
+        cross the wire this early — `integrity/audit.py::run_mutual_audit`
+        needs the full envelope back, keyed by step, once nonces are
+        finally available. `send_commit`/`send_reveal` each also carry a
+        `sent_at`/`deadline_at` pair (`now_and_deadline`, PRD 15, ch. 8.4).
         """
         step = self.game_state.steps_taken
         nonce = generate_nonce()
@@ -83,8 +80,9 @@ class CommitRevealMixin:
             role=envelope.role,
         )
         try:
+            sent_at, deadline_at = now_and_deadline(self.config.response_timeout_seconds)
             await await_with_deadline(
-                send_commit(peer_url, h_commit),
+                send_commit(peer_url, h_commit, sent_at, deadline_at),
                 timeout_seconds=self.config.response_timeout_seconds,
             )
         except Exception as exc:
@@ -93,8 +91,9 @@ class CommitRevealMixin:
 
         self.state_machine.transition("AWAITING_REVEAL")
         try:
+            sent_at, deadline_at = now_and_deadline(self.config.response_timeout_seconds)
             result = await await_with_deadline(
-                send_reveal(peer_url, envelope.move, hint_text),
+                send_reveal(peer_url, envelope.move, hint_text, sent_at, deadline_at),
                 timeout_seconds=self.config.response_timeout_seconds,
             )
         except Exception as exc:

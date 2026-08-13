@@ -110,7 +110,12 @@ def section_2_ip_capture_over_real_http() -> None:
         async with Client(transport) as client:
             await client.call_tool(
                 "receive_reveal",
-                {"move": {"type": "move", "direction": "NORTH"}, "hint_text": "a test hint"},
+                {
+                    "move": {"type": "move", "direction": "NORTH"},
+                    "hint_text": "a test hint",
+                    "sent_at": 1.0,
+                    "deadline_at": 31.0,
+                },
             )
 
     asyncio.run(_call_with_forwarded_header())

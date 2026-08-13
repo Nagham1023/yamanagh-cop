@@ -59,13 +59,15 @@ _A_MOVE = {"type": "move", "direction": "NORTH"}
 
 
 def test_send_reveal_round_trips_over_real_http(running_server):
-    data = asyncio.run(send_reveal(running_server, _A_MOVE, "quiet by the river"))
+    data = asyncio.run(send_reveal(running_server, _A_MOVE, "quiet by the river", time.time(), time.time() + 30.0))
     assert data == {"accepted": True, "word_count": 4}
 
 
 def test_send_reveal_reports_an_over_limit_hint(running_server, config):
     over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))
-    data = asyncio.run(send_reveal(running_server, _A_MOVE, over_limit_text))
+    data = asyncio.run(
+        send_reveal(running_server, _A_MOVE, over_limit_text, time.time(), time.time() + 30.0)
+    )
     assert data["accepted"] is False
     assert data["word_count"] == config.hint_word_limit + 1
 
@@ -88,7 +90,7 @@ def test_on_receive_gets_the_loopback_address_over_real_http_with_no_forwarding_
     received_ips = []
     url = _start_server(config, on_receive=lambda ip: received_ips.append(ip))
 
-    asyncio.run(send_reveal(url, _A_MOVE, "quiet by the river"))
+    asyncio.run(send_reveal(url, _A_MOVE, "quiet by the river", time.time(), time.time() + 30.0))
 
     assert received_ips == ["127.0.0.1"]
 
@@ -104,7 +106,15 @@ def test_on_receive_prefers_x_forwarded_for_over_the_raw_loopback_address(config
     async def _call_with_forwarded_header():
         transport = StreamableHttpTransport(url, headers={"X-Forwarded-For": "203.0.113.7"})
         async with Client(transport) as client:
-            await client.call_tool("receive_reveal", {"move": _A_MOVE, "hint_text": "quiet by the river"})
+            await client.call_tool(
+                "receive_reveal",
+                {
+                    "move": _A_MOVE,
+                    "hint_text": "quiet by the river",
+                    "sent_at": time.time(),
+                    "deadline_at": time.time() + 30.0,
+                },
+            )
 
     asyncio.run(_call_with_forwarded_header())
 

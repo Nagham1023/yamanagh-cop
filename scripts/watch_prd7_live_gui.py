@@ -54,10 +54,21 @@ def main() -> None:
                 client.game_state.own_pos,
                 client.belief_map._probabilities,
                 client.state_machine.state,
+                frozenset(client.game_state.barriers.placed),
+                client.scent_field.full_field(),
+                client._last_hint_received,
             )
             window.update(rendered)
             print(f"  own_pos={rendered.own_pos}  banner={rendered.banner_text!r}")
             print(f"  belief cells rendered: {len(rendered.grid_colors)}")
+            print(f"  most_likely_pos (star): {rendered.most_likely_pos}")
+            print(f"  barriers placed (dark squares): {sorted(rendered.barrier_positions)}")
+            print(f"  scent cells sensed (blue grid): {len(rendered.scent_grid_colors)}")
+            # client only ever *sends* reveals in this one-directional demo
+            # (it calls take_turn every round, server never does) — so
+            # client._last_hint_received honestly stays None throughout;
+            # the real round-trip is covered by test_orchestrator_take_turn.py.
+            print(f"  last hint received: {rendered.hint_text!r}")
             print(
                 "  rule 8/9 check: render_state's own signature admits no true "
                 "opponent position or Board — see test_live_gui.py's own guard test"

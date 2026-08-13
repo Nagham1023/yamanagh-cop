@@ -35,7 +35,11 @@ def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
         _wait_for_port(port_b)
         data = asyncio.run(
             send_reveal(
-                f"http://127.0.0.1:{port_b}/mcp", {"type": "move", "direction": "NORTH"}, "quiet by the river"
+                f"http://127.0.0.1:{port_b}/mcp",
+                {"type": "move", "direction": "NORTH"},
+                "quiet by the river",
+                time.time(),
+                time.time() + 30.0,
             )
         )
         assert data == {"accepted": True, "word_count": 4}

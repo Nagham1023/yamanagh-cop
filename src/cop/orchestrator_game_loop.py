@@ -61,6 +61,9 @@ class GameLoopMixin:
                     self.game_state.own_pos,
                     self.belief_map._probabilities,
                     str(self.state_machine.state),
+                    frozenset(self.game_state.barriers.placed),
+                    self.scent_field.full_field(),
+                    self._last_hint_received,
                 )
             )
         try:
@@ -79,6 +82,9 @@ class GameLoopMixin:
                         self.game_state.own_pos,
                         self.belief_map._probabilities,
                         str(self.state_machine.state),
+                        frozenset(self.game_state.barriers.placed),
+                        self.scent_field.full_field(),
+                        self._last_hint_received,
                     )
                     gui_window.update(rendered)
                     await asyncio.sleep(0.5)

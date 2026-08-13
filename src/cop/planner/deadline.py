@@ -14,6 +14,7 @@ that's the actual integration point, not an import here.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable
 from typing import TypeVar
 
@@ -30,3 +31,15 @@ async def await_with_deadline(coro: Awaitable[T], timeout_seconds: float) -> T:
         return await asyncio.wait_for(coro, timeout=timeout_seconds)
     except TimeoutError as exc:
         raise DeadlineExceededError(f"opponent did not respond within {timeout_seconds}s") from exc
+
+
+def now_and_deadline(timeout_seconds: float) -> tuple[float, float]:
+    """PRD 15 (ch. 8.4): the wire-level `(sent_at, deadline_at)` pair a
+    request carries alongside `Hcommit`/`move`/etc. — one shared
+    computation rather than repeating `time.time() + timeout_seconds` at
+    every `send_*` call site (I6). This is purely observational once it
+    crosses the wire (rule 9: a peer's own declared timing is untrusted) —
+    the receiver logs it, never lets it shorten/extend its own
+    `await_with_deadline` bound, which stays the sole authoritative timeout."""
+    sent_at = time.time()
+    return sent_at, sent_at + timeout_seconds

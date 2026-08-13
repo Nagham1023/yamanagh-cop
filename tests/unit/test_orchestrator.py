@@ -75,7 +75,7 @@ def test_commit_and_reveal_to_peer_deadline_exceeded_transitions_to_technical_lo
     slow = FastMCP("slow_peer")
 
     @slow.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
         time.sleep(0.3)
         return {"acknowledged": True}
 

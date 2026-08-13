@@ -5,11 +5,10 @@ Connector (`tools/`), Log Manager (`observability/trace.py`), Deadline
 Tracker, Watchdog, and — as of PRD 3 — the Decision Module (`reasoning/`).
 Nothing outside this module reaches those subsystems directly.
 
-The watchdog is doubly wired: every tool call on this peer's own server
-feeds it a heartbeat (via `self._on_connection_received`, wired as
-`build_server`'s `on_receive`), and a daemon thread started in
-`run_as_server` polls `watchdog.check()` so a frozen process actually gets
-caught while serving, not just when a test calls `.check()` directly.
+The watchdog is doubly wired: every tool call feeds it a heartbeat (via
+`self._on_connection_received`, wired as `build_server`'s `on_receive`),
+and a daemon thread started in `run_as_server` polls `watchdog.check()` so
+a frozen process actually gets caught while serving.
 
 `take_turn()` is deliberately small — it proves the brain is genuinely
 wired, not that the algorithm works. Algorithm correctness is
@@ -29,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import threading
 
 from fastmcp import FastMCP
 
@@ -105,37 +105,22 @@ class Orchestrator(
         self.league_ledger = LeagueLedger()
         self.gatekeeper = ApiGatekeeper(config)
         self.state_machine = PeerStateMachine()
-        # Rule 18: this side's own nonces, never transmitted until
-        # receive_final_reveal, keyed by step (commit_and_reveal_to_peer fills these in).
+        # Rule 18: this side's own nonces, never sent until receive_final_reveal, keyed by step.
         self._pending_nonces: dict[int, str] = {}
         self._pending_intents: dict[int, bool] = {}  # same lifetime/reason as _pending_nonces
-        # The peer's own committed-and-revealed data (on_commit/on_reveal/on_final_reveal) —
-        # orchestrator_peer_audit.py::run_peer_audit verifies against this (rule 19/36).
-        self.peer_trace = PeerTrace()
-        # Capture-claim response correlation (orchestrator_capture.py); reset per-turn there.
-        self._capture_response_event = asyncio.Event()
-        self._capture_response: CaptureResponse | None = None
-        self._capture_response_loop: asyncio.AbstractEventLoop | None = None
+        self.peer_trace = PeerTrace()  # peer's committed/revealed data — run_peer_audit verifies against this (19/36)
+        self._init_cross_thread_signals()
         self._last_turn_captured = False
-        # Ch.5.3.2 Step 4: peer Final Reveal means the match has ended.
-        # Set from the MCP server thread; `play_game` reads it each loop.
-        self._peer_final_reveal_received = False
-        # Filled in by `negotiate_step0`/`_on_step0_received` — `report_game`
-        # (rule 49) sources the opponent's repo URLs from here by default.
+        self._last_hint_received: str | None = None  # PRD 7 round-2: live-GUI display only
+        self._peer_final_reveal_received = False  # ch.5.3.2 step 4; set from the MCP server thread, play_game reads it
+        # Filled in by negotiate_step0/_on_step0_received — report_game (rule 49) sources repo URLs from here.
         self._opponent_repos: dict[str, str] | None = None
-        # PRD 10: cross-loop signal for the CLI's passive side — see
-        # orchestrator_step0_wait.py::await_passive_step0.
-        self._step0_received_event = asyncio.Event()
-        self._step0_received_loop: asyncio.AbstractEventLoop | None = None
-        self._step0_failure: Exception | None = None
         self._step0_completed: bool = False  # set once by _signal_step0_received
         self._match_started_at: str | None = None  # set by play_game() — report_game() needs both
         self._match_ended_at: str | None = None
         self.watchdog = Watchdog(
             threshold_seconds=config.watchdog_threshold_seconds,
-            persist_state=lambda: self.trace.log(
-                "watchdog_persist_state", state=self.state_machine.state
-            ),
+            persist_state=self._persist_watchdog_state,
             controlled_shutdown=lambda: self.trace.log(
                 "watchdog_controlled_shutdown", state=self.state_machine.state
             ),
@@ -151,3 +136,14 @@ class Orchestrator(
             on_capture_response=self._on_capture_response_received,
             on_step0=self._on_step0_received,
         )
+
+    def _init_cross_thread_signals(self) -> None:
+        """Event/loop pairs `orchestrator_capture.py`/`orchestrator_step0_wait.py` use to
+        hand a result from the MCP server thread back to an awaiting asyncio loop."""
+        self._capture_response_event = asyncio.Event()
+        self._capture_response: CaptureResponse | None = None
+        self._capture_response_loop: asyncio.AbstractEventLoop | None = None
+        self._step0_received_event = asyncio.Event()
+        self._step0_received_loop: asyncio.AbstractEventLoop | None = None
+        self._step0_failure: Exception | None = None
+        self._watchdog_stop_event = threading.Event()  # plain thread, not asyncio (orchestrator_server.py)

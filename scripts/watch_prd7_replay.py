@@ -79,6 +79,18 @@ def main() -> None:
     assert tampered_viewer.overall_status == "TAMPERED"
     tampered_window = ReplayViewerWindow(tampered_viewer)
     print(f"  window banner: {tampered_window.banner.cget('text')!r} (fg={tampered_window.banner.cget('fg')})")
+
+    print("\n4. Halt-on-tamper: Forward must refuse to advance past the tampered step")
+    print(f"  halted at step {tampered_viewer.current().step}: {tampered_viewer.halted}")
+    assert tampered_viewer.halted is True
+    before = tampered_viewer.current().step
+    tampered_window._forward()  # simulates a real click
+    after = tampered_viewer.current().step
+    print(f"  step before Forward click: {before}, after: {after} (must be unchanged)")
+    assert before == after
+    print(f"  forward button state: {tampered_window.forward_button.cget('state')!r} (must be 'disabled')")
+    assert str(tampered_window.forward_button.cget("state")) == "disabled"
+    print(f"  step label: {tampered_window.step_label.cget('text')!r}")
     tampered_window.close()
 
     print("\nAll PRD 7 Replay Viewer milestone behaviours ran end-to-end, including the adversarial case.")

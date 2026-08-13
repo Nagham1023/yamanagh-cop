@@ -49,11 +49,24 @@ def _is_seam_call(node: ast.AST | None) -> bool:
 
 
 def _find_target_pos_assignments(tree: ast.Module) -> list[tuple[int, bool]]:
-    """Return `(line, routes_through_seam)` for every `target_pos` assignment."""
+    """Return `(line, routes_through_seam)` for every `target_pos` assignment.
+
+    The keyword branch only fires inside a `GameState(...)` call — PRD 15
+    found the pre-narrowing version flags *any* function's `target_pos=`
+    kwarg, including `trace.log(..., target_pos=[...], ...)`
+    (`orchestrator_server.py::_persist_watchdog_state`, a diagnostic
+    snapshot, not a `GameState` field write). Narrowed to what this test's
+    own docstring actually promises to guard: `GameState.target_pos`."""
     sites: list[tuple[int, bool]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.keyword) and node.arg == "target_pos":
-            sites.append((node.value.lineno, _is_seam_call(node.value)))
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "GameState"
+        ):
+            for kw in node.keywords:
+                if kw.arg == "target_pos":
+                    sites.append((kw.value.lineno, _is_seam_call(kw.value)))
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Attribute) and target.attr == "target_pos":
