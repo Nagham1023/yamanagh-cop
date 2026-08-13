@@ -1,0 +1,50 @@
+{
+  "checkpoint_sha256": "38eb3e2f9e44abbc9f7733095ea95c7aad0bc94bb0b20cc877ad30092b66e02b",
+  "checkpoint_source": "training/runs/belief_ensemble_final_ensemble/checkpoint_quantized.json",
+  "checkpoint_quantized": true,
+  "state_encoding_version": "v5",
+  "promoted_at": "2026-08-13",
+  "promoted_at_commit": "9852300",
+  "source_run_id_prefix": "belief_ensemble_final",
+  "ensemble": {
+    "seed_count": 20,
+    "keep_count": 5,
+    "selected_run_ids": [
+      "belief_ensemble_final_seed7",
+      "belief_ensemble_final_seed15",
+      "belief_ensemble_final_seed4",
+      "belief_ensemble_final_seed10",
+      "belief_ensemble_final_seed1"
+    ],
+    "best_single_seed_win_rate_vs_baseline_belief_aware": 0.545
+  },
+  "evaluate_metrics": {
+    "win_rate_vs_baseline": 0.925,
+    "win_rate_vs_baseline_belief_aware": 0.57
+  },
+  "quantize_metrics": {
+    "argmax_agreement_rate": 0.9994335347432024,
+    "size_before_bytes": 581728,
+    "size_after_bytes": 572533
+  },
+  "benchmark_metrics": {
+    "p99_seconds": 2.194200351368636e-05,
+    "response_timeout_seconds": 30.0,
+    "margin_multiple": 1367240.6889046142
+  },
+  "rule_auditor_report": "training/runs/belief_ensemble_final_ensemble/rule_audit_report.md",
+  "rule_auditor_verdict": "PASS",
+  "ml_promotion_gate_verdict": "PASS",
+  "warm_up_match_history": {
+    "first_pass": "FAILED — 0/20 captures vs greedy_thief_move, a real infinite two-state movement oscillation caught by an uncounted local warm-up match, invisible to the official win_rate_vs_baseline metric (which only ever evaluates against make_random_walk_thief)",
+    "root_cause": "a sparsely-explored Q-table state's only recorded row entry was the exact reverse of a well-learned neighbouring state's own best move; greedy inference cycled between the two forever",
+    "fix_commit": "9852300",
+    "fix_description": "RLCopBrain now tracks the direction it just moved and skips the exact reverse when ranking legal actions, falling back to it only when genuinely the only legal option",
+    "revalidation": "148/150 captures across 3 opponent types (greedy_thief_move, lookahead_evader_thief, make_random_walk_thief; 50 trials each), zero oscillation/entrapment failures",
+    "known_residual_finding": "a self-entrapment pathology (a seed walling itself into a 2-cell dead end via its own barrier placements) is confirmed present in one individual seed (belief_ensemble_final_seed7) but not observed in the merged ensemble across the broadened validation above — documented as a legitimate follow-up in rule_audit_report.md, not treated as a blocker for this promotion"
+  },
+  "human_sign_off": {
+    "belief_aware_win_rate_below_0_6_target": "acknowledged, promote anyway — ensemble beats every one of its 20 seeds and the pre-layer baseline (0.38) by a wide margin; improved further to 0.57 after the backtrack-guard fix",
+    "quantized_checkpoint_chosen": "yes — 99.94% argmax-agreement, matches this project's established per-row quantization pipeline; the unusually small 1.58% size reduction was noted but not treated as a blocker"
+  }
+}

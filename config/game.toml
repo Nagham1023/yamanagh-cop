@@ -20,9 +20,16 @@ initiate_step0 = false       # exactly one side sets this true per real match �
 step0_wait_seconds = 300     # how long the passive side waits for the other to dial in and negotiate Step-0 before giving up
 
 # [strategy] — optional: point at your own brain subclass (else the shipped
-# heuristic runs). Not built yet (PRD 4's "Explicitly out of scope" note).
+# CopBrain heuristic runs). police_class promoted 2026-08-13 (PRD 14 round-2
+# post-gate) after ml-promotion-gate PASS + a clean rule-auditor pass +
+# human sign-off — see training/promoted/promotion_report.json for the full
+# provenance and metrics. RLCopBrain falls back to CopBrain's own heuristic
+# automatically on any state its training never visited (rule 25/I7 never
+# trusts the raw ranking); promotion_guard.py hard-refuses a counted game if
+# training/promoted/'s report ever goes stale relative to the checkpoint.
 # thief_class = "dev_team.strategy:MyThiefBrain"
-# police_class = "dev_team.strategy:MyPoliceBrain"
+[strategy]
+police_class = "cop.reasoning.rl_cop_brain:RLCopBrain"
 
 [trash_talk]
 provider = "template"        # template (0 tokens, default) | ollama | claude_api | claude_cli

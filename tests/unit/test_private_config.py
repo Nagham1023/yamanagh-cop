@@ -51,7 +51,12 @@ def test_loads_the_dev_private_config_from_disk():
     assert config.model == "claude-sonnet-5"
     assert config.email_recipient == "rmisegal+uoh26finalgame@gmail.com"
     assert config.thief_class is None
-    assert config.police_class is None
+    # PRD 14 round-2 post-gate: RLCopBrain was promoted 2026-08-13 (see
+    # training/promoted/promotion_report.json) — the real config/game.toml
+    # now sets police_class, and this real-file regression check flips to
+    # match, the same way test_cli_peer_build.py's own zero-regression
+    # proof already did.
+    assert config.police_class == "cop.reasoning.rl_cop_brain:RLCopBrain"
     assert config.initiate_step0 is False
     assert config.step0_wait_seconds == 300.0
 
