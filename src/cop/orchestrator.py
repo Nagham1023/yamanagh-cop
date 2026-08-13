@@ -10,18 +10,14 @@ The watchdog is doubly wired: every tool call feeds it a heartbeat (via
 and a daemon thread started in `run_as_server` polls `watchdog.check()` so
 a frozen process actually gets caught while serving.
 
-`take_turn()` is deliberately small — it proves the brain is genuinely
-wired, not that the algorithm works. Algorithm correctness is
-`reasoning/subgame.py`'s job, entirely offline (PRD-3-blind-strategy.md,
-Design Question 3). `take_turn()` lives in `orchestrator_turn.py`'s
-`BrainTurnMixin`; `run_as_server`/the watchdog poll loop live in
-`orchestrator_server.py`'s `ServerLifecycleMixin`; PRD 6's real
-Commit-Reveal round trip (`commit_and_reveal_to_peer`) lives in
-`orchestrator_commit_reveal.py`'s `CommitRevealMixin`;
-`request_scent_map_from_peer`/the connection hook live in
-`orchestrator_peer.py`'s `PeerCommsMixin`; the live Step-0 ceremony lives
-in `orchestrator_step0.py`'s `Step0NegotiationMixin` — this file grew past
-the 150-line house cap five times, once at each landing.
+`take_turn()` proves the brain is genuinely wired, not that the algorithm
+works (that's `reasoning/subgame.py`'s job, entirely offline). It lives in
+`orchestrator_turn.py`'s `BrainTurnMixin`; `run_as_server`/the watchdog
+poll loop live in `orchestrator_server.py`'s `ServerLifecycleMixin`; PRD
+6's Commit-Reveal round trip lives in `orchestrator_commit_reveal.py`'s
+`CommitRevealMixin`; the connection hook lives in `orchestrator_peer.py`'s
+`PeerCommsMixin`; Step-0 lives in `orchestrator_step0.py`'s
+`Step0NegotiationMixin` — this file grew past the 150-line cap repeatedly.
 """
 
 from __future__ import annotations
@@ -36,6 +32,7 @@ from .domain.barriers import BarrierSet
 from .domain.board import Board, Position
 from .integrity.capture_protocol import CaptureResponse
 from .integrity.peer_trace import PeerTrace
+from .integrity.step0 import Step0Declaration
 from .memory.belief import BeliefMap
 from .memory.scent import ScentField
 from .observability.trace import Trace
@@ -45,6 +42,7 @@ from .orchestrator_end_of_game import EndOfGameMixin
 from .orchestrator_game_loop import GameLoopMixin
 from .orchestrator_peer import PeerCommsMixin
 from .orchestrator_peer_audit import PeerAuditMixin
+from .orchestrator_report_entry import ReportEntryMixin
 from .orchestrator_server import ServerLifecycleMixin
 from .orchestrator_step0 import Step0NegotiationMixin
 from .orchestrator_step0_wait import Step0PassiveWaitMixin
@@ -72,6 +70,7 @@ class Orchestrator(
     GameLoopMixin,
     PeerCommsMixin,
     PeerAuditMixin,
+    ReportEntryMixin,
     ServerLifecycleMixin,
     Step0NegotiationMixin,
     Step0PassiveWaitMixin,
@@ -115,6 +114,7 @@ class Orchestrator(
         self._peer_final_reveal_received = False  # ch.5.3.2 step 4; set from the MCP server thread, play_game reads it
         # Filled in by negotiate_step0/_on_step0_received — report_game (rule 49) sources repo URLs from here.
         self._opponent_repos: dict[str, str] | None = None
+        self._opponent_declaration: Step0Declaration | None = None  # PRD 16: group_name/code_commit_hash
         self._step0_completed: bool = False  # set once by _signal_step0_received
         self._match_started_at: str | None = None  # set by play_game() — report_game() needs both
         self._match_ended_at: str | None = None

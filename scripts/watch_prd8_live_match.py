@@ -14,6 +14,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import socket
 import threading
 import time
@@ -22,6 +23,9 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from cop.domain.board import Position
+from cop.domain.scoring import Score
+from cop.integrity.hardware_declaration import HardwareDeclaration
+from cop.integrity.step0 import Step0Declaration
 from cop.orchestrator import Orchestrator
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
@@ -110,19 +114,39 @@ def _run_case(config, log_path, *, confirm: bool) -> None:
     print(f"   steps taken: {client.game_state.steps_taken}")
 
     print("\n2. report_game() — the automatic end-of-game sequence")
+    # This script's own fake thief peer never runs a real Step-0 negotiation
+    # (no on_step0 tool above) — set the opponent's own declaration directly,
+    # the same "bypass negotiation for this demo" shortcut already used for
+    # the opponent_*_repo_url override params below. sub_game_number is set
+    # to the series' own last sub-game (PRD 16: report_game() only reaches
+    # the Gatekeeper/email send once, at series completion, ch. 9.4) so this
+    # demo actually exercises that path rather than only ever persisting.
+    num_sub_games = 6  # Table 18 row 3 — FIXED (PARAMETERS.md)
+    client.private_config = dataclasses.replace(client.private_config, sub_game_number=num_sub_games)
+    client._opponent_declaration = Step0Declaration(
+        hardware=HardwareDeclaration(
+            os_name="Linux", cpu_cores=8, ram_gb=16.0, gpu_present=False, gpu_vram_gb=None,
+            llm_model="watch-script-demo",
+        ),
+        code_commit_hash="b" * 40,
+        group_name="team-b",
+        sub_game_number=num_sub_games,
+        config_sha256="c" * 64,
+        scent_model_sha256="d" * 64,
+    )
+    score = Score(cop=20, thief=5) if outcome.value == "capture" else Score(cop=5, thief=10)
     result = asyncio.run(
         client.report_game(
             f"http://127.0.0.1:{thief_port}/mcp",
             outcome,
             is_counted=False,
             opponent_id="watch-script-peer",
+            score=score,
             opponent_cop_repo_url="https://github.com/team-b/cop",
             opponent_thief_repo_url="https://github.com/team-b/thief",
-            sub_game_scores={"g01": 20 if outcome.value == "capture" else 5},
-            cumulative_score=20 if outcome.value == "capture" else 5,
         )
     )
-    print(f"   send result (None expected — config/game.toml's email_mode is 'draft'): {result}")
+    print(f"   send result (None expected — series' last sub-game, but email_mode is 'draft'): {result}")
     print(f"   gatekeeper queue status: {client.gatekeeper.get_queue_status()}")
 
 

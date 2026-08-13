@@ -64,6 +64,13 @@ def test_negotiate_step0_succeeds_when_both_sides_genuinely_match(config, tmp_pa
     assert client._opponent_repos == dict(peer.private_config.repos)
     assert peer._opponent_repos == dict(client.private_config.repos)
 
+    # PRD 16: the peer's own Step-0 declaration (group_name/code_commit_hash)
+    # must be retained too, on both sides, not just the repos dict.
+    assert client._opponent_declaration.group_name == peer.private_config.group_name
+    assert client._opponent_declaration.code_commit_hash == peer._build_own_step0().code_commit_hash
+    assert peer._opponent_declaration.group_name == client.private_config.group_name
+    assert peer._opponent_declaration.code_commit_hash == client._build_own_step0().code_commit_hash
+
 
 def test_negotiate_step0_rejects_a_config_sha256_mismatch(config, tmp_path):
     # Same logical config, different bytes on disk — proves rule 11's

@@ -291,6 +291,35 @@ equivalent). These need a human to run the two watch_prd7_*.py scripts
 above on a machine with a display and capture the window; that step wasn't
 run in this development session.`
 
+## 6. Series reporting (Table 20)
+
+`declaration_<game_id>.json`/`result_<game_id>.json` (`orchestrator_end_of_game.py::report_game`)
+are real, on-disk files now, alongside `config_<game_id>_g<NN>.json`/
+`log_<game_id>_g<NN>.json` — not just in-memory email attachments, since a
+real 6-sub-game series spans six separate `Orchestrator` process lifetimes
+(PRD 10) and there was previously nothing to read back between them.
+`result_<game_id>.json` follows ch. 9.4's own fuller schema
+(`schema_version`/`game_uid`/`groups`/a real `sub_games` array/`final_result`/
+`mutual_agreement`) rather than a flat, single-sub-game-scoped dict — a real
+gap found and closed in PRD 16, along with retaining the peer's own Step-0
+declaration (needed for `groups`/per-team `github_commit`, previously
+verified then discarded). `mutual_agreement` is a locally-computed sha256 +
+an audit-derived `confirmed` flag, not a new bilateral wire handshake — see
+`PRD/PRD-16-series-result-report.md` for the full reasoning. `credentials.json`/
+`token.json` were already fully covered by `.gitignore` and confirmed never
+committed (rule 39) — nothing needed there.
+
+**Sent once per series, not once per sub-game** (a real correction after
+the first version shipped): ch. 9.4's own wording is that
+`result_<game_id>.json` is "the summary and final result for the **whole**
+series." `report_game()` persists the merged result to disk on every
+sub-game (still necessary — each sub-game is a separate `Orchestrator`
+process, PRD 10) but only reaches the Gatekeeper/email send once, on the
+series' own last sub-game (`sub_game_number == num_sub_games`); every
+earlier call returns `None` having only written the running result.
+`policy/league_ledger.py`'s "one counted game per opponent" enforcement
+needed no change — it was correct all along.
+
 ## Grading rubric quick-reference
 
 Full detail: `.claude/skills/spec-guard/references/RULES.md` (the 55 binding

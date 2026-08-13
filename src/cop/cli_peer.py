@@ -8,10 +8,9 @@ other testable-CLI convention uses.
 Sequence (see `_run_match_body`'s own docstring) is unconditional
 regardless of `initiate_step0` — confirmed by reading
 `orchestrator_turn.py::take_turn` before designing this: both sides always
-drive their *own* turns, "initiator" only ever matters for Step-0.
-`sub_game_scores`/`cumulative_score` are derived from
-`domain/scoring.py::score_outcome` — the only honest source for a single
-CLI-run match with no cross-game history to draw on.
+drive their *own* turns, "initiator" only ever matters for Step-0. `score`
+(PRD 16) is `domain/scoring.py::score_outcome`'s own real result for this
+one sub-game — `report_game()` itself now owns series accumulation.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ async def _run_match_body(
     orchestrator: Orchestrator,
     private_config: PrivateConfig,
     config: GameConfig,
-    game_id: str,
     *,
     counted: bool,
     use_tunnel: bool,
@@ -70,8 +68,7 @@ async def _run_match_body(
         outcome,
         is_counted=counted,
         opponent_id=peer_url,
-        sub_game_scores={game_id: score.cop},
-        cumulative_score=score.cop,
+        score=score,
     )
     return orchestrator
 
@@ -97,7 +94,7 @@ async def run_peer(
     the flag so callers that accidentally pass it still get a correct
     headless match rather than a blank Tk window under asyncio."""
     del gui  # CLI routes --gui to run_peer_with_gui; kept for call-site compat
-    orchestrator, private_config, config, game_id = build_orchestrator(
+    orchestrator, private_config, config, _game_id = build_orchestrator(
         private_config_path,
         shared_config_path,
         log_path=log_path,
@@ -107,7 +104,6 @@ async def run_peer(
         orchestrator,
         private_config,
         config,
-        game_id,
         counted=counted,
         use_tunnel=use_tunnel,
     )
@@ -124,7 +120,7 @@ def run_peer_with_gui(
 ) -> Orchestrator:
     """Same match as `run_peer`, but Tk mainloop owns the main thread and the
     async match runs in a background thread (Thief LiveSession pattern)."""
-    orchestrator, private_config, config, game_id = build_orchestrator(
+    orchestrator, private_config, config, _game_id = build_orchestrator(
         private_config_path,
         shared_config_path,
         log_path=log_path,
@@ -138,7 +134,6 @@ def run_peer_with_gui(
                 orchestrator,
                 private_config,
                 config,
-                game_id,
                 counted=counted,
                 use_tunnel=use_tunnel,
             )

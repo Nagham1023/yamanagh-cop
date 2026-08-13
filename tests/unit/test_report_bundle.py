@@ -16,9 +16,7 @@ from cop.orchestrator import Orchestrator
 from cop.reasoning.cop_brain import CopBrain
 from cop.tools.report_bundle import (
     DeclarationBundle,
-    ResultBundle,
     build_declaration,
-    build_result,
     config_filename,
     declaration_filename,
     load_config_dict,
@@ -70,37 +68,6 @@ def test_build_declaration_round_trips_through_json_cleanly():
     assert round_tripped["group_name"] == "yamanagh"
     assert round_tripped["cop_repo_url"] == "https://github.com/Nagham1023/yamanagh-cop"
     assert round_tripped["scent_model_sha256"] == "c" * 64
-
-
-def test_build_result_round_trips_and_contains_all_four_repo_links():
-    bundle = ResultBundle(
-        sub_game_scores={"g01": 20},
-        cumulative_score=20,
-        code_commit_hash="a" * 40,
-        total_tokens=0,
-        cop_repo_url="https://github.com/team-a/cop",
-        thief_repo_url="https://github.com/team-a/thief",
-        opponent_cop_repo_url="https://github.com/team-b/cop",
-        opponent_thief_repo_url="https://github.com/team-b/thief",
-        self_audit_passed=True,
-        peer_audit_passed=True,
-    )
-    payload = build_result(bundle)
-
-    round_tripped = json.loads(json.dumps(payload))
-    assert round_tripped == payload
-    links = {
-        payload["cop_repo_url"],
-        payload["thief_repo_url"],
-        payload["opponent_cop_repo_url"],
-        payload["opponent_thief_repo_url"],
-    }
-    assert links == {
-        "https://github.com/team-a/cop",
-        "https://github.com/team-a/thief",
-        "https://github.com/team-b/cop",
-        "https://github.com/team-b/thief",
-    }
 
 
 def test_load_config_dict_returns_the_real_negotiated_config_as_is(tmp_path):

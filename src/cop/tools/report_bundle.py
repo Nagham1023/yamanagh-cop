@@ -1,17 +1,14 @@
-"""Builds all four Table 20 files: `declaration_<game_id>.json`,
-`result_<game_id>.json`, and — PRD 10 — the loaders for the other two,
-`config_<game_id>_g<NN>.json` (the raw negotiated config, already on disk
-at `Orchestrator.shared_config_path`) and `log_<game_id>_g<NN>.json` (the
-raw trace log, already on disk at `Orchestrator.log_path`). Only the
-*filenames* for the latter two existed here before PRD 10 — `report_game()`
-(`orchestrator_end_of_game.py`) attached only `result_` until now, a known
-simplification its own module docstring used to flag.
+"""Filenames for all four Table 20 files, plus the `declaration_<game_id>.json`
+builder and the raw config/log loaders. `result_<game_id>.json`'s own real,
+series-scoped builder (`SubGameEntry`, `merge_into_series_result`) moved to
+`report_bundle_result.py`/`report_bundle_series.py` (PRD 16) once it grew
+past a flat, single-sub-game-scoped dict — this file keeps only what stayed
+simple.
 
 Composes `integrity/step0.py::Step0Declaration` (reused, not duplicated —
-PRD 6's own "don't reopen the frozen spec" discipline) with the
-league-facing fields ch. 9.3.3 additionally requires. Rule 49's four links
-are textually tied to the **result** file (`PRD-7-reporting-shell.md`'s
-Design Question 8 addendum, ch. 9.4) — `DeclarationBundle` carries only
+PRD 6's own "don't reopen the frozen spec" discipline). Rule 49's four
+links now live in `result_<game_id>.json`'s own `repo_urls` field
+(`report_bundle_series.py`), not here — `DeclarationBundle` carries only
 this team's own two.
 """
 
@@ -97,33 +94,4 @@ def build_declaration(bundle: DeclarationBundle) -> dict:
         "token_budget_per_series": bundle.token_budget_per_series,
         "started_at": bundle.started_at,
         "ended_at": bundle.ended_at,
-    }
-
-
-@dataclass(frozen=True)
-class ResultBundle:
-    sub_game_scores: dict[str, int]
-    cumulative_score: int
-    code_commit_hash: str
-    total_tokens: int
-    cop_repo_url: str
-    thief_repo_url: str
-    opponent_cop_repo_url: str
-    opponent_thief_repo_url: str
-    self_audit_passed: bool
-    peer_audit_passed: bool
-
-
-def build_result(bundle: ResultBundle) -> dict:
-    return {
-        "sub_game_scores": dict(bundle.sub_game_scores),
-        "cumulative_score": bundle.cumulative_score,
-        "code_commit_hash": bundle.code_commit_hash,
-        "total_tokens": bundle.total_tokens,
-        "cop_repo_url": bundle.cop_repo_url,
-        "thief_repo_url": bundle.thief_repo_url,
-        "opponent_cop_repo_url": bundle.opponent_cop_repo_url,
-        "opponent_thief_repo_url": bundle.opponent_thief_repo_url,
-        "self_audit_passed": bundle.self_audit_passed,
-        "peer_audit_passed": bundle.peer_audit_passed,
     }

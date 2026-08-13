@@ -4,14 +4,12 @@ closes the gap `cop-team-fix-list.md` flagged and `WIRE-CONTRACT.md` line
 (`integrity/step0.py`) existed but were never exchanged over the wire.
 
 Both sides verify independently (rule 9): `negotiate_step0` (the
-initiator, called once explicitly, same "separate call" precedent
-`report_game()` set in PRD 8) and `_on_step0_received` (the responder's
-`build_server` callback) both run the identical `_verify_peer_step0`
-check. A mismatch on *either* side raises `Step0MismatchError` and drives
-that side's own state machine to `TECHNICAL_LOSS` — the responder
-re-raises too, so a bad payload fails the tool call itself rather than
-leaving the initiator believing it succeeded while the responder
-silently forfeits underneath it.
+initiator, called once explicitly) and `_on_step0_received` (the
+responder's `build_server` callback) both run the identical
+`_verify_peer_step0` check. A mismatch on *either* side raises
+`Step0MismatchError` and drives that side's own state machine to
+`TECHNICAL_LOSS` — the responder re-raises too, so a bad payload fails the
+tool call itself rather than leaving the initiator believing it succeeded.
 
 `_on_step0_received` also calls `self._signal_step0_received(...)`
 (defined in `orchestrator_step0_wait.py`'s sibling mixin — PRD 10's
@@ -94,12 +92,13 @@ class Step0NegotiationMixin:
         own_declaration = self._build_own_step0()
         own_signature = sign_step0(own_declaration)
         try:
-            _, validated_repos = self._verify_peer_step0(declaration, signature, repos)
+            peer_declaration, validated_repos = self._verify_peer_step0(declaration, signature, repos)
         except Step0MismatchError as exc:
             self.state_machine.transition("TECHNICAL_LOSS")
             self._signal_step0_received(exc)
             raise
         self._opponent_repos = validated_repos
+        self._opponent_declaration = peer_declaration  # PRD 16: group_name/code_commit_hash for the result report
         self.trace.log("step0_negotiated", role="responder")
         self.state_machine.transition("WAITING_FOR_OPPONENT")
         self._signal_step0_received(None)
@@ -134,7 +133,7 @@ class Step0NegotiationMixin:
             raise Step0MismatchError(str(exc)) from exc
 
         try:
-            _, validated_repos = self._verify_peer_step0(
+            peer_declaration, validated_repos = self._verify_peer_step0(
                 response["declaration"], response["signature"], response["repos"]
             )
         except (Step0MismatchError, KeyError) as exc:
@@ -146,5 +145,6 @@ class Step0NegotiationMixin:
             raise Step0MismatchError(reason) from exc
 
         self._opponent_repos = validated_repos
+        self._opponent_declaration = peer_declaration
         self.trace.log("step0_negotiated", role="initiator")
         self.state_machine.transition("WAITING_FOR_OPPONENT")
