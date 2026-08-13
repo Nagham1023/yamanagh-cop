@@ -30,7 +30,14 @@ PRD 11 itself already used for the whole class.
 seam, identical posture to `belief_entropy_provider` above. Every real
 match / `run_local_subgame` use gets the default `None` (no second belief
 mode at inference time), so this addition is inert in production too.
-"""
+
+**PRD 14 round-2 post-gate — the backtrack guard**: found by running a real
+promoted checkpoint against a real opponent — a sparsely-explored state's
+only row entry can be the exact reverse of a neighbour's own best move, so
+greedy inference cycles between the two forever (`rl_legal_directions.
+pick_avoiding_backtrack`'s docstring has the full story). `_last_direction`
+is per-instance, per-match state — every real caller already constructs a
+fresh `RLCopBrain` per episode/match."""
 
 from __future__ import annotations
 
@@ -44,6 +51,7 @@ from .brain_base import Action, Move, PlaceBarrier
 from .cop_brain import CopBrain
 from .rl_checkpoint import RLQTable, load_checkpoint
 from .rl_legal_directions import legal_directions as _legal_directions
+from .rl_legal_directions import pick_avoiding_backtrack, pick_ranked_action_avoiding_backtrack
 from .rl_state_encoding import encode_state
 
 DEFAULT_CHECKPOINT_PATH = "training/promoted/rl_cop_qtable.json"
@@ -69,6 +77,7 @@ class RLCopBrain(CopBrain):
         self._q_table: RLQTable | None = self._load_or_none(checkpoint_path)
         self._belief_entropy_provider = belief_entropy_provider
         self._second_mode_provider = second_mode_provider
+        self._last_direction: str | None = None
 
     @staticmethod
     def _load_or_none(path: str | Path) -> RLQTable | None:
@@ -100,9 +109,11 @@ class RLCopBrain(CopBrain):
             ranked = self._q_table.ranked_actions(state)
             if ranked is not None:
                 legal = _legal_directions(own_pos, board, barriers)
-                for action in ranked:
-                    if action in legal:
-                        return action
+                action = pick_avoiding_backtrack(ranked, legal, self._last_direction)
+                if action is not None:
+                    self._last_direction = action
+                    return action
+                self._last_direction = None
                 return "STAY"
         return super()._pick_move(own_pos, target_pos, board, barriers)
 
@@ -123,15 +134,15 @@ class RLCopBrain(CopBrain):
             )
             ranked = self._q_table.ranked_actions(state)
             if ranked is not None:
-                legal_move_directions = _legal_directions(own_pos, board, barriers)
-                for action in ranked:
-                    if action.startswith("BARRIER_"):
-                        direction = action.removeprefix("BARRIER_")
-                        candidate = own_pos + DELTAS[direction]
-                        if barriers.can_place(own_pos, candidate, board):
-                            return PlaceBarrier(target=candidate)
-                        continue
-                    if action in legal_move_directions:
-                        return Move(direction=action)
+                action = pick_ranked_action_avoiding_backtrack(
+                    ranked, own_pos, board, barriers, self._last_direction
+                )
+                if action is not None and action.startswith("BARRIER_"):
+                    direction = action.removeprefix("BARRIER_")
+                    return PlaceBarrier(target=own_pos + DELTAS[direction])
+                if action is not None:
+                    self._last_direction = action
+                    return Move(direction=action)
+                self._last_direction = None
                 return Move(direction="STAY")
         return super()._decide_move(own_pos, target_pos, board, barriers)

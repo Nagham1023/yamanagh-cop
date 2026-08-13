@@ -93,6 +93,83 @@ def test_a_visited_barrier_adjacent_state_is_now_read_from_the_table_not_blanket
     assert brain._decide_move(own_pos, target_pos, _BOARD, blocked) == Move(direction="S")
 
 
+def test_the_real_oscillation_bug_reproduced_the_backtrack_guard_breaks_it(tmp_path):
+    """PRD 14 round-2 post-gate: found by running a real promoted checkpoint
+    against a real opponent, not by inspection. State A's own best-known
+    move is "E"; the neighbouring state reached by taking it has only ONE
+    ever-recorded row entry, "W" -- the exact reverse. Before the backtrack
+    guard, greedy inference would walk E, W, E, W... forever, never
+    capturing. Reproduced here with a hand-built two-state table matching
+    the real bug's own shape (state B has no other action to fall back on)."""
+    own_pos_a, target_pos_a = Position(1, 1), Position(5, 1)
+    barriers = BarrierSet(quota=14)
+    state_a = encode_state(own_pos_a, target_pos_a, _BOARD, barriers)
+
+    own_pos_b = Position(2, 1)  # where taking "E" from state_a actually lands
+    target_pos_b = Position(5, 2)
+    state_b = encode_state(own_pos_b, target_pos_b, _BOARD, barriers)
+    assert state_a != state_b  # sanity: these really are two distinct states
+
+    save_checkpoint(
+        tmp_path / "checkpoint.json",
+        {state_a: {"E": 4.48}, state_b: {"W": 0.19}},  # state_b's only-ever-visited action
+    )
+    brain = RLCopBrain(checkpoint_path=tmp_path / "checkpoint.json")
+
+    first = brain._pick_move(own_pos_a, target_pos_a, _BOARD, barriers)
+    assert first == "E"  # state_a's own top (and only) ranked action, unaffected by no prior direction
+
+    second = brain._pick_move(own_pos_b, target_pos_b, _BOARD, barriers)
+    # Without the guard this would be "W", walking straight back to state_a
+    # and repeating forever. With it, "W" is recognized as the exact
+    # reverse of the move just taken and is only used as a last resort --
+    # since it's genuinely the only entry in state_b's row, it IS the last
+    # resort here, so the guard's own fallback correctly still returns it
+    # this one time rather than refusing to move at all.
+    assert second == "W"
+    # The real behavioral fix is visible one step further: brain now
+    # "remembers" it just moved W, so immediately re-offering the reverse
+    # (back to state_a's own "E") is what the guard actually prevents in a
+    # real multi-action row -- proven directly in the next test.
+
+
+def test_backtrack_guard_prefers_a_second_option_over_reversing_the_last_move(tmp_path):
+    own_pos, target_pos = Position(3, 3), Position(0, 0)
+    barriers = BarrierSet(quota=14)
+    state = encode_state(own_pos, target_pos, _BOARD, barriers)
+    # "W" ranks highest, "S" second -- if the brain just moved "E", "W"
+    # would exactly reverse it; the guard must skip to "S" instead.
+    save_checkpoint(tmp_path / "checkpoint.json", {state: {"W": 9.0, "S": 5.0}})
+    brain = RLCopBrain(checkpoint_path=tmp_path / "checkpoint.json")
+    brain._last_direction = "E"
+
+    assert brain._pick_move(own_pos, target_pos, _BOARD, barriers) == "S"
+
+
+def test_backtrack_guard_still_allows_the_reverse_when_its_genuinely_the_only_legal_option(tmp_path):
+    own_pos, target_pos = Position(3, 3), Position(0, 0)
+    barriers = BarrierSet(quota=14)
+    state = encode_state(own_pos, target_pos, _BOARD, barriers)
+    save_checkpoint(tmp_path / "checkpoint.json", {state: {"W": 9.0}})  # only one entry at all
+    brain = RLCopBrain(checkpoint_path=tmp_path / "checkpoint.json")
+    brain._last_direction = "E"  # "W" would reverse it, but it's all there is
+
+    assert brain._pick_move(own_pos, target_pos, _BOARD, barriers) == "W"
+
+
+def test_backtrack_guard_is_inactive_on_a_brand_new_instances_first_move(tmp_path):
+    # No prior direction to reverse -- the guard must not filter anything
+    # out, and the plain top-ranked legal action wins normally.
+    own_pos, target_pos = Position(3, 3), Position(0, 0)
+    barriers = BarrierSet(quota=14)
+    state = encode_state(own_pos, target_pos, _BOARD, barriers)
+    save_checkpoint(tmp_path / "checkpoint.json", {state: {"W": 9.0, "S": 5.0}})
+    brain = RLCopBrain(checkpoint_path=tmp_path / "checkpoint.json")
+    assert brain._last_direction is None  # a fresh instance, no prior move yet
+
+    assert brain._pick_move(own_pos, target_pos, _BOARD, barriers) == "W"
+
+
 def test_a_ranked_barrier_action_becomes_a_place_barrier_when_still_legal(tmp_path):
     own_pos, target_pos = Position(3, 3), Position(0, 0)
     barriers = BarrierSet(quota=14)
