@@ -52,6 +52,22 @@ def test_receive_commit_acknowledges_and_fires_on_commit(config):
     assert received == ["a" * 64]
 
 
+def test_receive_commit_still_works_from_a_client_that_predates_sent_at_deadline_at(config):
+    # PRD 15's own real interop break, found the day it shipped: a thief-repo
+    # client built against the pre-PRD-15 tool shape sends {"h_commit": ...}
+    # with neither field at all — FastMCP rejects a call missing a
+    # *required* param outright, so an older/third-party client must not be
+    # locked out of committing entirely. sent_at/deadline_at are optional
+    # now specifically so this call still succeeds.
+    received = []
+    mcp = build_server(config, on_commit=lambda h, sent_at, deadline_at: received.append((h, sent_at, deadline_at)))
+
+    data = _call(mcp, "receive_commit", {"h_commit": "a" * 64})
+
+    assert data == {"acknowledged": True}
+    assert received == [("a" * 64, None, None)]
+
+
 def test_receive_final_reveal_acknowledges_and_fires_on_final_reveal(config):
     received = []
     mcp = build_server(

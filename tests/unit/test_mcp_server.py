@@ -51,6 +51,20 @@ def test_receive_reveal_decodes_a_valid_payload(config):
     assert data == {"accepted": True, "word_count": 4}
 
 
+def test_receive_reveal_still_works_from_a_client_that_predates_sent_at_deadline_at(config):
+    # Same real interop break as receive_commit's own version of this test
+    # (PRD 15, found via a real thief-repo run) — sent_at/deadline_at must
+    # stay optional so an older client's bare {"move", "hint_text"} payload
+    # still succeeds.
+    received = []
+    mcp = build_server(
+        config, on_reveal=lambda move, text, sent_at, deadline_at: received.append((move, text, sent_at, deadline_at))
+    )
+    data = _call(mcp, "receive_reveal", {"move": _A_MOVE, "hint_text": "quiet by the river"})
+    assert data == {"accepted": True, "word_count": 4}
+    assert received == [(_A_MOVE, "quiet by the river", None, None)]
+
+
 def test_receive_reveal_flags_a_hint_over_the_word_limit(config):
     mcp = build_server(config)
     over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))

@@ -118,7 +118,7 @@ class BrainTurnMixin:
         return intent, text
 
     def _on_reveal_received(
-        self, move: dict, hint_text: str, sent_at: float, deadline_at: float
+        self, move: dict, hint_text: str, sent_at: float | None = None, deadline_at: float | None = None
     ) -> None:
         """Server-role counterpart to `take_turn`'s outgoing reveal:
         interpret the peer's tactical hint (possibly a lie), folding it into
@@ -136,9 +136,9 @@ class BrainTurnMixin:
 
         Also mirrors `hint_text` into `self._last_hint_received` for the
         live GUI (PRD 7 round-2), and logs the peer's declared `sent_at`/
-        `deadline_at` (PRD 15, ch. 8.4) — timing is observational only,
-        never trusted (rule 9; see `_log_if_peer_deadline_already_expired`,
-        `orchestrator_peer_audit.py`)."""
+        `deadline_at` (PRD 15, optional, `None` for an older client) —
+        observational only, never trusted (rule 9; see
+        `_log_if_peer_deadline_already_expired`, `orchestrator_peer_audit.py`)."""
         self._last_hint_received = hint_text
         self.peer_trace.record_reveal(move, hint_text)
         if len(hint_text.split()) <= self.config.hint_word_limit:

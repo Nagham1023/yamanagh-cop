@@ -35,8 +35,8 @@ def register_prd6_tools(
     config: Any,
     caller_ip: Callable[[], str | None],
     on_receive: Callable[[str | None], None] | None,
-    on_commit: Callable[[str, float, float], None] | None = None,
-    on_reveal: Callable[[dict, str, float, float], None] | None = None,
+    on_commit: Callable[[str, float | None, float | None], None] | None = None,
+    on_reveal: Callable[[dict, str, float | None, float | None], None] | None = None,
     on_final_reveal: Callable[[dict, dict], None] | None = None,
     on_barrier_declaration: Callable[[int, int], None] | None = None,
     on_capture_claim: Callable[[int, int, int, int, int], None] | None = None,
@@ -47,12 +47,16 @@ def register_prd6_tools(
     surface don't need to stub every callback."""
 
     @mcp.tool
-    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
+    def receive_commit(h_commit: str, sent_at: float | None = None, deadline_at: float | None = None) -> dict:
         """Step 1/2 (ch. 5.3.2): accept a peer's `Hcommit` for this turn;
         acknowledge — the Acknowledge step is this synchronous return, not a
         separate tool/state (PRD 6 Design Question 4). `sent_at`/`deadline_at`
         (PRD 15, ch. 8.4): the peer's own declared request timing — logged
-        by the callback, never trusted (rule 9)."""
+        by the callback, never trusted (rule 9). Optional, defaulting to
+        `None`: found via a real interop run (WIRE-CONTRACT.md's Status log)
+        that FastMCP rejects a call missing a *required* param outright — an
+        older or third-party client that predates PRD 15 must not be locked
+        out of committing at all just because it doesn't send these yet."""
         if on_receive is not None:
             on_receive(caller_ip())
         if on_commit is not None:
@@ -60,11 +64,13 @@ def register_prd6_tools(
         return {"acknowledged": True}
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
+    def receive_reveal(
+        move: dict, hint_text: str, sent_at: float | None = None, deadline_at: float | None = None
+    ) -> dict:
         """Step 3: `Move` (an unverified claim until Final Reveal, PRD 6
         Design Question 2) plus the tactical hint — no `nonce` parameter,
         rule 18: the nonce stays hidden until `receive_final_reveal`.
-        `sent_at`/`deadline_at`: see `receive_commit` above."""
+        `sent_at`/`deadline_at`: optional, see `receive_commit` above."""
         if on_receive is not None:
             on_receive(caller_ip())
         if on_reveal is not None:

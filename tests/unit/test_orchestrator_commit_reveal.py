@@ -163,3 +163,22 @@ def test_a_deadline_still_in_the_future_on_receipt_logs_nothing_extra(config, tm
         for line in (tmp_path / "server_trace.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert not any(e["event"] == "peer_declared_deadline_already_expired" for e in events)
+
+
+def test_a_missing_deadline_from_an_older_peer_client_does_not_crash_or_misfire(config, tmp_path):
+    # A real interop break, found via a live thief-repo run the day PRD 15
+    # shipped: an older client sends neither field at all. The callback
+    # must not raise on None > x, and must not log a false
+    # "already expired" — there's nothing to compare, so nothing to flag.
+    server = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "server_trace.jsonl"))
+
+    server._on_commit_received("a" * 64, None, None)
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "server_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    (commit_event,) = [e for e in events if e["event"] == "peer_commit_received"]
+    assert commit_event["peer_sent_at"] is None
+    assert commit_event["peer_deadline_at"] is None
+    assert not any(e["event"] == "peer_declared_deadline_already_expired" for e in events)
