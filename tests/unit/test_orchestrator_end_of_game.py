@@ -70,6 +70,12 @@ def _client(config, tmp_path, name: str = "client", *, sub_game_number: int = 1)
         client.private_config = dataclasses.replace(client.private_config, sub_game_number=sub_game_number)
     client.league_ledger = client.league_ledger.__class__(path=str(tmp_path / f"{name}_ledger.json"))
     client._opponent_declaration = _opponent_declaration(sub_game_number=sub_game_number)
+    # None of this file's own tests exercise the Final-Reveal race
+    # (test_peer_final_reveal_wait.py does, directly) — this peer never
+    # actually sends one, so without this, every report_game() call here
+    # would pay the real (short but nonzero) _await_peer_final_reveal wait
+    # for no reason.
+    client._peer_final_reveal_received = True
     return client
 
 
@@ -308,6 +314,7 @@ def test_report_game_raises_when_opponent_declaration_is_missing(config, tmp_pat
     # other honest source, PRD 16).
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
     client.league_ledger = client.league_ledger.__class__(path=str(tmp_path / "ledger.json"))
+    client._peer_final_reveal_received = True  # not this test's own concern -- see _client()'s note
     peer_url = _start_peer(config, tmp_path)
     assert client._opponent_declaration is None
 
@@ -362,6 +369,7 @@ def test_two_sequential_real_sub_games_genuinely_accumulate_not_overwrite(config
         path=str(tmp_path / "sub_game_1_ledger.json")
     )
     second_client._opponent_declaration = _opponent_declaration(sub_game_number=2)
+    second_client._peer_final_reveal_received = True  # not this test's own concern -- see _client()'s note
     second_client._opponent_repos = dict(first_client._opponent_repos)
     peer_url_2 = _start_peer(config, tmp_path)
     asyncio.run(

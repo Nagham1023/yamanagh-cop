@@ -32,6 +32,62 @@ def test_update_from_scent_keeps_summing_to_one_and_down_weights_searched_cells(
     assert belief.probability(cop_pos) < before
 
 
+def test_update_from_scent_never_produces_a_negative_or_over_one_probability_when_the_cop_has_stalled(
+    config,
+):
+    # The real live bug (belief.py's own docstring on update_from_scent has
+    # the full story): ScentField's tau is an unbounded concentration, not a
+    # [0, 1] fraction — a cop that stalls in place for several turns builds
+    # up a scent level > 1 at its own resting cell, which used to flip
+    # 1 - level negative and corrupt other cells' normalized share above
+    # 1.0. Reproduces the exact mechanism: repeated advance() at the same
+    # position, not a single fresh deposit (that's the test right above,
+    # which never hits the bug since a single deposit stays under 1).
+    board = Board(size=config.board_size)
+    belief = BeliefMap.uniform(board)
+    scent = ScentField.from_config(config)
+    cop_pos = Position(3, 3)
+
+    for _ in range(15):
+        scent.advance(cop_pos, board)
+    assert scent.sample(cop_pos, board)[cop_pos] > 1.0  # confirms the precondition is real, not assumed
+
+    belief.update_from_scent(scent, cop_pos, board)
+
+    assert abs(belief.total_probability() - 1.0) < 1e-9
+    assert all(0.0 <= p <= 1.0 for p in belief._probabilities.values())
+
+
+def test_normalize_falls_back_to_uniform_instead_of_dividing_by_zero():
+    # Real regression found immediately after the update_from_scent clamp
+    # fix above: on a small board, a long-enough stall can drive *every*
+    # tracked cell's mass to exactly 0 in one update (max(0.0, 1-level) for
+    # a saturated scent field, everywhere) -- ZeroDivisionError inside
+    # _normalize() itself, not caught by update_from_scent's own test since
+    # that one uses config's real (larger) board size.
+    board = Board(size=5)
+    belief = BeliefMap.uniform(board)
+    belief._probabilities = {cell: 0.0 for cell in belief._probabilities}
+
+    belief._normalize()
+
+    assert abs(belief.total_probability() - 1.0) < 1e-9
+    probabilities = {belief.probability(Position(c, r)) for c in range(board.size) for r in range(board.size)}
+    assert len(probabilities) == 1  # fell back to uniform, not left at all-zero
+
+
+def test_normalize_falls_back_to_uniform_excluding_barrier_cells():
+    board = Board(size=5)
+    barriers = BarrierSet(quota=14, placed={Position(0, 0)})
+    belief = BeliefMap.uniform(board, barriers)
+    belief._probabilities = {cell: 0.0 for cell in belief._probabilities}
+
+    belief._normalize()
+
+    assert belief.probability(Position(0, 0)) == 0.0
+    assert belief.probability(Position(1, 1)) > 0.0
+
+
 def test_update_from_hint_keeps_summing_to_one_and_up_weights_the_focal_region(config):
     board = Board(size=config.board_size)
     belief = BeliefMap.uniform(board)
@@ -149,16 +205,16 @@ def test_a_higher_reliability_coefficient_shifts_belief_more_than_a_lower_one(mo
     # — a hint declared more reliable must concentrate belief harder on its
     # focal region than the identical hint declared less reliable, not just
     # produce the same shift regardless of the coefficient's value.
-    import cop.memory.belief as belief_module
+    import cop.memory.belief_hint_update as belief_hint_update_module
 
     board = Board(size=7)
     focal_point = Position(3, 3)
 
-    monkeypatch.setattr(belief_module, "_HINT_RELIABILITY", 0.55)
+    monkeypatch.setattr(belief_hint_update_module, "_HINT_RELIABILITY", 0.55)
     low = BeliefMap.uniform(board)
     low.update_from_hint(focal_point, board)
 
-    monkeypatch.setattr(belief_module, "_HINT_RELIABILITY", 0.95)
+    monkeypatch.setattr(belief_hint_update_module, "_HINT_RELIABILITY", 0.95)
     high = BeliefMap.uniform(board)
     high.update_from_hint(focal_point, board)
 

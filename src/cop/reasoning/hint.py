@@ -65,16 +65,33 @@ def choose_provider(
     return template_provider
 
 
-def interpret_hint(text: str, board: Board) -> Position:
-    """Parse incoming text into a focal `Position` for `BeliefMap.update_from_hint`.
+def interpret_hint(text: str, board: Board) -> Position | None:
+    """Parse incoming text into a focal `Position` for `BeliefMap.update_from_hint`,
+    or `None` if the text contains no direction word at all.
 
     Matches `TemplateHintProvider`'s own vocabulary (north/south/east/west) —
     deliberately simple, deterministic keyword matching, not an LLM call.
-    Defaults to north-west when a direction isn't mentioned, rather than
-    raising: an unparseable hint should degrade to "no new information",
-    not crash the turn.
+
+    `None` is the real "no new information" case, not a stand-in for a
+    guessed quadrant: found live (a real match's cop got permanently stuck
+    near its own start corner) that an earlier version of this function
+    always returned *some* `Position`, silently defaulting to north-west
+    whenever neither axis had a keyword — every one of a real opponent's
+    direction-less hints ("Last seen heading toward New York") then injected
+    a confident, entirely fabricated NW pull into belief on every single
+    turn (`_on_reveal_received` calls this unconditionally). The caller must
+    skip the `update_from_hint` call on `None`, not substitute a default —
+    that's the actual fix; a differently-guessed default would repeat the
+    same bug with different coordinates. A hint that specifies only one axis
+    (e.g. "north" alone) still resolves the other axis by the same
+    each-word-present check as before — that's genuine partial information,
+    not the fully-uninformative case this guards against.
     """
     lowered = text.lower()
+    has_vertical = "south" in lowered or "north" in lowered
+    has_horizontal = "east" in lowered or "west" in lowered
+    if not has_vertical and not has_horizontal:
+        return None
     vertical = "south" if "south" in lowered else "north"
     horizontal = "east" if "east" in lowered else "west"
     row = board.size // 4 if vertical == "north" else (3 * board.size) // 4

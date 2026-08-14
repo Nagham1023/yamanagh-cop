@@ -12,7 +12,7 @@ import asyncio
 
 from .planner.deadline import await_with_deadline
 from .reasoning.brain_base import Action
-from .reasoning.hint import choose_provider, decide_intent, generate_hint, interpret_hint
+from .reasoning.hint import choose_provider, decide_intent, generate_hint
 
 # Not an Appendix F parameter — Table 21 defines the provider/cadence, not a
 # lying frequency. A fixed, conservative default (never lie) until a real
@@ -72,6 +72,16 @@ class BrainTurnMixin:
         self.scent_field.advance(self.game_state.own_pos, self.board)
         self.belief_map.update_from_scent(self.scent_field, self.game_state.own_pos, self.board)
         self.game_state.target_pos = self.belief_map.most_likely_cell()
+        # Observability, not behavior: added while diagnosing a real match
+        # where the cop never closed distance on the thief — without this,
+        # there was no way to see whether belief was actually migrating
+        # toward the real scent trail turn by turn, only where the cop's
+        # own feet ended up.
+        self.trace.log(
+            "belief_target_updated",
+            target_pos=[self.game_state.target_pos.col, self.game_state.target_pos.row],
+            target_probability=self.belief_map.probability(self.game_state.target_pos),
+        )
 
         intent, text = self._generate_and_log_hint()
         return await self.commit_and_reveal_to_peer(
@@ -116,35 +126,3 @@ class BrainTurnMixin:
             "hint_generated", intent=intent, steps_taken=self.game_state.steps_taken, tokens_used=0
         )
         return intent, text
-
-    def _on_reveal_received(
-        self, move: dict, hint_text: str, sent_at: float | None = None, deadline_at: float | None = None
-    ) -> None:
-        """Server-role counterpart to `take_turn`'s outgoing reveal:
-        interpret the peer's tactical hint (possibly a lie), folding it into
-        the belief map. Injected into `build_server` as `on_reveal` rather
-        than importing `reasoning.hint`/`memory.belief` there — `tools/`
-        stays a thin transport layer (rule 3/I2).
-
-        `move` is an unverified claim until Final Reveal (PRD 6 DQ2) — not
-        cryptographically checkable yet, since the nonce needed to recompute
-        the peer's `Hcommit` doesn't exist until then; it's persisted into
-        `self.peer_trace` (closing PRD 6's own "Known gap") for
-        `run_peer_audit`'s later use, but never fed into belief here — only
-        `hint_text` does that, and only after passing `hint_word_limit`
-        (I9 — everything a peer sends is untrusted).
-
-        Also mirrors `hint_text` into `self._last_hint_received` for the
-        live GUI (PRD 7 round-2), and logs the peer's declared `sent_at`/
-        `deadline_at` (PRD 15, optional, `None` for an older client) —
-        observational only, never trusted (rule 9; see
-        `_log_if_peer_deadline_already_expired`, `orchestrator_peer_audit.py`)."""
-        self._last_hint_received = hint_text
-        self.peer_trace.record_reveal(move, hint_text)
-        if len(hint_text.split()) <= self.config.hint_word_limit:
-            focal_point = interpret_hint(hint_text, self.board)
-            self.belief_map.update_from_hint(focal_point, self.board)
-        self.trace.log(
-            "hint_received", text=hint_text, peer_sent_at=sent_at, peer_deadline_at=deadline_at
-        )
-        self._log_if_peer_deadline_already_expired(deadline_at)

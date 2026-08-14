@@ -93,5 +93,15 @@ class PeerCommsMixin:
         except Exception as exc:
             self._fail_to_technical_loss(exc)
             raise
-        self.trace.log("scent_map_received", cell_count=len(scent_map))
+        # max_value alongside cell_count (not just the count): a peer that
+        # honestly reports 30 non-empty cells but at near-zero magnitude is
+        # indistinguishable from real signal by cell_count alone — found
+        # missing while diagnosing a real match where the cop's belief never
+        # migrated toward the true thief location despite consistently
+        # nonzero scent_map_received counts every round.
+        self.trace.log(
+            "scent_map_received",
+            cell_count=len(scent_map),
+            max_value=max(scent_map.values()) if scent_map else 0.0,
+        )
         return scent_map

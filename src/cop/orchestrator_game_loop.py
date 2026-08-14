@@ -51,6 +51,17 @@ class GameLoopMixin:
         in this repo's own lifecycle that legitimately represent "a match
         began"/"a match ended" — `report_game()`'s `DeclarationBundle`
         needs both and had no other honest source for them."""
+        # Captured here, once, at the earliest point this side has a real
+        # running loop -- orchestrator_peer_audit.py's own docstring has
+        # the full story on why report_game()'s peer_audit() needs this
+        # (found live: a real match reached its own local survival outcome
+        # and called report_game() before the peer's independently-timed
+        # Final Reveal had actually arrived, producing a false "missing
+        # final_reveal" mismatch on data that was genuinely fine once it
+        # did land). Capturing it this early, not lazily inside
+        # report_game() itself, closes the race regardless of which side
+        # reaches the milestone first.
+        self._peer_final_reveal_loop = asyncio.get_running_loop()
         self._match_started_at = datetime.now(UTC).isoformat()
         gui_window = LiveGuiWindow(board_size=self.config.board_size) if enable_gui else None
         if gui_window is not None:

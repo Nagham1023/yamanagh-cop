@@ -407,6 +407,45 @@ def test_take_turn_pulls_and_applies_the_peers_real_scent_map(config, tmp_path):
     assert "scent_map_received" in events
 
 
+def test_take_turn_logs_the_received_scent_maps_max_value_not_just_its_cell_count(config, tmp_path):
+    # Found missing while diagnosing a real match: cell_count alone can't
+    # distinguish "genuine strong signal" from "many cells, all near zero" —
+    # added specifically so a future run can tell those apart from the log.
+    client_port = _free_port()
+    server, port = _start_server_answering(config, tmp_path, "server", _client_url_for(client_port))
+    server.scent_field.advance(Position(6, 6), server.board)
+
+    client = _start_client_as_server(config, CopBrain(), tmp_path, "client", client_port)
+    asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "client_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    (scent_event,) = [e for e in events if e["event"] == "scent_map_received"]
+    assert scent_event["max_value"] > 0.0
+
+
+def test_take_turn_logs_the_belief_target_and_its_probability_every_turn(config, tmp_path):
+    # The other missing piece from the same diagnosis: without this, there
+    # was no way to see whether belief was ever migrating toward the real
+    # scent trail turn by turn, only where the cop's own feet ended up.
+    client_port = _free_port()
+    server, port = _start_server_answering(config, tmp_path, "server", _client_url_for(client_port))
+    server.scent_field.advance(Position(6, 6), server.board)
+
+    client = _start_client_as_server(config, CopBrain(), tmp_path, "client", client_port)
+    asyncio.run(client.take_turn(f"http://127.0.0.1:{port}/mcp"))
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "client_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    (belief_event,) = [e for e in events if e["event"] == "belief_target_updated"]
+    assert belief_event["target_pos"] == [client.game_state.target_pos.col, client.game_state.target_pos.row]
+    assert 0.0 < belief_event["target_probability"] <= 1.0
+
+
 def test_on_reveal_received_applies_the_tactical_claim(config, tmp_path):
     # PRD 4 "Revision 3": _on_reveal_received's hint_text still only feeds
     # the tactical claim — scent-map corroboration is take_turn's own pull.
@@ -421,6 +460,26 @@ def test_on_reveal_received_applies_the_tactical_claim(config, tmp_path):
     )
 
     assert client.belief_map.probability(claim_focal) > claim_before
+
+
+def test_on_reveal_received_leaves_belief_unchanged_for_a_direction_less_hint(config, tmp_path):
+    # The actual fix, at the orchestrator level: a hint with no direction
+    # word must leave belief genuinely untouched, not fall back to a
+    # fabricated north-west pull (the real bug this closed — see
+    # orchestrator_reveal_received.py's module docstring). Same "compare
+    # against a never-updated control" proof `does_not_apply_an_over_limit_claim`
+    # already uses below.
+    client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    control = BeliefMap.uniform(client.board)
+
+    client._on_reveal_received(
+        {"type": "move", "direction": "NORTH"},
+        "Ask anyone near New York -- they haven't seen me.",
+        time.time(),
+        time.time() + 30.0,
+    )
+
+    assert client.belief_map._probabilities == control._probabilities
 
 
 def test_on_reveal_received_does_not_apply_an_over_limit_claim(config, tmp_path):

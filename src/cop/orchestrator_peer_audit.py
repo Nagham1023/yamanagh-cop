@@ -14,46 +14,24 @@ at all, unlike every per-turn network call elsewhere in this repo.
 
 from __future__ import annotations
 
-import time
-
 from .domain.board import Position
 from .integrity.audit import AuditResult
 from .integrity.peer_trace import run_peer_audit
-from .planner.deadline import await_with_deadline
+from .planner.deadline import DeadlineExceededError, await_with_deadline
 from .tools.mcp_client_prd6 import send_final_reveal
+
+# Algorithm/robustness constant, not an Appendix F quantity (I6 doesn't
+# apply — same category as belief.py's _HINT_RELIABILITY): the real race
+# this closes needed about 31ms of margin (a peer's Final Reveal landing
+# just after this side's own outgoing send completed). This is a fixed
+# short wait, deliberately *not* `response_timeout_seconds` (a full turn's
+# compute+network budget, including LLM hint generation) — reusing that
+# 30s figure made every report_game() call that doesn't simulate a real
+# peer (most unit tests) pay a near-full timeout for no reason.
+_PEER_FINAL_REVEAL_WAIT_SECONDS = 5.0
 
 
 class PeerAuditMixin:
-    def _on_commit_received(
-        self, h_commit: str, sent_at: float | None = None, deadline_at: float | None = None
-    ) -> None:
-        """Server-role counterpart to `commit_and_reveal_to_peer`'s outgoing
-        commit — persists the peer's own `Hcommit` into `self.peer_trace`,
-        the piece PRD 6 left unwired (`on_commit` was always `None`).
-
-        PRD 15 (ch. 8.4): `sent_at`/`deadline_at` are the peer's own
-        declared request timing — logged for observability only; rule 9
-        means a peer-declared deadline is never trusted to affect this
-        side's own `await_with_deadline` bound. Both `None` for a peer
-        whose own client predates this addition (`receive_commit`'s tool
-        signature makes them optional for exactly this reason) — logged as
-        `null`, not faked."""
-        self.peer_trace.record_commit(h_commit)
-        self.trace.log(
-            "peer_commit_received", h_commit=h_commit, peer_sent_at=sent_at, peer_deadline_at=deadline_at
-        )
-        self._log_if_peer_deadline_already_expired(deadline_at)
-
-    def _log_if_peer_deadline_already_expired(self, deadline_at: float | None) -> None:
-        """Shared by `_on_commit_received`/`orchestrator_turn.py`'s own
-        `_on_reveal_received` (same mixin composition, same `self.trace`).
-        Informational only — a stale `deadline_at` suggests clock skew or a
-        slow/lying peer, never something this side acts on (rule 9).
-        `None` (an older peer client) means nothing to compare — skipped,
-        not treated as automatically expired."""
-        if deadline_at is not None and time.time() > deadline_at:
-            self.trace.log("peer_declared_deadline_already_expired", deadline_at=deadline_at)
-
     def _on_final_reveal_received(self, nonces: dict, intents: dict) -> dict:
         """Server-role counterpart to `send_final_reveal_to_peer` — the
         peer's own nonces and Intent flags, both required to recompute
@@ -71,6 +49,13 @@ class PeerAuditMixin:
         mutual audit cannot be one-sided and silent."""
         self.peer_trace.record_final_reveal(nonces, intents)
         self._peer_final_reveal_received = True
+        if self._peer_final_reveal_loop is not None:
+            # asyncio.Event.set() is not thread-safe across loops -- this
+            # callback runs on the MCP server's own OS thread
+            # (orchestrator_capture.py's docstring has the general
+            # reasoning). call_soon_threadsafe is the only safe way to wake
+            # a waiter parked on report_game()'s own loop.
+            self._peer_final_reveal_loop.call_soon_threadsafe(self._peer_final_reveal_event.set)
         peer_audit = self.audit_peer()
         verified = len(self.peer_trace.entries) - len(peer_audit.mismatches)
         self.trace.log(
@@ -85,6 +70,26 @@ class PeerAuditMixin:
             "failed_steps": [m.get("step") for m in peer_audit.mismatches],
             "evaluated": True,
         }
+
+    async def _await_peer_final_reveal(
+        self, timeout_seconds: float = _PEER_FINAL_REVEAL_WAIT_SECONDS
+    ) -> None:
+        """`report_game()`'s own real fix for the race this module's other
+        docstrings describe: don't call `audit_peer()` the instant this
+        side's own outcome is known, since the peer's independently-timed
+        Final Reveal may genuinely not have arrived yet. A timeout here
+        isn't itself a failure — `audit_peer()` afterward still correctly
+        reports real "missing final_reveal" mismatches for a peer that
+        truly never sent one; this only removes the false-negative case
+        where the reveal was already in flight."""
+        if self._peer_final_reveal_received:
+            return
+        try:
+            await await_with_deadline(
+                self._peer_final_reveal_event.wait(), timeout_seconds=timeout_seconds
+            )
+        except DeadlineExceededError:
+            self.trace.log("peer_final_reveal_wait_timed_out", timeout_seconds=timeout_seconds)
 
     async def send_final_reveal_to_peer(self, peer_url: str) -> dict:
         """Rule 18: only ever called at game end. No state-machine

@@ -5,19 +5,11 @@ Connector (`tools/`), Log Manager (`observability/trace.py`), Deadline
 Tracker, Watchdog, and — as of PRD 3 — the Decision Module (`reasoning/`).
 Nothing outside this module reaches those subsystems directly.
 
-The watchdog is doubly wired: every tool call feeds it a heartbeat (via
-`self._on_connection_received`, wired as `build_server`'s `on_receive`),
-and a daemon thread started in `run_as_server` polls `watchdog.check()` so
-a frozen process actually gets caught while serving.
-
-`take_turn()` proves the brain is genuinely wired, not that the algorithm
-works (that's `reasoning/subgame.py`'s job, entirely offline). It lives in
-`orchestrator_turn.py`'s `BrainTurnMixin`; `run_as_server`/the watchdog
-poll loop live in `orchestrator_server.py`'s `ServerLifecycleMixin`; PRD
-6's Commit-Reveal round trip lives in `orchestrator_commit_reveal.py`'s
-`CommitRevealMixin`; the connection hook lives in `orchestrator_peer.py`'s
-`PeerCommsMixin`; Step-0 lives in `orchestrator_step0.py`'s
-`Step0NegotiationMixin` — this file grew past the 150-line cap repeatedly.
+Watchdog: every tool call feeds it a heartbeat (`on_receive`), and a
+daemon thread in `run_as_server` polls `watchdog.check()` so a frozen
+process gets caught while serving. Turns/reveals/Commit-Reveal live in
+`orchestrator_turn.py`/`orchestrator_reveal_received.py`/
+`orchestrator_commit_reveal.py` — split again each cap re-hit.
 """
 
 from __future__ import annotations
@@ -42,7 +34,9 @@ from .orchestrator_end_of_game import EndOfGameMixin
 from .orchestrator_game_loop import GameLoopMixin
 from .orchestrator_peer import PeerCommsMixin
 from .orchestrator_peer_audit import PeerAuditMixin
+from .orchestrator_peer_commit import PeerCommitMixin
 from .orchestrator_report_entry import ReportEntryMixin
+from .orchestrator_reveal_received import RevealReceivedMixin
 from .orchestrator_server import ServerLifecycleMixin
 from .orchestrator_step0 import Step0NegotiationMixin
 from .orchestrator_step0_wait import Step0PassiveWaitMixin
@@ -70,7 +64,9 @@ class Orchestrator(
     GameLoopMixin,
     PeerCommsMixin,
     PeerAuditMixin,
+    PeerCommitMixin,
     ReportEntryMixin,
+    RevealReceivedMixin,
     ServerLifecycleMixin,
     Step0NegotiationMixin,
     Step0PassiveWaitMixin,
@@ -138,12 +134,15 @@ class Orchestrator(
         )
 
     def _init_cross_thread_signals(self) -> None:
-        """Event/loop pairs `orchestrator_capture.py`/`orchestrator_step0_wait.py` use to
-        hand a result from the MCP server thread back to an awaiting asyncio loop."""
+        """Event/loop pairs `orchestrator_capture.py`/`orchestrator_step0_wait.py`/
+        `orchestrator_peer_audit.py` use to hand a result from the MCP server
+        thread back to an awaiting asyncio loop."""
         self._capture_response_event = asyncio.Event()
         self._capture_response: CaptureResponse | None = None
         self._capture_response_loop: asyncio.AbstractEventLoop | None = None
         self._step0_received_event = asyncio.Event()
         self._step0_received_loop: asyncio.AbstractEventLoop | None = None
         self._step0_failure: Exception | None = None
+        self._peer_final_reveal_event = asyncio.Event()
+        self._peer_final_reveal_loop: asyncio.AbstractEventLoop | None = None
         self._watchdog_stop_event = threading.Event()  # plain thread, not asyncio (orchestrator_server.py)

@@ -25,6 +25,16 @@ turn_timeout_seconds = 180
 initiate_step0 = false
 step0_wait_seconds = 60   # short for fast local iteration, not the real match's 300s default
 
+[strategy]
+# Was unset until 2026-08-14: a real local match against this exact config
+# defaulted to plain CopBrain and got stuck oscillating E/W for 26 straight
+# rounds (weighted_cop_brain.py's own module docstring has the full story).
+# config/game.toml (the real submission config) already promoted plain
+# RLCopBrain on 2026-08-13; this points the local-test config at the newer
+# 90/10 RL-weighted router instead, specifically to exercise the fix this
+# config's own match uncovered.
+police_class = "cop.reasoning.weighted_cop_brain:WeightedRLCopBrain"
+
 [trash_talk]
 provider = "template"
 every_n_steps = 1

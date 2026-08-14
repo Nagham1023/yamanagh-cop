@@ -88,6 +88,27 @@ def test_interpret_hint_on_a_south_east_hint_produces_a_south_east_focal_point()
     assert focal_point.col > board.size / 2
 
 
+def test_interpret_hint_returns_none_when_no_direction_word_is_present():
+    # The real live bug (weighted_cop_brain.py/orchestrator_reveal_received.py
+    # module docstrings have the full story): a hint with zero direction
+    # words used to silently default to a confident north-west focal point
+    # instead of genuinely meaning "no new information." A real opponent's
+    # actual hint text, containing zero direction words.
+    board = Board(size=7)
+    assert interpret_hint("Ask anyone near New York -- they haven't seen me.", board) is None
+    assert interpret_hint("Last seen heading toward New York.", board) is None
+
+
+def test_interpret_hint_still_resolves_a_hint_that_specifies_only_one_axis():
+    # Not a blanket "any missing word means None" check: a hint naming only
+    # one axis is genuine partial information, not the fully-uninformative
+    # case the None guard targets.
+    board = Board(size=7)
+    focal_point = interpret_hint("Somewhere north of here.", board)
+    assert focal_point is not None
+    assert focal_point.row < board.size / 2
+
+
 def test_interpret_hint_shifts_a_belief_map_toward_the_hinted_region():
     from cop.memory.belief import BeliefMap
 

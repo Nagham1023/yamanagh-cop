@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..domain.barriers import BarrierSet
 from ..domain.board import Board, Position
+from ..domain.capture import thief_has_no_legal_move
 from ..domain.movement import DELTAS, apply_move
 
 
@@ -71,17 +72,45 @@ def pick_ranked_action_avoiding_backtrack(
     literally reverse a step. A move candidate goes through the same
     remember-the-first-legal-reverse-as-fallback logic
     `pick_avoiding_backtrack` uses. Returns the winning token from `ranked`
-    verbatim, or `None` if nothing in it is legal at all."""
+    verbatim, or `None` if nothing in it is legal at all.
+
+    **Self-trap guard** (found live: a real match's Q-table walled off 3 of
+    the cop's own 4 neighbours across several separate turns — each
+    individual placement was "legal" in isolation — then froze on STAY for
+    19 straight rounds once boxed in). Two checks, mirroring `CopBrain`'s
+    own barrier exclusion (`cop_brain.py::_decide_move`'s docstring) but
+    made explicit here since the RL ranking has no equivalent structural
+    guarantee on its own:
+    1. Never place on the direction the ranking would otherwise have moved
+       in (`preferred_move`) — the same "not the cop's own preferred next
+       step" rule `CopBrain` already applies.
+    2. Never place a barrier that would leave literally zero legal
+       neighbours open — the direct `thief_has_no_legal_move` check
+       `CopBrain`'s own docstring says was proven redundant *there* (rule 1
+       above already covers it structurally for a fresh greedy pick every
+       turn) but isn't redundant here, since nothing else in this ranked,
+       already-multi-turn-committed path proves the same. Reused generically
+       (same precedent `CopBrain`'s docstring names): it's a pure
+       "is every orthogonal neighbour blocked" predicate, not thief-specific.
+    A barrier candidate that fails either check is skipped, not treated as
+    illegal — scanning continues to the next-ranked action exactly like an
+    physically-illegal candidate does."""
     legal_move_directions = legal_directions(own_pos, board, barriers)
+    preferred_move = next((a for a in ranked if a in legal_move_directions and a != "STAY"), None)
     avoid = opposite_direction(last_direction)
     move_fallback: str | None = None
     for action in ranked:
         if action.startswith("BARRIER_"):
             direction = action.removeprefix("BARRIER_")
+            if direction == preferred_move:
+                continue
             candidate = own_pos + DELTAS[direction]
-            if barriers.can_place(own_pos, candidate, board):
-                return action
-            continue
+            if not barriers.can_place(own_pos, candidate, board):
+                continue
+            hypothetical = BarrierSet(quota=barriers.quota, placed=barriers.placed | {candidate})
+            if thief_has_no_legal_move(own_pos, board, hypothetical):
+                continue
+            return action
         if action not in legal_move_directions:
             continue
         if action == avoid and move_fallback is None:

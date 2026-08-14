@@ -7,18 +7,14 @@ PRD 16 to build the real, series-scoped `result_<game_id>.json` (ch. 9.4).
 accumulates across the six separate `Orchestrator` process lifetimes a
 real series spans (PRD 10).
 
-Ch. 9.4: `result_<game_id>.json` is "the summary and final result for the
-**whole** series," not a per-sub-game report — every call persists this
-sub-game's own merge to disk, but only `entry.sub_game_number ==
-num_sub_games` (the series' own last sub-game) builds the attachment
-bundle and reaches the Gatekeeper/email send; every earlier call returns
-`None`. `league_ledger.py`'s "one counted game per `opponent_id`" was
-correct all along — the composition problem was here, in when this sent.
+Ch. 9.4: `result_<game_id>.json` is for the **whole** series, not one
+sub-game — every call persists this sub-game's own merge to disk, but
+only `entry.sub_game_number == num_sub_games` reaches the Gatekeeper/
+email send; earlier calls return `None`.
 
-`opponent_cop_repo_url`/`opponent_thief_repo_url` default to `None`,
-sourced from `self._opponent_repos` (PRD 9). `self._opponent_declaration`
-(PRD 16, set by Step-0) supplies the opponent's own `group_name`/
-`code_commit_hash` — unavailable any other way since Step-0 used to discard it.
+`opponent_cop_repo_url`/`opponent_thief_repo_url` default to
+`self._opponent_repos` (PRD 9); `self._opponent_declaration` (PRD 16)
+supplies the opponent's own `group_name`/`code_commit_hash`.
 """
 
 from __future__ import annotations
@@ -63,6 +59,10 @@ class EndOfGameMixin:
         except Exception as exc:
             self.trace.log("final_reveal_send_failed", error=str(exc))
 
+        # Real race, found live: this side's own outcome can be known
+        # before the peer's independently-timed Final Reveal has actually
+        # landed — orchestrator_peer_audit.py's own docstring has the story.
+        await self._await_peer_final_reveal()
         self_audit = run_mutual_audit(self.log_path, self._pending_nonces)
         peer_audit = self.audit_peer()
 

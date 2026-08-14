@@ -24,6 +24,9 @@ SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "cop"
 _ALLOWED_RANDOM_FILES = {
     SRC_ROOT / "orchestrator.py",  # self._rng = random.Random() — feeds decide_intent, never a nonce
     SRC_ROOT / "reasoning" / "hint.py",  # decide_intent(lie_probability, rng) — Table 21's Intent policy
+    # random_source default for the 90/10 RL/heuristic mix — a move-choice
+    # weighting, not a nonce or anything that gets hashed/committed.
+    SRC_ROOT / "reasoning" / "weighted_cop_brain.py",
 }
 
 _RANDOM_IMPORT_PATTERN = re.compile(r"^\s*import random\b|^\s*from random\b", re.MULTILINE)

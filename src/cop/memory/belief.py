@@ -2,18 +2,14 @@
 2; genuine Bayes + reliability coefficient, `todoFullFix.md` §E): a real
 probability distribution, always renormalized to 1.
 
-`update_from_hint` is a genuine posterior update — `P(state|evidence) ∝
-P(evidence|state)·P(state)` — not a boost-and-renormalize heuristic. The
-hint's *focal region* (`_focal_region`) gets likelihood `_HINT_RELIABILITY`;
-every other tracked cell gets `(1-_HINT_RELIABILITY)/N`. Ch. 6.4's own
-"מקדם אמינות" (reliability coefficient) applies specifically to text
-evidence, since text may lie (Table 21's `Intent`) — elsewhere cells are
-now actively down-weighted, not merely left unchanged, the real second half
-of a Bayesian update a flat boost never did. `_HINT_RELIABILITY`/
-`_SCENT_MAP_BOOST_SCALE` are algorithm constants, not Appendix F quantities
-(I6 doesn't apply, same category as `movement.DELTAS`) — the book gives the
-*concept*, not a number, and this is each team's own algorithm choice, not
-a negotiated game rule.
+`update_from_hint` (`belief_hint_update.py`) is a genuine posterior update —
+`P(state|evidence) ∝ P(evidence|state)·P(state)` — not a boost-and-
+renormalize heuristic; see that module's own docstring for the reliability-
+coefficient reasoning. `_HINT_RELIABILITY`/`_SCENT_MAP_BOOST_SCALE` are
+algorithm constants, not Appendix F quantities (I6 doesn't apply, same
+category as `movement.DELTAS`) — the book gives the *concept*, not a
+number, and this is each team's own algorithm choice, not a negotiated
+game rule.
 
 `update_from_scent_map` (PRD 4 "Revision 3", §C6, finalized here) scales
 each cell's likelihood with the peer's own real tau magnitude — genuine
@@ -34,19 +30,20 @@ from dataclasses import dataclass, field
 
 from ..domain.barriers import BarrierSet
 from ..domain.board import Board, Position
-from ..domain.movement import DELTAS
+from .belief_hint_update import BeliefHintUpdateMixin
 from .belief_queries import BeliefQueriesMixin
 from .scent import ScentField
 
-_HINT_RELIABILITY = 0.6
 _SCENT_MAP_BOOST_SCALE = 20.0
 
 
 @dataclass
-class BeliefMap(BeliefQueriesMixin):
+class BeliefMap(BeliefHintUpdateMixin, BeliefQueriesMixin):
     """`most_likely_cell`/`entropy` live in `BeliefQueriesMixin`
-    (`belief_queries.py`) — split out once this file hit the 150-line
-    house cap; everything that *mutates* `_probabilities` stays here."""
+    (`belief_queries.py`); `update_from_hint`/`_focal_region` live in
+    `BeliefHintUpdateMixin` (`belief_hint_update.py`) — both split out
+    once this file hit the 150-line house cap. Everything else that
+    *mutates* `_probabilities` stays here."""
 
     _probabilities: dict[Position, float] = field(default_factory=dict)
     _barrier_positions: frozenset[Position] = field(default_factory=frozenset)
@@ -81,45 +78,49 @@ class BeliefMap(BeliefQueriesMixin):
         self._normalize()
 
     def _normalize(self) -> None:
+        """`total == 0.0` is a real, reachable case, not just a theoretical
+        one — found immediately after the `update_from_scent` clamp fix
+        above shipped: on a small enough board, a cop that has stalled long
+        enough can drive *every* tracked cell's multiplier to exactly 0 in
+        the same update, and every mutating method funnels through here, so
+        this is the one place that needs to defend against it rather than
+        each caller separately. Falls back to the same honest "no
+        information" uniform prior `uniform()` constructs — a degenerate,
+        self-contradicting evidence combination is exactly the case where
+        genuinely knowing nothing is the correct belief, not a crash."""
         total = self.total_probability()
+        if total <= 0.0:
+            free_cells = [cell for cell in self._probabilities if cell not in self._barrier_positions]
+            uniform_p = 1.0 / len(free_cells) if free_cells else 0.0
+            self._probabilities = {
+                cell: (0.0 if cell in self._barrier_positions else uniform_p) for cell in self._probabilities
+            }
+            return
         self._probabilities = {cell: value / total for cell, value in self._probabilities.items()}
 
     def update_from_scent(self, scent_field: ScentField, cop_pos: Position, board: Board) -> None:
-        """Down-weight cells the cop has itself recently searched."""
+        """Down-weight cells the cop has itself recently searched.
+
+        `1 - level` is clamped at `0.0`, never left to go negative — found
+        live (a real match's `belief.probability()` returned values above
+        1.0, an impossible reading caught by the new `belief_target_updated`
+        trace event added specifically to watch for this): `ScentField`'s
+        own `tau` values are unbounded concentrations, not a `[0, 1]`
+        fraction (`scent.py`'s own formula climbs toward a
+        `source_strength / decay_rate` steady state — about 9 at the default
+        0.9/0.10 — for any cell the cop keeps revisiting, easily exceeding 1
+        whenever the cop stalls in place, which is exactly when this method
+        matters most). An unclamped `1 - level` then goes negative, and
+        multiplying a valid probability by a negative number produces a
+        negative one — `_normalize()` only preserves the *sum*, not each
+        term's validity, so a handful of corrupted negative cells silently
+        pushes *other* cells' normalized share above 1.0 to compensate.
+        Clamping keeps this method's own stated intent — down-weight,
+        approaching but never crossing zero — true regardless of how large
+        `level` gets."""
         for cell, level in scent_field.sample(cop_pos, board).items():
             if cell in self._probabilities:
-                self._probabilities[cell] *= 1 - level
-        self._normalize()
-
-    def _focal_region(self, focal_point: Position, board: Board) -> set[Position]:
-        cells = {focal_point}
-        for direction, delta in DELTAS.items():
-            if direction == "STAY":
-                continue
-            neighbour = focal_point + delta
-            if board.in_bounds(neighbour):
-                cells.add(neighbour)
-        return cells
-
-    def update_from_hint(self, focal_point: Position, board: Board) -> None:
-        """`P(state|evidence) ∝ P(evidence|state)·P(state)` — the focal
-        region gets likelihood `_HINT_RELIABILITY`, every other tracked
-        cell gets `(1-_HINT_RELIABILITY)/N`. `focal_point` comes from
-        `reasoning.hint.interpret_hint` — this method doesn't know or care
-        whether it's honest or a lie; corroboration against the always-
-        truthful scent map (`update_from_scent_map`) is what protects
-        against that, not this method itself."""
-        focal_cells = self._focal_region(focal_point, board)
-        tracked = set(self._probabilities)
-        elsewhere = tracked - focal_cells
-        # _HINT_RELIABILITY is the region's *total* likelihood mass, split
-        # evenly across its cells — not applied to each cell independently
-        # (that would over-count the evidence once per cell in the region).
-        focal_likelihood = _HINT_RELIABILITY / len(focal_cells) if focal_cells else 0.0
-        elsewhere_likelihood = (1 - _HINT_RELIABILITY) / len(elsewhere) if elsewhere else 0.0
-        for cell in tracked:
-            likelihood = focal_likelihood if cell in focal_cells else elsewhere_likelihood
-            self._probabilities[cell] *= likelihood
+                self._probabilities[cell] *= max(0.0, 1 - level)
         self._normalize()
 
     def update_from_scent_map(self, scent_data: dict[Position, float], board: Board) -> None:

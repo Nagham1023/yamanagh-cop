@@ -94,3 +94,39 @@ def test_pick_ranked_action_avoiding_backtrack_returns_none_when_nothing_is_lega
 def test_legal_directions_always_includes_stay():
     result = legal_directions(Position(0, 0), _BOARD, BarrierSet(quota=0))
     assert "STAY" in result
+
+
+def test_pick_ranked_action_avoiding_backtrack_skips_a_barrier_that_would_fully_imprison_the_cop():
+    # Found live: a real match walled off N/E/W of its own resting cell
+    # across several separate, individually-legal turns, then froze on STAY
+    # for 19 straight rounds once the last exit (S) was about to be sealed.
+    # No other ranked entry here, so there's nothing to fall back to but STAY.
+    own_pos = Position(3, 3)
+    barriers = BarrierSet(quota=14, placed={Position(3, 2), Position(4, 3), Position(2, 3)})  # N, E, W blocked
+    result = pick_ranked_action_avoiding_backtrack(
+        ["BARRIER_S"], own_pos, _BOARD, barriers, last_direction=None
+    )
+    assert result is None  # never the imprisoning barrier, even as a last resort
+
+
+def test_pick_ranked_action_avoiding_backtrack_still_allows_a_barrier_that_leaves_one_exit_open():
+    # The guard isn't overly conservative: reducing options is fine, only
+    # sealing the *last* one is blocked.
+    own_pos = Position(3, 3)
+    barriers = BarrierSet(quota=14, placed={Position(4, 3), Position(2, 3)})  # E, W blocked; N, S still open
+    result = pick_ranked_action_avoiding_backtrack(
+        ["BARRIER_N"], own_pos, _BOARD, barriers, last_direction=None
+    )
+    assert result == "BARRIER_N"  # S remains open afterward -- not imprisoned
+
+
+def test_pick_ranked_action_avoiding_backtrack_skips_a_barrier_on_its_own_preferred_move_direction():
+    # Mirrors CopBrain's own exclusion (cop_brain.py::_decide_move): never
+    # wall off the direction the ranking would otherwise have moved in,
+    # even when that barrier is otherwise perfectly legal and non-imprisoning.
+    own_pos = Position(3, 3)
+    barriers = BarrierSet(quota=14)  # wide open board -- placing BARRIER_W would not imprison anyone
+    result = pick_ranked_action_avoiding_backtrack(
+        ["BARRIER_W", "W", "S"], own_pos, _BOARD, barriers, last_direction=None
+    )
+    assert result == "W"  # BARRIER_W skipped because "W" is the preferred move direction
