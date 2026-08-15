@@ -37,6 +37,24 @@ class ReportEntryMixin:
             )
         game_id = self.private_config.group_id
         sub_game_number = self.private_config.sub_game_number
+        # Rule 19 [FATAL]: "score 0 to the forging team" on any audit hash
+        # mismatch, enforced automatically and symmetrically in both
+        # directions — cryptography, not a human grader, is the arbiter.
+        # A local bug that corrupts this side's own cryptographic seal is
+        # treated identically to real tampering, no carve-out for "our own
+        # side" (confirmed decision: even the two real false-positive audit
+        # bugs this session found and fixed still zero the score under this
+        # rule, rather than waiting for manual review). `result` stays the
+        # honest gameplay record — only `score` (and the `winner_group` it
+        # derives) reflects the forfeit.
+        this_score = 0 if not self_audit_passed else score.cop
+        opponent_score = 0 if not peer_audit_passed else score.thief
+        if not self_audit_passed or not peer_audit_passed:
+            self.trace.log(
+                "audit_forfeit_applied",
+                self_forfeited=not self_audit_passed,
+                opponent_forfeited=not peer_audit_passed,
+            )
         return SubGameEntry(
             sub_game_number=sub_game_number,
             this_group=self.private_config.group_name,
@@ -44,8 +62,8 @@ class ReportEntryMixin:
             started_at=self._match_started_at,
             ended_at=self._match_ended_at,
             result=outcome.value,
-            this_score=score.cop,
-            opponent_score=score.thief,
+            this_score=this_score,
+            opponent_score=opponent_score,
             this_commit=current_git_commit_hash(),
             opponent_commit=self._opponent_declaration.code_commit_hash,
             this_tokens=aggregate_tokens(self.log_path).total_tokens,

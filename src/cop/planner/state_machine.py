@@ -32,6 +32,19 @@ verified match, `NEGOTIATING -> TECHNICAL_LOSS` on a hash mismatch or a
 network failure — the same "a call that can hang or fail gets the edge"
 reasoning `COMMITTING`'s own addition already established.
 
+Not a violation of ch. 8/Fig. 11's own six-state table, even read
+literally: that table (and the worked Python snippet built from it) is
+ch. 8's own illustration of the per-turn Commit-Reveal cycle specifically
+(ch. 5.3.2) — a *different* book chapter from Step-0 (ch. 5.5), which
+this table was never drawn to cover and which `NEGOTIATING` fully resolves
+(to `WAITING_FOR_OPPONENT` or `TECHNICAL_LOSS`) before that cycle is ever
+entered. Independently, `RULES.md`'s own Precedence #2 settles any
+remaining doubt regardless: "Illustrations, code samples, examples and
+scenarios in the book are illustrative only. They are not binding unless
+explicitly stated to be part of the game rules" — rules 4/5 (a proper
+state machine that rejects illegal transitions, rather than the specific
+six-name enum) are what actually govern here, and both are satisfied.
+
 `TECHNICAL_LOSS` reachability deliberately does **not** match the book's
 own diagram caption ("dashed arrows... emergency exits from a
 communication step that failed") verbatim — the caption and the book's own
