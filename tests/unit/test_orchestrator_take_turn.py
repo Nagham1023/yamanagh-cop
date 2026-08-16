@@ -28,6 +28,7 @@ from cop.reasoning.cop_brain import CopBrain
 from cop.reasoning.hint import interpret_hint
 from cop.shared.private_config import PrivateConfig
 from cop.tools.mcp_client_prd6 import send_capture_response
+from cop.tools.peer_connection import PeerConnection
 
 
 class _AlwaysProposesAnOffBoardMove(BrainBase):
@@ -125,7 +126,7 @@ def _make_capture_responder(answer_to_url: str):
             with contextlib.suppress(Exception):
                 asyncio.run(
                     send_capture_response(
-                        answer_to_url,
+                        PeerConnection(answer_to_url),
                         response.confirmed,
                         response.true_thief_pos.col,
                         response.true_thief_pos.row,
@@ -540,6 +541,8 @@ def _private_config_pointing_at(port: int) -> PrivateConfig:
         provider="template", every_n_steps=1,
         opponent_url=f"http://127.0.0.1:{port}/mcp", my_port=0, turn_timeout_seconds=180.0,
         initiate_step0=False, step0_wait_seconds=300.0,
+        scent_map_retry_attempts=2, scent_map_retry_delay_seconds=0.5,
+        post_match_grace_seconds=0.0,
         group_name="dev-team", group_id="dev-team", sub_game_number=1, members=("dev-1",),
         repos={"cop": "https://example.com/cop", "thief": "https://example.com/thief"},
         model="claude-sonnet-5", step_deadline_seconds=30.0,

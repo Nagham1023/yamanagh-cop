@@ -8,15 +8,18 @@ wrapper package — `httpx` (already a dependency, PRD 4) is all that's
 needed to poll ngrok's own local admin API for the assigned public URL.
 ngrok chosen over Localtonet as the concrete implementation; the book
 permits either (PRD-5-cloud-exposure.md Build section).
+
+`start_tunnel` itself lives in `tunnel_start.py` (split out once it grew
+past the 150-line house cap) — imports `Tunnel`/`_ngrok_command` from
+here, so callers reach it via `from .tools.tunnel_start import
+start_tunnel` rather than through this module, keeping the dependency
+one-directional (no circular import between the two files).
 """
 
 from __future__ import annotations
 
 import subprocess
-import time
 from dataclasses import dataclass
-
-import httpx
 
 _DEFAULT_ADMIN_API_URL = "http://127.0.0.1:4040/api/tunnels"
 _POLL_INTERVAL_SECONDS = 0.2
@@ -26,56 +29,24 @@ _POLL_INTERVAL_SECONDS = 0.2
 class Tunnel:
     process: subprocess.Popen
     public_url: str
+    log_file: object | None = None  # the open file handle backing ngrok's own stdout/stderr, if any
 
 
-def start_tunnel(
-    port: int,
-    admin_api_url: str = _DEFAULT_ADMIN_API_URL,
-    timeout_seconds: float = 10.0,
-    command: list[str] | None = None,
-) -> Tunnel:
-    """Launch `ngrok http <port>` and poll its local admin API
-    (`admin_api_url`) until a public HTTPS tunnel is reported.
-
-    `admin_api_url` and `command` are both parameters, not hardcoded,
-    specifically so a test can point the poll at a local stand-in server
-    and launch a harmless placeholder process — the real `ngrok` binary
-    isn't installed in every dev/CI environment, so the polling/parsing
-    logic is tested independently of actually having it available (found
-    necessary while writing the tests: without a `command` override, every
-    test would hit the same immediate "ngrok not found" error the real
-    absence produces, with no way to exercise the polling logic at all).
-    """
-    try:
-        process = subprocess.Popen(
-            command or ["ngrok", "http", str(port)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            "ngrok is not installed or not on PATH — install it separately "
-            "(https://ngrok.com/download); this repo only shells out to it, "
-            "it is not a Python dependency"
-        ) from exc
-
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            response = httpx.get(admin_api_url, timeout=1.0)
-            response.raise_for_status()
-            for candidate in response.json().get("tunnels", []):
-                if candidate.get("proto") == "https":
-                    return Tunnel(process=process, public_url=candidate["public_url"])
-        except httpx.HTTPError:
-            pass
-        time.sleep(_POLL_INTERVAL_SECONDS)
-
-    process.terminate()
-    raise TimeoutError(f"ngrok admin API at {admin_api_url!r} never reported a public HTTPS tunnel")
+def _ngrok_command(port: int, domain: str | None) -> list[str]:
+    """Pure, independently testable: `ngrok`'s real binary isn't installed
+    in every dev/CI environment (TODO5 §0), so the command-construction
+    logic is proven on its own rather than only by inspecting a real
+    subprocess launch."""
+    command = ["ngrok", "http"]
+    if domain is not None:
+        command.append(f"--domain={domain}")
+    command.append(str(port))
+    return command
 
 
 def stop_tunnel(tunnel: Tunnel) -> None:
     """Terminate the tunnel process, waiting with a bounded timeout."""
     tunnel.process.terminate()
     tunnel.process.wait(timeout=5)
+    if tunnel.log_file is not None:
+        tunnel.log_file.close()

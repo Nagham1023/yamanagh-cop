@@ -37,6 +37,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="expose this peer via ngrok (rule 10) — needed for a real cross-machine match",
     )
     peer_parser.add_argument(
+        "--ngrok-domain", default=None,
+        help="a free ngrok account's one reserved static domain (dashboard.ngrok.com/domains) — "
+        "keeps the public URL stable across restarts instead of a new random one every time; "
+        "ignored unless --tunnel is also passed, and under --tunnel-provider cloudflare",
+    )
+    peer_parser.add_argument(
+        "--tunnel-provider", choices=["ngrok", "cloudflare"], default="ngrok",
+        help="which tunnel to expose this peer through (default: ngrok). cloudflare needs no "
+        "account for a quick tunnel, but its URL is fresh and random every launch (no "
+        "reserved-domain equivalent) — printed to the console so it can be relayed to the "
+        "opponent. Ignored unless --tunnel is also passed",
+    )
+    peer_parser.add_argument(
         "--gui", action="store_true",
         help="open live belief heatmap GUI window during the match",
     )
@@ -65,6 +78,8 @@ def main() -> None:
                     args.shared_config,
                     counted=args.counted,
                     use_tunnel=args.tunnel,
+                    ngrok_domain=args.ngrok_domain,
+                    tunnel_provider=args.tunnel_provider,
                 )
             else:
                 asyncio.run(
@@ -73,6 +88,8 @@ def main() -> None:
                         args.shared_config,
                         counted=args.counted,
                         use_tunnel=args.tunnel,
+                        ngrok_domain=args.ngrok_domain,
+                        tunnel_provider=args.tunnel_provider,
                     )
                 )
         except Step0MismatchError as exc:

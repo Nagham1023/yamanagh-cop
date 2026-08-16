@@ -73,9 +73,32 @@ def run_mutual_audit(trace_log_path: str | Path, nonces: dict[int, str] | dict[s
     keys. Without this normalization, a wire-sourced `nonces` dict would
     silently fail every lookup (`"0" != 0`), reporting "no nonce revealed"
     for an honestly-revealed game — found during review, not by a failing
-    test, since no caller wires the wire-sourced path yet."""
+    test, since no caller wires the wire-sourced path yet.
+
+    Scoped to the *most recent* `server_starting` entry onward — found
+    live: a shared log path reused across many separate dev-testing
+    launches (this file's own naming is per game-id/sub-game-number, not
+    per-process) accumulates `committing` entries from every earlier
+    match too, each with its own unrelated `h_commit` for the same step
+    numbers a brand-new match starts counting from again. Auditing the
+    whole file against only the *current* match's own nonces then reports
+    hundreds of false "Hcommit mismatch" entries for commits this process
+    never made, failing an honestly-played match's self-audit for a
+    reason that has nothing to do with tampering. A real competitive
+    series never hits this (`sub_game_number` changes every sub-game, so
+    each one's log file is genuinely fresh) — this guards the case
+    nobody's actually relying on the naming convention alone to prevent."""
     mismatches: list[dict[str, Any]] = []
-    commit_entries = [entry for entry in _read_trace_log(trace_log_path) if entry["event"] == "committing"]
+    all_entries = _read_trace_log(trace_log_path)
+    match_start = max(
+        (entry["time"] for entry in all_entries if entry.get("event") == "server_starting"),
+        default=None,
+    )
+    commit_entries = [
+        entry
+        for entry in all_entries
+        if entry["event"] == "committing" and (match_start is None or entry["time"] >= match_start)
+    ]
     nonces_by_step = {int(step): nonce for step, nonce in nonces.items()}
 
     for entry in commit_entries:

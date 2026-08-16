@@ -24,6 +24,7 @@ from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
 from cop.tools.mcp_client_prd6 import send_reveal
+from cop.tools.peer_connection import PeerConnection
 
 
 def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
@@ -35,7 +36,7 @@ def test_message_from_process_a_is_received_and_decoded_by_process_b(tmp_path):
         _wait_for_port(port_b)
         data = asyncio.run(
             send_reveal(
-                f"http://127.0.0.1:{port_b}/mcp",
+                PeerConnection(f"http://127.0.0.1:{port_b}/mcp"),
                 {"type": "move", "direction": "NORTH"},
                 "quiet by the river",
                 time.time(),

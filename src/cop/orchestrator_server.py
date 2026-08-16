@@ -11,7 +11,9 @@ from __future__ import annotations
 import os
 import threading
 
-from .tools.tunnel import start_tunnel, stop_tunnel
+from .tools.cloudflare_tunnel import start_cloudflare_tunnel
+from .tools.tunnel import stop_tunnel
+from .tools.tunnel_start import start_tunnel
 
 
 class ServerLifecycleMixin:
@@ -51,6 +53,27 @@ class ServerLifecycleMixin:
             target=self._watch_loop, args=(poll_interval_seconds,), daemon=True
         ).start()
 
+    def stop_tunnel_if_running(self) -> None:
+        """Explicit, main-thread-callable teardown for the tunnel
+        `run_as_server` starts — needed because that method itself runs on
+        a `daemon=True` thread blocking inside `self.server.run(...)`,
+        which never returns under normal operation: the whole process
+        instead exits once the client-driven match (on the *main* thread)
+        finishes. Daemon threads don't get to run their own pending
+        `finally` blocks when the interpreter exits that way, so
+        `run_as_server`'s own `finally: stop_tunnel_if_running()` never
+        actually fires in that path. Found live: the `ngrok` child process
+        was orphaned every real match this session, left routing to a now
+        -dead local server (ngrok's own `ERR_NGROK_8012`) and permanently
+        blocking every later launch (`ERR_NGROK_334`, "already online")
+        until manually killed. `cli_peer_match_body.py::run_match_body`
+        calls this on the main thread, right before the process is
+        allowed to exit. Idempotent — safe with no tunnel ever started, or
+        already stopped."""
+        if self.tunnel is not None:
+            stop_tunnel(self.tunnel)
+            self.tunnel = None
+
     def stop_watchdog_monitor(self) -> None:
         """Signals `_watch_loop` to exit on its next wait. Rule 7 means a
         *live* match's watchdog must keep running unconditionally — this is
@@ -64,7 +87,14 @@ class ServerLifecycleMixin:
         the monitor was never started."""
         self._watchdog_stop_event.set()
 
-    def run_as_server(self, host: str | None = None, port: int = 8800, use_tunnel: bool = False) -> None:
+    def run_as_server(
+        self,
+        host: str | None = None,
+        port: int = 8800,
+        use_tunnel: bool = False,
+        ngrok_domain: str | None = None,
+        tunnel_provider: str = "ngrok",
+    ) -> None:
         """Start listening — blocking, meant to be this process's main loop.
 
         `host` defaults to `0.0.0.0` when `use_tunnel=True`, `127.0.0.1`
@@ -74,15 +104,46 @@ class ServerLifecycleMixin:
         opt-in and additive: every existing caller either passes `host`
         explicitly or leaves `use_tunnel` at its default `False`, resolving
         identically to before this parameter existed.
-        """
+
+        `ngrok_domain`: a free account's one reserved static domain
+        (`tools/tunnel.py::start_tunnel`'s own docstring has the full
+        reasoning) — keeps the public URL stable across restarts instead
+        of a fresh random one every time. Ignored under `tunnel_provider=
+        "cloudflare"` (a Cloudflare Quick Tunnel has no equivalent —
+        `tools/cloudflare_tunnel.py`'s own docstring covers why) and
+        whenever `use_tunnel=False`.
+
+        `tunnel_provider`: `"ngrok"` (default, unchanged behavior) or
+        `"cloudflare"` — tried as an alternative once ngrok's free-tier
+        connection-rate cap was diagnosed as a real match's round-26/27
+        failure, a request-volume problem rather than a code bug either
+        peer's own client had."""
         host = host or ("0.0.0.0" if use_tunnel else "127.0.0.1")
         self.trace.log("server_starting", host=host, port=port)
         self._start_watchdog_monitor()
-        tunnel = start_tunnel(port) if use_tunnel else None
-        if tunnel is not None:
-            self.trace.log("tunnel_started", public_url=tunnel.public_url)
+        if not use_tunnel:
+            self.tunnel = None
+        elif tunnel_provider == "cloudflare":
+            self.tunnel = start_cloudflare_tunnel(port, log_path="logs/cloudflare_tunnel.log")
+        else:
+            self.tunnel = start_tunnel(port, domain=ngrok_domain, log_path="logs/ngrok_tunnel.log")
+        if self.tunnel is not None:
+            self.trace.log("tunnel_started", public_url=self.tunnel.public_url, provider=tunnel_provider)
+            # Console, not just the trace log — a reserved ngrok domain is
+            # known in advance, but a Cloudflare Quick Tunnel URL is fresh
+            # and random every single launch (tools/cloudflare_tunnel.py's
+            # own docstring), so this is the only way to actually see it in
+            # time to relay it to the opponent before the match starts.
+            # flush=True: found live — stdout is fully block-buffered
+            # (not line-buffered) whenever it isn't a real TTY, e.g.
+            # redirected to a file/pipe, so an unflushed print here could
+            # sit invisible in the buffer for the whole match instead of
+            # showing up in time to actually relay the URL.
+            print(f"[tunnel] {tunnel_provider} public URL: {self.tunnel.public_url}", flush=True)
         try:
             self.server.run(transport="http", host=host, port=port, show_banner=False)
         finally:
-            if tunnel is not None:
-                stop_tunnel(tunnel)
+            # A safety net for the case where `self.server.run` itself
+            # returns/raises (e.g. a real crash) — the normal-shutdown
+            # path is `stop_tunnel_if_running`'s own docstring above.
+            self.stop_tunnel_if_running()

@@ -11,6 +11,7 @@ import time
 
 from cop.tools.mcp_client_prd9 import send_step0
 from cop.tools.mcp_server import build_server
+from cop.tools.peer_connection import PeerConnection
 
 
 def _free_port() -> int:
@@ -41,7 +42,10 @@ def test_send_step0_round_trips_over_real_http(config):
 
     url = _start_server(config, on_step0=_on_step0)
     data = asyncio.run(
-        send_step0(url, {"group_name": "initiator"}, "initiator-sig", {"cop": "https://example.com/other"})
+        send_step0(
+            PeerConnection(url), {"group_name": "initiator"}, "initiator-sig",
+            {"cop": "https://example.com/other"},
+        )
     )
 
     assert data == {

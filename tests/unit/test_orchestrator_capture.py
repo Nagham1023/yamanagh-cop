@@ -26,6 +26,7 @@ from cop.orchestrator import Orchestrator
 from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.tools.mcp_client_prd6 import send_capture_response
+from cop.tools.peer_connection import PeerConnection
 
 
 def _free_port() -> int:
@@ -59,7 +60,7 @@ def _start_thief_peer(client_url: str, *, confirm: bool) -> int:
         thief_col: int, thief_row: int, cop_col: int, cop_row: int, claimed_at_step: int
     ) -> dict:
         def _respond() -> None:
-            asyncio.run(send_capture_response(client_url, confirm, thief_col, thief_row))
+            asyncio.run(send_capture_response(PeerConnection(client_url), confirm, thief_col, thief_row))
 
         threading.Thread(target=_respond, daemon=True).start()
         return {"acknowledged": True}

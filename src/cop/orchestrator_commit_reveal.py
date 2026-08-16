@@ -1,19 +1,16 @@
 """PRD 6's real per-turn Commit-Reveal protocol (ch. 5.3.1/5.3.2) — split
 out of `orchestrator_peer.py`, which would otherwise cross the 150-line
-house cap once this landed alongside the PRD 4/5 scent-map/connection
-machinery. A mixin, not a standalone class: reaches into `self.trace`,
-`self.state_machine`, `self.config`, `self.game_state`, `self._pending_nonces`,
-and `self._pending_intents` (all set up by `Orchestrator.__init__`), plus
-`self._fail_to_technical_loss` from the sibling `PeerCommsMixin` and
-`self._claim_capture_if_warranted` from the sibling `CaptureClaimMixin` (PRD 8).
-`self._pending_intents` is PRD 7's own addition — `send_final_reveal_to_peer`
-(`orchestrator_peer_audit.py`) needs both the nonce and the Intent flag for
-this side's own committed envelope to let the peer's own `run_peer_audit`
-recompute `Hcommit` (ch. 5.3.1's equation needs `Intent`, not just `Nonce`).
+house cap. A mixin: reaches into `self.trace`, `self.state_machine`,
+`self.config`, `self.game_state`, `self._pending_nonces`/`_pending_intents`
+(`Orchestrator.__init__`), plus `self._fail_to_technical_loss` (sibling
+`PeerCommsMixin`), `self._call_with_connect_retry` (sibling
+`ConnectRetryMixin`), and `self._claim_capture_if_warranted` (sibling
+`CaptureClaimMixin`, PRD 8). `self._pending_intents` (PRD 7) gives
+`send_final_reveal_to_peer` both the nonce and Intent flag the peer's own
+`run_peer_audit` needs to recompute `Hcommit`.
 
-Supersedes PRD 4's `send_to_peer` (a bare, uncommitted hint) — `take_turn`
-(`orchestrator_turn.py`) calls `commit_and_reveal_to_peer` now.
-"""
+Supersedes PRD 4's `send_to_peer` — `take_turn` (`orchestrator_turn.py`)
+calls `commit_and_reveal_to_peer` now."""
 
 from __future__ import annotations
 
@@ -21,7 +18,7 @@ from .domain.board import Position
 from .integrity.commit_payload import canonical_state_bytes
 from .integrity.commit_reveal import CommitEnvelope, commit, move_to_wire, verify
 from .integrity.nonce import generate_nonce
-from .planner.deadline import await_with_deadline, now_and_deadline
+from .planner.deadline import now_and_deadline
 from .reasoning.brain_base import Action, PlaceBarrier
 from .tools.mcp_client_prd6 import send_barrier_declaration, send_commit, send_reveal
 
@@ -50,10 +47,10 @@ class CommitRevealMixin:
         The `committing` trace entry logs the *rest* of the envelope
         (everything except the nonce) even though `state`/`intent` never
         cross the wire this early — `integrity/audit.py::run_mutual_audit`
-        needs the full envelope back, keyed by step, once nonces are
-        finally available. `send_commit`/`send_reveal` each also carry a
-        `sent_at`/`deadline_at` pair (`now_and_deadline`, PRD 15, ch. 8.4).
-        """
+        needs the full envelope back, keyed by step. `send_commit`/
+        `send_reveal` each also carry a `sent_at`/`deadline_at` pair
+        (`now_and_deadline`, PRD 15, ch. 8.4)."""
+        connection = self._get_peer_connection(peer_url)
         step = self.game_state.steps_taken
         nonce = generate_nonce()
         envelope = CommitEnvelope(
@@ -81,8 +78,8 @@ class CommitRevealMixin:
         )
         try:
             sent_at, deadline_at = now_and_deadline(self.config.response_timeout_seconds)
-            await await_with_deadline(
-                send_commit(peer_url, h_commit, sent_at, deadline_at),
+            await self._call_with_connect_retry(
+                lambda: send_commit(connection, h_commit, sent_at, deadline_at),
                 timeout_seconds=self.config.response_timeout_seconds,
             )
         except Exception as exc:
@@ -92,8 +89,8 @@ class CommitRevealMixin:
         self.state_machine.transition("AWAITING_REVEAL")
         try:
             sent_at, deadline_at = now_and_deadline(self.config.response_timeout_seconds)
-            result = await await_with_deadline(
-                send_reveal(peer_url, envelope.move, hint_text, sent_at, deadline_at),
+            result = await self._call_with_connect_retry(
+                lambda: send_reveal(connection, envelope.move, hint_text, sent_at, deadline_at),
                 timeout_seconds=self.config.response_timeout_seconds,
             )
         except Exception as exc:
@@ -112,8 +109,10 @@ class CommitRevealMixin:
             # (`state_machine.py`'s own docstring) — sending it any later
             # would strand a failed call with no legal edge to fail onto.
             try:
-                await await_with_deadline(
-                    send_barrier_declaration(peer_url, action.target.col, action.target.row),
+                await self._call_with_connect_retry(
+                    lambda: send_barrier_declaration(
+                        connection, action.target.col, action.target.row
+                    ),
                     timeout_seconds=self.config.response_timeout_seconds,
                 )
             except Exception as exc:
@@ -128,9 +127,11 @@ class CommitRevealMixin:
 
         self.state_machine.transition("VERIFYING")
         if not verify(envelope, h_commit):
-            # Only reachable if this process's own committed and revealed
-            # data diverged between the two calls above — a local bug, not
-            # an opponent's dishonesty (which final audit catches instead).
+            # Local bug only (final audit catches opponent dishonesty separately) — logged
+            # here since VERIFYING has no TECHNICAL_LOSS edge, so nothing else would catch it.
+            self.trace.log(
+                "local_verify_mismatch", h_commit=h_commit, step=step, move=envelope.move
+            )
             raise RuntimeError(
                 f"revealed move at step {step} does not match this side's own earlier commit"
             )

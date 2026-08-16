@@ -12,9 +12,8 @@ responder's `build_server` callback) both run the identical
 tool call itself rather than leaving the initiator believing it succeeded.
 
 `_on_step0_received` also calls `self._signal_step0_received(...)`
-(defined in `orchestrator_step0_wait.py`'s sibling mixin — PRD 10's
-`await_passive_step0`, kept in its own file for the 150-line cap) — a
-no-op when nothing is passively waiting.
+(`orchestrator_step0_wait.py`'s sibling mixin — PRD 10's
+`await_passive_step0`) — a no-op when nothing is passively waiting.
 """
 
 from __future__ import annotations
@@ -114,6 +113,7 @@ class Step0NegotiationMixin:
         same way every other peer call in this repo already does
         (`await_with_deadline`, `config.response_timeout_seconds` — never a
         literal, I6)."""
+        connection = self._get_peer_connection(peer_url)
         self.state_machine = PeerStateMachine(state="NEGOTIATING")
         own_declaration = self._build_own_step0()
         own_signature = sign_step0(own_declaration)
@@ -123,7 +123,7 @@ class Step0NegotiationMixin:
         try:
             response = await await_with_deadline(
                 send_step0(
-                    peer_url, declaration_to_wire(own_declaration), own_signature, own_repos
+                    connection, declaration_to_wire(own_declaration), own_signature, own_repos
                 ),
                 timeout_seconds=self.config.response_timeout_seconds,
             )

@@ -5,72 +5,22 @@ independently testable core, callable directly (no argv needed) — the
 same "logic in a plain function, CLI is just the caller" split every
 other testable-CLI convention uses.
 
-Sequence (see `_run_match_body`'s own docstring) is unconditional
-regardless of `initiate_step0` — confirmed by reading
-`orchestrator_turn.py::take_turn` before designing this: both sides always
-drive their *own* turns, "initiator" only ever matters for Step-0. `score`
-(PRD 16) is `domain/scoring.py::score_outcome`'s own real result for this
-one sub-game — `report_game()` itself now owns series accumulation.
+Sequence (see `cli_peer_match_body.py::run_match_body`'s own docstring,
+split out separately once it grew past the 150-line house cap) is
+unconditional regardless of `initiate_step0`.
 """
 
 from __future__ import annotations
 
 import asyncio
-import threading
 
 from .cli_peer_build import build_orchestrator
-from .domain.scoring import score_outcome
+from .cli_peer_match_body import run_match_body
 from .observability.live_gui_session import LiveGuiSession
 from .orchestrator import Orchestrator
-from .shared.config import GameConfig
-from .shared.private_config import PrivateConfig
-from .shared.promotion_guard import require_fresh_promotion_report_for_counted_game
 
 DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
 DEFAULT_SHARED_CONFIG_PATH = "config/shared/config_dev_g01.json"
-_SERVER_STARTUP_GRACE_SECONDS = 0.5
-
-
-async def _run_match_body(
-    orchestrator: Orchestrator,
-    private_config: PrivateConfig,
-    config: GameConfig,
-    *,
-    counted: bool,
-    use_tunnel: bool,
-) -> Orchestrator:
-    """Server up, negotiate Step-0, play, report — the sequence both
-    `run_peer` entry points share. PRD 13: refuses a counted game against
-    `RLCopBrain` with no current promotion report, before the server
-    thread even starts."""
-    require_fresh_promotion_report_for_counted_game(orchestrator.brain, counted=counted)
-
-    threading.Thread(
-        target=orchestrator.run_as_server,
-        kwargs={"port": private_config.my_port, "use_tunnel": use_tunnel},
-        daemon=True,
-    ).start()
-    await asyncio.sleep(_SERVER_STARTUP_GRACE_SECONDS)
-
-    peer_url = private_config.opponent_url
-    if private_config.initiate_step0:
-        await orchestrator.negotiate_step0(peer_url)
-    else:
-        await orchestrator.await_passive_step0(private_config.step0_wait_seconds)
-
-    # GUI painting is owned by LiveGuiSession on the main thread — never by
-    # play_game under asyncio (blank window on Windows).
-    outcome = await orchestrator.play_game(peer_url, enable_gui=False)
-
-    score = score_outcome(outcome, config)
-    await orchestrator.report_game(
-        peer_url,
-        outcome,
-        is_counted=counted,
-        opponent_id=peer_url,
-        score=score,
-    )
-    return orchestrator
 
 
 async def run_peer(
@@ -79,6 +29,8 @@ async def run_peer(
     *,
     counted: bool = False,
     use_tunnel: bool = False,
+    ngrok_domain: str | None = None,
+    tunnel_provider: str = "ngrok",
     gui: bool = False,
     log_path: str | None = None,
     league_ledger_path: str | None = None,
@@ -100,12 +52,14 @@ async def run_peer(
         log_path=log_path,
         league_ledger_path=league_ledger_path,
     )
-    return await _run_match_body(
+    return await run_match_body(
         orchestrator,
         private_config,
         config,
         counted=counted,
         use_tunnel=use_tunnel,
+        ngrok_domain=ngrok_domain,
+        tunnel_provider=tunnel_provider,
     )
 
 
@@ -115,6 +69,8 @@ def run_peer_with_gui(
     *,
     counted: bool = False,
     use_tunnel: bool = False,
+    ngrok_domain: str | None = None,
+    tunnel_provider: str = "ngrok",
     log_path: str | None = None,
     league_ledger_path: str | None = None,
 ) -> Orchestrator:
@@ -130,12 +86,14 @@ def run_peer_with_gui(
     def match_fn() -> Orchestrator:
         """Synchronous wrapper `LiveGuiSession.run` calls from Tk's own thread."""
         return asyncio.run(
-            _run_match_body(
+            run_match_body(
                 orchestrator,
                 private_config,
                 config,
                 counted=counted,
                 use_tunnel=use_tunnel,
+                ngrok_domain=ngrok_domain,
+                tunnel_provider=tunnel_provider,
             )
         )
 

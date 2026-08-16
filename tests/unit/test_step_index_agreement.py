@@ -52,18 +52,29 @@ def test_step_index_stays_in_lockstep_across_a_dozen_alternating_rounds(config, 
     peer_a, url_a = _start(config, tmp_path, "a")
     peer_b, url_b = _start(config, tmp_path, "b")
 
+    # One continuous event loop for all 12 rounds, not one asyncio.run()
+    # per round — matching how a real match actually drives many rounds
+    # (`play_game()`'s own loop, always inside one event loop for the
+    # whole match). Each side's own `PeerConnection` (reused across every
+    # call site this session, PRD 5 hardening) is tied to the loop it was
+    # created on; a separate `asyncio.run()` per round would tear that
+    # loop down between rounds and orphan the session.
     rounds = 12
-    for round_number in range(1, rounds + 1):
-        asyncio.run(peer_a.take_turn(url_b))
-        asyncio.run(peer_b.take_turn(url_a))
 
-        assert peer_a.game_state.steps_taken == round_number, (
-            f"peer_a drifted at round {round_number}: {peer_a.game_state.steps_taken}"
-        )
-        assert peer_b.game_state.steps_taken == round_number, (
-            f"peer_b drifted at round {round_number}: {peer_b.game_state.steps_taken}"
-        )
-        assert peer_a.game_state.steps_taken == peer_b.game_state.steps_taken
+    async def _all_rounds() -> None:
+        for round_number in range(1, rounds + 1):
+            await peer_a.take_turn(url_b)
+            await peer_b.take_turn(url_a)
+
+            assert peer_a.game_state.steps_taken == round_number, (
+                f"peer_a drifted at round {round_number}: {peer_a.game_state.steps_taken}"
+            )
+            assert peer_b.game_state.steps_taken == round_number, (
+                f"peer_b drifted at round {round_number}: {peer_b.game_state.steps_taken}"
+            )
+            assert peer_a.game_state.steps_taken == peer_b.game_state.steps_taken
+
+    asyncio.run(_all_rounds())
 
     assert peer_a.game_state.steps_taken == rounds
     assert peer_b.game_state.steps_taken == rounds

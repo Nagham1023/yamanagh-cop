@@ -98,6 +98,14 @@ def test_a_verify_failure_after_reveal_raises_instead_of_silently_continuing(
             )
         )
 
+    # Closes a real gap: this used to raise with no trace.log call at all,
+    # so a human reading the log had no way to see why the match ended here.
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "client_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "local_verify_mismatch" in events
+
 
 def test_a_real_round_trip_carries_the_senders_declared_timing_to_the_receiver(config, tmp_path):
     # PRD 15 (ch. 8.4): the wire-level sent_at/deadline_at pair, logged by

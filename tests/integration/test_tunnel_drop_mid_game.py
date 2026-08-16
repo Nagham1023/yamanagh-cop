@@ -22,6 +22,7 @@ from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.config import GameConfig
 from cop.tools.mcp_client_prd6 import send_reveal
+from cop.tools.peer_connection import PeerConnection
 
 
 def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly(tmp_path):
@@ -34,7 +35,7 @@ def test_a_connection_that_worked_once_then_drops_reaches_technical_loss_cleanly
         # First attempt: the connection genuinely works.
         first_result = asyncio.run(
             send_reveal(
-                f"http://127.0.0.1:{port}/mcp",
+                PeerConnection(f"http://127.0.0.1:{port}/mcp"),
                 {"type": "move", "direction": "NORTH"},
                 "a test hint",
                 time.time(),

@@ -23,6 +23,46 @@ ceremony — a real-match decision agreed with the peer team out-of-band,
 same never-negotiated category as `opponent_url`. Both default safely
 (`False`/`300.0`) via `.get()` so existing config files and test fixtures
 that predate this pair keep loading unchanged.
+
+`scent_map_retry_attempts`/`scent_map_retry_delay_seconds` (`[network]`):
+found via a real cross-machine match — a free-tier ngrok tunnel dropped
+for close to a second (the peer's own next call reached us again shortly
+after we'd finished failing), yet `request_scent_map_from_peer`'s one-shot
+call turned that into an instant forfeit. Reused (not renamed) for
+`send_final_reveal_to_peer` (`orchestrator_peer_audit.py`) too, same
+"reuse one robustness knob rather than add a per-call-site one" pattern
+`response_timeout_seconds` already follows elsewhere in this repo
+(`orchestrator_turn.py`'s own comment) — both `share_scent_map` and
+`receive_final_reveal` are confirmed idempotent on the receiving side (a
+pure read; a pure overwrite via `PeerTrace.record_final_reveal`'s own
+`setdefault`), unlike commit/reveal/capture, which carry the
+double-application risk `mcp_client_prd6.py`'s blanket no-retry policy
+exists to avoid — never touched here. Default (`3`/`1.0`, ~2s of retry
+headroom, still far inside the 30s `response_timeout_seconds` deadline)
+via `.get()`, same backward-compatible pattern as the pair above.
+
+`post_match_grace_seconds` (`[network]`): found via a real cross-machine
+match report — this side's own terminal returned to the shell prompt
+*before* the peer's, and the peer's own subsequent
+`receive_final_reveal` call failed with a bare connection refusal, no
+corresponding entry in this side's own server log at all. Root cause,
+confirmed by reading `cli_peer_match_body.py::run_match_body`: the server runs on a
+`daemon=True` thread, so the instant `report_game()` returns and
+`run_match_body` itself returns, the whole process — server, tunnel,
+everything — exits immediately. `_PEER_FINAL_REVEAL_WAIT_SECONDS`
+(`orchestrator_peer_audit.py`) already waits 5s *inside* `report_game()`
+for the peer's Final Reveal, but that figure is deliberately short so
+most unit tests (which call `report_game()` directly, with no real peer)
+don't each pay a near-full wait — it cannot also be this repo's answer to
+"how much slower might a genuinely independent, real peer be, over a real
+network." This is a second, later, CLI-only wait — `cli_peer.py`'s own
+`run_match_body`, never `report_game()`/`Orchestrator` itself — so no
+existing unit test that constructs an `Orchestrator` directly is
+affected. Default `60.0`: generous enough for a real pacing gap between
+two independently-timed peers, still bounded (rule 4 — every wait has a
+deadline), an order of magnitude short of `step0_wait_seconds`'s own
+300.0 default for the same "let the other side catch up" category of
+wait.
 """
 
 from __future__ import annotations
@@ -42,6 +82,9 @@ class PrivateConfig:
     turn_timeout_seconds: float
     initiate_step0: bool
     step0_wait_seconds: float
+    scent_map_retry_attempts: int
+    scent_map_retry_delay_seconds: float
+    post_match_grace_seconds: float
     group_name: str
     group_id: str
     sub_game_number: int
@@ -82,6 +125,9 @@ class PrivateConfig:
             turn_timeout_seconds=float(network["turn_timeout_seconds"]),
             initiate_step0=bool(network.get("initiate_step0", False)),
             step0_wait_seconds=float(network.get("step0_wait_seconds", 300.0)),
+            scent_map_retry_attempts=int(network.get("scent_map_retry_attempts", 3)),
+            scent_map_retry_delay_seconds=float(network.get("scent_map_retry_delay_seconds", 1.0)),
+            post_match_grace_seconds=float(network.get("post_match_grace_seconds", 60.0)),
             group_name=game["group_name"],
             group_id=game["group_id"],
             sub_game_number=game["sub_game_number"],

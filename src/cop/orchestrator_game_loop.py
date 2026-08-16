@@ -84,7 +84,19 @@ class GameLoopMixin:
                     return self._outcome_after_peer_final_reveal()
                 try:
                     await self.take_turn(peer_url)
-                except Exception:
+                except Exception as exc:
+                    # Fires unconditionally, not just for an unanticipated failure:
+                    # most calls inside take_turn already log their own specific
+                    # event before raising (technical_loss, local_verify_mismatch,
+                    # ...), but this is the one line that's guaranteed to exist
+                    # regardless — the real gap it closes is the case where nothing
+                    # upstream logged anything at all before play_game() silently
+                    # converted it to Outcome.TECHNICAL_LOSS.
+                    self.trace.log(
+                        "play_game_unhandled_exception",
+                        reason=str(exc),
+                        exception_type=type(exc).__name__,
+                    )
                     self._match_ended_at = datetime.now(UTC).isoformat()
                     return Outcome.TECHNICAL_LOSS
 

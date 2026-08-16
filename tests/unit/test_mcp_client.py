@@ -29,6 +29,7 @@ from cop.domain.board import Position
 from cop.tools.mcp_client import request_scent_map
 from cop.tools.mcp_client_prd6 import send_reveal
 from cop.tools.mcp_server import build_server
+from cop.tools.peer_connection import PeerConnection
 
 
 def _free_port() -> int:
@@ -59,14 +60,18 @@ _A_MOVE = {"type": "move", "direction": "NORTH"}
 
 
 def test_send_reveal_round_trips_over_real_http(running_server):
-    data = asyncio.run(send_reveal(running_server, _A_MOVE, "quiet by the river", time.time(), time.time() + 30.0))
+    connection = PeerConnection(running_server)
+    data = asyncio.run(
+        send_reveal(connection, _A_MOVE, "quiet by the river", time.time(), time.time() + 30.0)
+    )
     assert data == {"accepted": True, "word_count": 4}
 
 
 def test_send_reveal_reports_an_over_limit_hint(running_server, config):
     over_limit_text = " ".join(["word"] * (config.hint_word_limit + 1))
+    connection = PeerConnection(running_server)
     data = asyncio.run(
-        send_reveal(running_server, _A_MOVE, over_limit_text, time.time(), time.time() + 30.0)
+        send_reveal(connection, _A_MOVE, over_limit_text, time.time(), time.time() + 30.0)
     )
     assert data["accepted"] is False
     assert data["word_count"] == config.hint_word_limit + 1
@@ -76,13 +81,13 @@ def test_request_scent_map_round_trips_over_real_http(config):
     field_data = {Position(1, 1): 0.9, Position(2, 2): 0.42}
     url = _start_server(config, get_scent_field=lambda: field_data)
 
-    result = asyncio.run(request_scent_map(url))
+    result = asyncio.run(request_scent_map(PeerConnection(url)))
 
     assert result == field_data
 
 
 def test_request_scent_map_is_empty_over_real_http_with_no_hook(running_server):
-    result = asyncio.run(request_scent_map(running_server))
+    result = asyncio.run(request_scent_map(PeerConnection(running_server)))
     assert result == {}
 
 
@@ -90,7 +95,9 @@ def test_on_receive_gets_the_loopback_address_over_real_http_with_no_forwarding_
     received_ips = []
     url = _start_server(config, on_receive=lambda ip: received_ips.append(ip))
 
-    asyncio.run(send_reveal(url, _A_MOVE, "quiet by the river", time.time(), time.time() + 30.0))
+    asyncio.run(
+        send_reveal(PeerConnection(url), _A_MOVE, "quiet by the river", time.time(), time.time() + 30.0)
+    )
 
     assert received_ips == ["127.0.0.1"]
 

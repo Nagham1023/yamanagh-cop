@@ -110,6 +110,169 @@ def test_commit_and_reveal_to_peer_against_a_silent_peer_hits_the_deadline_not_a
             conn.close()
 
 
+def test_commit_and_reveal_to_peer_retries_past_a_momentary_connection_refusal(config, tmp_path):
+    # The exact real-match failure this closes: a second successful
+    # 27-round match still forfeited because send_commit hit a bare
+    # ConnectError on an already-open PeerConnection (round 27's own
+    # reconnect attempt failing, not the first handshake) and had zero
+    # retry. Nothing is bound to `port` yet, so the first attempt gets a
+    # real connection-refused; the real FastMCP server only starts
+    # listening after a short beat, simulating the tunnel coming back.
+    port = _free_port()
+    recovering = FastMCP("recovering_commit_peer")
+
+    @recovering.tool
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
+        return {"acknowledged": True}
+
+    @recovering.tool
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
+        return {"accepted": True, "word_count": len(hint_text.split())}
+
+    def _start_late() -> None:
+        time.sleep(0.1)
+        recovering.run(transport="http", host="127.0.0.1", port=port, show_banner=False)
+
+    threading.Thread(target=_start_late, daemon=True).start()
+
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    orchestrator.state_machine.transition("COMPUTING_MOVE")
+
+    asyncio.run(
+        orchestrator.commit_and_reveal_to_peer(
+            f"http://127.0.0.1:{port}/mcp", Move(direction="NORTH"), False, "a test hint"
+        )
+    )
+
+    assert orchestrator.state_machine.state == "WAITING_FOR_OPPONENT", (
+        "a momentary connection refusal that clears on retry must not force a technical loss"
+    )
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "commit_reveal_send_retrying" in events
+    assert "technical_loss" not in events
+
+
+def test_request_scent_map_from_peer_retries_past_a_momentary_connection_refusal(config, tmp_path):
+    # The real bug this guards: a free-tier ngrok tunnel dropped for well
+    # under a second during a real cross-machine match — the peer's own
+    # next call reached us again before we'd even finished failing here —
+    # yet the old one-shot call turned that sub-second blip into an
+    # instant forfeit. Nothing is bound to `port` yet, so the first attempt
+    # gets a real connection-refused; the real FastMCP server only starts
+    # listening on that same port after a short beat, simulating the
+    # tunnel coming back.
+    port = _free_port()
+    recovering = FastMCP("recovering_scent_peer")
+
+    @recovering.tool
+    def share_scent_map() -> dict:
+        return {"cells": {}}
+
+    def _start_late() -> None:
+        time.sleep(0.1)
+        recovering.run(transport="http", host="127.0.0.1", port=port, show_banner=False)
+
+    threading.Thread(target=_start_late, daemon=True).start()
+
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+
+    result = asyncio.run(orchestrator.request_scent_map_from_peer(f"http://127.0.0.1:{port}/mcp"))
+
+    assert result == {}
+    assert orchestrator.state_machine.state == "WAITING_FOR_OPPONENT", (
+        "a momentary connection refusal that clears on retry must not force a technical loss"
+    )
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "scent_map_request_retrying" in events
+    assert "technical_loss" not in events
+
+
+def test_request_scent_map_from_peer_against_a_dead_port_still_reaches_technical_loss_after_retries_are_exhausted(
+    config, tmp_path
+):
+    # A genuinely dead peer (nothing ever listening) must still forfeit —
+    # the retry only buys tolerance for a momentary blip, not infinite
+    # patience, and it must still fail fast, not hang.
+    port = _free_port()  # never bound to any server
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+    # request_scent_map_from_peer's own docstring: take_turn transitions to
+    # COMPUTING_MOVE before calling this specifically so the failure path
+    # below has a legal TECHNICAL_LOSS edge — WAITING_FOR_OPPONENT (the
+    # default state) does not.
+    orchestrator.state_machine.transition("COMPUTING_MOVE")
+
+    start = time.monotonic()
+    with pytest.raises(Exception):  # noqa: B017 - deliberately broad: any connection failure counts
+        asyncio.run(orchestrator.request_scent_map_from_peer(f"http://127.0.0.1:{port}/mcp"))
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 5.0, "must fail fast, not hang toward the full response_timeout_seconds"
+    assert orchestrator.state_machine.state == "TECHNICAL_LOSS"
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "technical_loss" in events
+    assert events.count("scent_map_request_retrying") == orchestrator.private_config.scent_map_retry_attempts - 1
+
+
+def test_send_final_reveal_to_peer_retries_past_a_momentary_connection_refusal(config, tmp_path):
+    # Same real bug, second call site: receive_final_reveal is a pure
+    # overwrite (PeerTrace.record_final_reveal's own setdefault), so a
+    # duplicate delivery after a dropped tunnel is a safe no-op on the
+    # receiving side.
+    port = _free_port()
+    recovering = FastMCP("recovering_final_reveal_peer")
+
+    @recovering.tool
+    def receive_final_reveal(nonces: dict, intents: dict) -> dict:
+        return {"passed": True, "verified_steps": 0, "failed_steps": [], "evaluated": True}
+
+    def _start_late() -> None:
+        time.sleep(0.1)
+        recovering.run(transport="http", host="127.0.0.1", port=port, show_banner=False)
+
+    threading.Thread(target=_start_late, daemon=True).start()
+
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+
+    result = asyncio.run(orchestrator.send_final_reveal_to_peer(f"http://127.0.0.1:{port}/mcp"))
+
+    assert result["passed"] is True
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "final_reveal_send_retrying" in events
+    assert "final_reveal_failed" not in events
+
+
+def test_send_final_reveal_to_peer_against_a_dead_port_still_fails_after_retries_are_exhausted(
+    config, tmp_path
+):
+    port = _free_port()  # never bound to any server
+    orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+
+    start = time.monotonic()
+    with pytest.raises(Exception):  # noqa: B017 - deliberately broad: any connection failure counts
+        asyncio.run(orchestrator.send_final_reveal_to_peer(f"http://127.0.0.1:{port}/mcp"))
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 10.0, "must fail fast, not hang toward the full response_timeout_seconds"
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "final_reveal_failed" in events
+    assert events.count("final_reveal_send_retrying") == orchestrator.private_config.scent_map_retry_attempts - 1
+
+
 def test_request_scent_map_from_peer_against_a_malformed_response_degrades_gracefully_not_a_technical_loss(
     config, tmp_path
 ):

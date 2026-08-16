@@ -25,6 +25,7 @@ from cop.tools.mcp_client_prd6 import (
     send_reveal,
 )
 from cop.tools.mcp_server import build_server
+from cop.tools.peer_connection import PeerConnection
 
 
 def _free_port() -> int:
@@ -47,19 +48,19 @@ def _start_server(config) -> str:
 
 def test_send_final_reveal_round_trips_over_real_http(config):
     url = _start_server(config)
-    data = asyncio.run(send_final_reveal(url, {"0": "a" * 32}, {"0": False}))
+    data = asyncio.run(send_final_reveal(PeerConnection(url), {"0": "a" * 32}, {"0": False}))
     assert data == {"acknowledged": True}
 
 
 def test_send_capture_claim_round_trips_over_real_http(config):
     url = _start_server(config)
-    data = asyncio.run(send_capture_claim(url, 3, 3, 3, 3, 7))
+    data = asyncio.run(send_capture_claim(PeerConnection(url), 3, 3, 3, 3, 7))
     assert data == {"acknowledged": True}
 
 
 def test_send_capture_response_round_trips_over_real_http(config):
     url = _start_server(config)
-    data = asyncio.run(send_capture_response(url, True, 3, 3))
+    data = asyncio.run(send_capture_response(PeerConnection(url), True, 3, 3))
     assert data == {"acknowledged": True}
 
 
@@ -93,14 +94,20 @@ def test_send_commit_falls_back_when_the_peer_rejects_the_new_timing_fields():
     # peer whose server predates PRD 15 — the fallback retry is safe here
     # specifically because FastMCP rejects before the tool body ever runs.
     url = _start_pre_prd15_server()
-    data = asyncio.run(send_commit(url, "a" * 64, time.time(), time.time() + 30.0))
+    data = asyncio.run(send_commit(PeerConnection(url), "a" * 64, time.time(), time.time() + 30.0))
     assert data == {"acknowledged": True}
 
 
 def test_send_reveal_falls_back_when_the_peer_rejects_the_new_timing_fields():
     url = _start_pre_prd15_server()
     data = asyncio.run(
-        send_reveal(url, {"type": "move", "direction": "N"}, "quiet by the river", time.time(), time.time() + 30.0)
+        send_reveal(
+            PeerConnection(url),
+            {"type": "move", "direction": "N"},
+            "quiet by the river",
+            time.time(),
+            time.time() + 30.0,
+        )
     )
     assert data == {"accepted": True, "word_count": 4}
 
@@ -127,5 +134,6 @@ def test_send_commit_reraises_a_real_connection_failure_unmodified():
     # genuine network failure (nothing listening) must propagate exactly
     # as it always did, not be swallowed by the new try/except.
     dead_port = _free_port()  # never bound — nothing listens here
+    connection = PeerConnection(f"http://127.0.0.1:{dead_port}/mcp")
     with pytest.raises(Exception):  # noqa: B017 - any connection failure counts, same as elsewhere in this suite
-        asyncio.run(send_commit(f"http://127.0.0.1:{dead_port}/mcp", "a" * 64, time.time(), time.time() + 30.0))
+        asyncio.run(send_commit(connection, "a" * 64, time.time(), time.time() + 30.0))

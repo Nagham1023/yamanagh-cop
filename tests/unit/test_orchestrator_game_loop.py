@@ -7,6 +7,7 @@ never run a thief brain, rule 1/2), same discipline as
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 import threading
 import time
@@ -18,6 +19,7 @@ from cop.domain.scoring import Outcome
 from cop.orchestrator import Orchestrator
 from cop.reasoning.cop_brain import CopBrain
 from cop.tools.mcp_client_prd6 import send_capture_response
+from cop.tools.peer_connection import PeerConnection
 
 
 def _free_port() -> int:
@@ -47,7 +49,7 @@ def _start_confirming_thief_peer(client_url: str) -> int:
         thief_col: int, thief_row: int, cop_col: int, cop_row: int, claimed_at_step: int
     ) -> dict:
         def _respond() -> None:
-            asyncio.run(send_capture_response(client_url, True, thief_col, thief_row))
+            asyncio.run(send_capture_response(PeerConnection(client_url), True, thief_col, thief_row))
 
         threading.Thread(target=_respond, daemon=True).start()
         return {"acknowledged": True}
@@ -95,7 +97,7 @@ def _start_denying_thief_peer(client_url: str) -> int:
         thief_col: int, thief_row: int, cop_col: int, cop_row: int, claimed_at_step: int
     ) -> dict:
         def _respond() -> None:
-            asyncio.run(send_capture_response(client_url, False, thief_col, thief_row))
+            asyncio.run(send_capture_response(PeerConnection(client_url), False, thief_col, thief_row))
 
         threading.Thread(target=_respond, daemon=True).start()
         return {"acknowledged": True}
@@ -171,6 +173,15 @@ def test_play_game_converts_a_technical_loss_into_a_return_value_not_an_exceptio
 
     assert outcome == Outcome.TECHNICAL_LOSS
     assert client.state_machine.state == "TECHNICAL_LOSS"
+
+    # Closes a real gap: play_game()'s own outer catch used to log nothing at
+    # all, so this is the one line guaranteed to exist regardless of whether
+    # something further upstream already logged a more specific event too.
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "client_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "play_game_unhandled_exception" in events
 
 
 def test_play_game_stamps_started_and_ended_at_on_an_ordinary_outcome(config, tmp_path):

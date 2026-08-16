@@ -1,16 +1,13 @@
-"""Single entry point to every PRD 2/3 subsystem (rule 3).
+"""Single entry point to every PRD 2/3 subsystem (rule 3). Wires all five of
+the book's Orchestrator subsystems (Ch.8, Fig. 12): MCP Connector
+(`tools/`), Log Manager (`observability/trace.py`), Deadline Tracker,
+Watchdog, and Decision Module (`reasoning/`) — nothing outside this module
+reaches those subsystems directly.
 
-Wires all five of the book's Orchestrator subsystems (Ch.8, Fig. 12): MCP
-Connector (`tools/`), Log Manager (`observability/trace.py`), Deadline
-Tracker, Watchdog, and — as of PRD 3 — the Decision Module (`reasoning/`).
-Nothing outside this module reaches those subsystems directly.
-
-Watchdog: every tool call feeds it a heartbeat (`on_receive`), and a
-daemon thread in `run_as_server` polls `watchdog.check()` so a frozen
-process gets caught while serving. Turns/reveals/Commit-Reveal live in
-`orchestrator_turn.py`/`orchestrator_reveal_received.py`/
-`orchestrator_commit_reveal.py` — split again each cap re-hit.
-"""
+Watchdog: every tool call feeds it a heartbeat, a daemon thread in
+`run_as_server` polls `watchdog.check()` so a frozen process gets caught.
+Turns/reveals/Commit-Reveal live in sibling `orchestrator_*.py` mixins,
+split out each cap re-hit."""
 
 from __future__ import annotations
 
@@ -30,11 +27,14 @@ from .memory.scent import ScentField
 from .observability.trace import Trace
 from .orchestrator_capture import CaptureClaimMixin
 from .orchestrator_commit_reveal import CommitRevealMixin
+from .orchestrator_connect_retry import ConnectRetryMixin
 from .orchestrator_end_of_game import EndOfGameMixin
 from .orchestrator_game_loop import GameLoopMixin
 from .orchestrator_peer import PeerCommsMixin
 from .orchestrator_peer_audit import PeerAuditMixin
 from .orchestrator_peer_commit import PeerCommitMixin
+from .orchestrator_peer_connection import PeerConnectionMixin
+from .orchestrator_report_dispatch import ReportDispatchMixin
 from .orchestrator_report_entry import ReportEntryMixin
 from .orchestrator_reveal_received import RevealReceivedMixin
 from .orchestrator_server import ServerLifecycleMixin
@@ -60,11 +60,14 @@ class Orchestrator(
     BrainTurnMixin,
     CaptureClaimMixin,
     CommitRevealMixin,
+    ConnectRetryMixin,
     EndOfGameMixin,
     GameLoopMixin,
     PeerCommsMixin,
     PeerAuditMixin,
     PeerCommitMixin,
+    PeerConnectionMixin,
+    ReportDispatchMixin,
     ReportEntryMixin,
     RevealReceivedMixin,
     ServerLifecycleMixin,
@@ -100,8 +103,7 @@ class Orchestrator(
         self.league_ledger = LeagueLedger()
         self.gatekeeper = ApiGatekeeper(config)
         self.state_machine = PeerStateMachine()
-        # Rule 18: this side's own nonces, never sent until receive_final_reveal, keyed by step.
-        self._pending_nonces: dict[int, str] = {}
+        self._pending_nonces: dict[int, str] = {}  # rule 18: kept until receive_final_reveal, keyed by step
         self._pending_intents: dict[int, bool] = {}  # same lifetime/reason as _pending_nonces
         self.peer_trace = PeerTrace()  # peer's committed/revealed data — run_peer_audit verifies against this (19/36)
         self._init_cross_thread_signals()
@@ -112,7 +114,7 @@ class Orchestrator(
         self._opponent_repos: dict[str, str] | None = None
         self._opponent_declaration: Step0Declaration | None = None  # PRD 16: group_name/code_commit_hash
         self._step0_completed: bool = False  # set once by _signal_step0_received
-        self._match_started_at: str | None = None  # set by play_game() — report_game() needs both
+        self._match_started_at: str | None = None  # both set by play_game(); report_game() needs them
         self._match_ended_at: str | None = None
         self.watchdog = Watchdog(
             threshold_seconds=config.watchdog_threshold_seconds,
@@ -134,9 +136,7 @@ class Orchestrator(
         )
 
     def _init_cross_thread_signals(self) -> None:
-        """Event/loop pairs `orchestrator_capture.py`/`orchestrator_step0_wait.py`/
-        `orchestrator_peer_audit.py` use to hand a result from the MCP server
-        thread back to an awaiting asyncio loop."""
+        """Event/loop pairs sibling mixins use to hand a result back."""
         self._capture_response_event = asyncio.Event()
         self._capture_response: CaptureResponse | None = None
         self._capture_response_loop: asyncio.AbstractEventLoop | None = None
@@ -146,3 +146,5 @@ class Orchestrator(
         self._peer_final_reveal_event = asyncio.Event()
         self._peer_final_reveal_loop: asyncio.AbstractEventLoop | None = None
         self._watchdog_stop_event = threading.Event()  # plain thread, not asyncio (orchestrator_server.py)
+        self.tunnel = None  # set by run_as_server; orchestrator_server.py::stop_tunnel_if_running
+        self._peer_connection = None  # lazily set; orchestrator_peer_connection.py::_get_peer_connection

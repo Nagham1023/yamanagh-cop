@@ -42,7 +42,14 @@ def test_loads_the_dev_private_config_from_disk():
     config = PrivateConfig.from_file(REPO_PRIVATE_CONFIG)
     assert config.provider == "template"
     assert config.every_n_steps == 1
-    assert config.opponent_url == "http://127.0.0.1:8802/mcp"
+    # real-match wiring (PRD 5/10's tunnel), not the old localhost
+    # placeholder — flips whenever the two teams agree a new opponent URL,
+    # same "real file, real regression check" discipline as police_class
+    # below. Switched to a Cloudflare Quick Tunnel URL once ngrok's
+    # free-tier connection-rate cap was diagnosed as the round-26/27
+    # match failure's real cause — the URL itself is ephemeral (a fresh
+    # one every relaunch), so this will flip again on the next real match.
+    assert config.opponent_url == "https://viewer-bangkok-notebooks-promotion.trycloudflare.com/mcp"
     assert config.my_port == 8801
     assert config.turn_timeout_seconds == 180.0
     assert config.group_name == "dev-team"
@@ -59,6 +66,9 @@ def test_loads_the_dev_private_config_from_disk():
     assert config.police_class == "cop.reasoning.rl_cop_brain:RLCopBrain"
     assert config.initiate_step0 is False
     assert config.step0_wait_seconds == 300.0
+    assert config.scent_map_retry_attempts == 3
+    assert config.scent_map_retry_delay_seconds == 1.0
+    assert config.post_match_grace_seconds == 60.0
 
 
 def test_it_is_really_toml_not_json(tmp_path):
@@ -125,6 +135,32 @@ def test_initiate_step0_and_step0_wait_seconds_round_trip_when_present():
     )
     assert config.initiate_step0 is True
     assert config.step0_wait_seconds == 60.0
+
+
+def test_scent_map_retry_settings_default_safely_when_absent():
+    # Older config file predating this pair must keep loading unchanged,
+    # same discipline as initiate_step0/step0_wait_seconds above.
+    config = PrivateConfig.from_dict(_full_private())
+    assert config.scent_map_retry_attempts == 3
+    assert config.scent_map_retry_delay_seconds == 1.0
+
+
+def test_scent_map_retry_settings_round_trip_when_present():
+    config = PrivateConfig.from_dict(
+        _full_private(network={"scent_map_retry_attempts": 4, "scent_map_retry_delay_seconds": 1.5})
+    )
+    assert config.scent_map_retry_attempts == 4
+    assert config.scent_map_retry_delay_seconds == 1.5
+
+
+def test_post_match_grace_seconds_defaults_safely_when_absent():
+    config = PrivateConfig.from_dict(_full_private())
+    assert config.post_match_grace_seconds == 60.0
+
+
+def test_post_match_grace_seconds_round_trips_when_present():
+    config = PrivateConfig.from_dict(_full_private(network={"post_match_grace_seconds": 15}))
+    assert config.post_match_grace_seconds == 15.0
 
 
 def test_this_loader_is_not_gameconfig_from_file():

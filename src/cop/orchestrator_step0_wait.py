@@ -47,8 +47,14 @@ from __future__ import annotations
 import asyncio
 
 from .orchestrator_step0 import Step0MismatchError
-from .planner.deadline import await_with_deadline
+from .planner.deadline import DeadlineExceededError
 from .planner.state_machine import PeerStateMachine
+
+# Robustness pacing cap, not a game-rule quantity (I6 doesn't apply — same
+# category as cli_peer_match_body.py's own heartbeat-interval cap): an
+# upper bound on how long a single chunk of the passive Step-0 wait runs
+# before heartbeating the watchdog again.
+_STEP0_HEARTBEAT_INTERVAL_CAP_SECONDS = 5.0
 
 
 class Step0PassiveWaitMixin:
@@ -103,9 +109,7 @@ class Step0PassiveWaitMixin:
         self.trace.log("step0_awaiting_peer", timeout_seconds=timeout_seconds)
 
         try:
-            await await_with_deadline(
-                self._step0_received_event.wait(), timeout_seconds=timeout_seconds
-            )
+            await self._await_step0_event_with_heartbeats(timeout_seconds)
         except Exception as exc:
             reason = f"no peer initiated Step-0 within {timeout_seconds}s: {exc}"
             self.trace.log("step0_mismatch", reason=reason)
@@ -114,3 +118,25 @@ class Step0PassiveWaitMixin:
 
         if self._step0_failure is not None:
             raise self._step0_failure
+
+    async def _await_step0_event_with_heartbeats(self, timeout_seconds: float) -> None:
+        """Heartbeats between chunks of the wait instead of one bare
+        `asyncio.wait_for` — the exact bug `_sleep_with_heartbeats`
+        (`cli_peer_match_body.py`) already closed for the *post*-match
+        grace wait, found live here too: a real match's own passive side
+        self-terminated (`watchdog_controlled_shutdown`) well under a
+        minute into a legitimate, up-to-`step0_wait_seconds` wait for the
+        opponent to dial in — nothing about this wait ever fed the
+        watchdog a heartbeat, so it looked identical to a genuinely frozen
+        process despite being correctly, harmlessly idle."""
+        interval = min(_STEP0_HEARTBEAT_INTERVAL_CAP_SECONDS, self.config.watchdog_threshold_seconds / 2)
+        elapsed = 0.0
+        while elapsed < timeout_seconds:
+            chunk = min(interval, timeout_seconds - elapsed)
+            try:
+                await asyncio.wait_for(self._step0_received_event.wait(), timeout=chunk)
+                return
+            except TimeoutError:
+                elapsed += chunk
+                self.watchdog.heartbeat()
+        raise DeadlineExceededError(f"opponent did not respond within {timeout_seconds}s")

@@ -100,6 +100,50 @@ def test_a_missing_nonce_fails_the_audit(config, tmp_path):
     assert result.mismatches[0]["reason"] == "no nonce revealed for this step"
 
 
+def test_an_earlier_launchs_leftover_entries_in_a_reused_log_file_do_not_fail_the_audit(
+    config, tmp_path
+):
+    # Found live: a shared log path reused across many separate dev-testing
+    # launches (this repo's own default naming is per game-id/sub-game-
+    # number, not per-process) accumulates `committing` entries from every
+    # earlier match too, each with its own unrelated h_commit for the same
+    # step numbers a brand-new match starts counting from again. One
+    # `Orchestrator` plays both roles here (server *and* client), same as
+    # a real `cop peer` process — `run_as_server` logs `server_starting`
+    # into its own `log_path` before `commit_and_reveal_to_peer` (client
+    # role) logs `committing` into that same file, exactly how production
+    # code shares one trace across both roles.
+    trace_path = tmp_path / "shared_trace.jsonl"
+    peer_port = _free_port()
+    peer = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "peer_trace.jsonl"))
+    threading.Thread(
+        target=peer.run_as_server, kwargs={"host": "127.0.0.1", "port": peer_port}, daemon=True
+    ).start()
+    time.sleep(0.5)
+
+    stale_launch = Orchestrator(config, CopBrain(), log_path=str(trace_path))
+    stale_launch.state_machine.transition("COMPUTING_MOVE")
+    asyncio.run(
+        stale_launch.commit_and_reveal_to_peer(
+            f"http://127.0.0.1:{peer_port}/mcp", Move(direction="SOUTH"), False, "an earlier launch"
+        )
+    )
+
+    real_launch = Orchestrator(config, CopBrain(), log_path=str(trace_path))  # same shared path
+    real_launch.trace.log("server_starting", host="127.0.0.1", port=0)  # marks this launch's own start
+    real_launch.state_machine.transition("COMPUTING_MOVE")
+    asyncio.run(
+        real_launch.commit_and_reveal_to_peer(
+            f"http://127.0.0.1:{peer_port}/mcp", Move(direction="NORTH"), False, "the real launch"
+        )
+    )
+
+    result = run_mutual_audit(trace_path, real_launch._pending_nonces)
+
+    assert result.passed is True
+    assert result.mismatches == []
+
+
 def test_a_log_with_no_committing_entries_passes_vacuously(tmp_path):
     empty_log = tmp_path / "empty_trace.jsonl"
     empty_log.write_text("", encoding="utf-8")

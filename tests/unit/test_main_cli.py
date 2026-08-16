@@ -18,34 +18,48 @@ from cop.orchestrator_step0 import Step0MismatchError
 def test_peer_subcommand_dispatches_to_run_peer_with_parsed_flags(monkeypatch):
     captured = {}
 
-    async def _fake_run_peer(private_config_path, shared_config_path, *, counted, use_tunnel):
-        captured["args"] = (private_config_path, shared_config_path, counted, use_tunnel)
+    async def _fake_run_peer(
+        private_config_path, shared_config_path, *, counted, use_tunnel, ngrok_domain, tunnel_provider
+    ):
+        captured["args"] = (
+            private_config_path, shared_config_path, counted, use_tunnel, ngrok_domain, tunnel_provider
+        )
 
     monkeypatch.setattr(main_module, "run_peer", _fake_run_peer)
     monkeypatch.setattr(
         sys, "argv",
-        ["cop", "peer", "--counted", "--tunnel", "--private-config", "a.toml", "--shared-config", "b.json"],
+        [
+            "cop", "peer", "--counted", "--tunnel", "--ngrok-domain", "my-name.ngrok-free.app",
+            "--tunnel-provider", "cloudflare",
+            "--private-config", "a.toml", "--shared-config", "b.json",
+        ],
     )
 
     main_module.main()
 
-    assert captured["args"] == ("a.toml", "b.json", True, True)
+    assert captured["args"] == ("a.toml", "b.json", True, True, "my-name.ngrok-free.app", "cloudflare")
 
 
 def test_peer_subcommand_defaults_to_zero_extra_flags(monkeypatch):
     captured = {}
 
-    async def _fake_run_peer(private_config_path, shared_config_path, *, counted, use_tunnel):
-        captured["args"] = (private_config_path, shared_config_path, counted, use_tunnel)
+    async def _fake_run_peer(
+        private_config_path, shared_config_path, *, counted, use_tunnel, ngrok_domain, tunnel_provider
+    ):
+        captured["args"] = (
+            private_config_path, shared_config_path, counted, use_tunnel, ngrok_domain, tunnel_provider
+        )
 
     monkeypatch.setattr(main_module, "run_peer", _fake_run_peer)
     monkeypatch.setattr(sys, "argv", ["cop", "peer"])
 
     main_module.main()
 
-    _, _, counted, use_tunnel = captured["args"]
+    _, _, counted, use_tunnel, ngrok_domain, tunnel_provider = captured["args"]
     assert counted is False
     assert use_tunnel is False
+    assert ngrok_domain is None
+    assert tunnel_provider == "ngrok"
 
 
 def test_peer_subcommand_exits_nonzero_on_a_step0_mismatch(monkeypatch, capsys):
@@ -104,8 +118,12 @@ def test_no_subcommand_is_rejected():
 def test_peer_subcommand_with_gui_dispatches_to_run_peer_with_gui(monkeypatch):
     captured = {}
 
-    def _fake_run_peer_with_gui(private_config_path, shared_config_path, *, counted, use_tunnel):
-        captured["args"] = (private_config_path, shared_config_path, counted, use_tunnel)
+    def _fake_run_peer_with_gui(
+        private_config_path, shared_config_path, *, counted, use_tunnel, ngrok_domain, tunnel_provider
+    ):
+        captured["args"] = (
+            private_config_path, shared_config_path, counted, use_tunnel, ngrok_domain, tunnel_provider
+        )
 
     monkeypatch.setattr(main_module, "run_peer_with_gui", _fake_run_peer_with_gui)
     monkeypatch.setattr(
@@ -116,4 +134,4 @@ def test_peer_subcommand_with_gui_dispatches_to_run_peer_with_gui(monkeypatch):
 
     main_module.main()
 
-    assert captured["args"] == ("a.toml", "b.json", False, False)
+    assert captured["args"] == ("a.toml", "b.json", False, False, None, "ngrok")

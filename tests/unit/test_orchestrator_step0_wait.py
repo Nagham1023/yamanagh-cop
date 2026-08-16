@@ -131,6 +131,31 @@ def test_await_passive_step0_does_not_discard_a_negotiation_that_already_complet
     assert peer._opponent_repos == dict(client.private_config.repos)
 
 
+def test_await_passive_step0_keeps_the_watchdog_alive_through_a_wait_longer_than_its_own_threshold(
+    config, tmp_path
+):
+    # The real bug this closes: found live — a real match's own passive
+    # side self-terminated (watchdog_controlled_shutdown) well under a
+    # minute into a legitimate, up-to-step0_wait_seconds wait for the
+    # opponent to dial in, because nothing about the wait ever heartbeated
+    # the watchdog. Same shape as cli_peer_match_body.py's own
+    # _sleep_with_heartbeats regression test: a short threshold, a total
+    # wait well past it, nobody ever signals the event, and the watchdog
+    # must still read ALIVE throughout rather than going stale mid-wait.
+    fast_config = dataclasses.replace(config, watchdog_threshold_seconds=0.3)
+    peer = Orchestrator(
+        fast_config,
+        CopBrain(),
+        log_path=str(tmp_path / "peer_trace.jsonl"),
+        shared_config_path=str(REAL_SHARED_CONFIG),
+    )
+
+    with pytest.raises(Step0MismatchError, match="no peer initiated"):
+        asyncio.run(peer.await_passive_step0(1.0))
+
+    assert peer.watchdog.check() == "ALIVE"
+
+
 def test_await_passive_step0_relays_a_failure_that_already_completed(config, tmp_path):
     peer, peer_url = _start_peer(config, tmp_path)
     mismatched_config = dataclasses.replace(config, scent_decay_rate=0.25)

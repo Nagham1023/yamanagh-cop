@@ -9,6 +9,9 @@ PRD 6's real Commit-Reveal round trip (`commit_and_reveal_to_peer`) lives in
 `orchestrator_commit_reveal.py`'s `CommitRevealMixin`, split out separately
 once it needed its own room — it calls `_fail_to_technical_loss` below,
 shared across both mixins rather than duplicated a third time.
+`_get_peer_connection`/`close_peer_connection` (the persistent-connection
+lifecycle) live in `orchestrator_peer_connection.py`'s `PeerConnectionMixin`,
+split out once *that* landed too.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 from .domain.board import Position
 from .integrity.scent_commitment import commit_scent_map
 from .planner.deadline import await_with_deadline
+from .planner.retry import retry_on_connection_failure
 from .tools.mcp_client import request_scent_map
 
 
@@ -55,6 +59,31 @@ class PeerCommsMixin:
         self.trace.log("scent_map_shared", commit_hash=commit_hash, cell_count=len(field))
         return field
 
+    async def _pull_scent_map_with_retry(self, peer_url: str) -> dict[Position, float]:
+        """`share_scent_map` is a pure read — the peer applies no state
+        change answering it — so unlike commit/reveal/capture it carries
+        none of the double-application risk `mcp_client_prd6.py`'s blanket
+        no-retry policy exists to guard against. Found via a real
+        cross-machine match: a free-tier ngrok tunnel dropped for well
+        under a second (the peer's own next call reached us again before
+        we'd even finished failing here), yet the old one-shot call still
+        turned that into an instant forfeit. `ValueError` (malformed data,
+        not a connection failure) is never retried — retrying garbage
+        can't fix it, so it re-raises immediately for the caller's own
+        existing "degrade to empty map" handling. `planner/retry.py`'s
+        shared helper, also used by `send_final_reveal_to_peer`
+        (`orchestrator_peer_audit.py`)."""
+        connection = self._get_peer_connection(peer_url)
+        return await retry_on_connection_failure(
+            lambda: request_scent_map(connection),
+            attempts=self.private_config.scent_map_retry_attempts,
+            delay_seconds=self.private_config.scent_map_retry_delay_seconds,
+            on_retry=lambda attempt, exc: self.trace.log(
+                "scent_map_request_retrying", attempt=attempt, reason=str(exc)
+            ),
+            retryable=lambda exc: not isinstance(exc, ValueError),
+        )
+
     async def request_scent_map_from_peer(self, peer_url: str) -> dict[Position, float]:
         """Client role: pull the peer's own scent field via the Tool-based
         data channel (ch. 6.4/6.5), not the verbal hint — PRD 4 "Revision 3"
@@ -84,7 +113,7 @@ class PeerCommsMixin:
         self.trace.log("requesting_scent_map", peer_url=peer_url)
         try:
             scent_map = await await_with_deadline(
-                request_scent_map(peer_url),
+                self._pull_scent_map_with_retry(peer_url),
                 timeout_seconds=self.config.response_timeout_seconds,
             )
         except ValueError as exc:

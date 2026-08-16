@@ -19,7 +19,7 @@ from test_tunnel import _admin_api_stub
 import cop.orchestrator_server as server_module
 from cop.orchestrator import Orchestrator
 from cop.reasoning.cop_brain import CopBrain
-from cop.tools.tunnel import start_tunnel as real_start_tunnel
+from cop.tools.tunnel_start import start_tunnel as real_start_tunnel
 
 _PLACEHOLDER_COMMAND = [sys.executable, "-c", "import time; time.sleep(60)"]
 
@@ -43,8 +43,10 @@ def test_run_as_server_with_use_tunnel_starts_and_stops_the_tunnel(config, tmp_p
     )
     started = {}
 
-    def _fake_start_tunnel(port):
-        tunnel = real_start_tunnel(port, admin_api_url=admin_api_url, command=_PLACEHOLDER_COMMAND)
+    def _fake_start_tunnel(port, domain=None, log_path=None):
+        tunnel = real_start_tunnel(
+            port, admin_api_url=admin_api_url, command=_PLACEHOLDER_COMMAND, domain=domain
+        )
         started["tunnel"] = tunnel
         return tunnel
 
@@ -68,7 +70,7 @@ def test_run_as_server_with_use_tunnel_starts_and_stops_the_tunnel(config, tmp_p
 
 def test_run_as_server_without_use_tunnel_binds_127_0_0_1_and_starts_no_tunnel(config, tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(server_module, "start_tunnel", lambda port: calls.append(port))
+    monkeypatch.setattr(server_module, "start_tunnel", lambda port, domain=None, log_path=None: calls.append(port))
 
     orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
     monkeypatch.setattr(orchestrator.server, "run", lambda **kwargs: None)
@@ -92,7 +94,9 @@ def test_run_as_server_an_explicit_host_wins_over_the_use_tunnel_default(config,
     monkeypatch.setattr(
         server_module,
         "start_tunnel",
-        lambda port: real_start_tunnel(port, admin_api_url=admin_api_url, command=_PLACEHOLDER_COMMAND),
+        lambda port, domain=None, log_path=None: real_start_tunnel(
+            port, admin_api_url=admin_api_url, command=_PLACEHOLDER_COMMAND, domain=domain
+        ),
     )
 
     try:
@@ -105,5 +109,30 @@ def test_run_as_server_an_explicit_host_wins_over_the_use_tunnel_default(config,
         (server_event,) = [e for e in events if e["event"] == "server_starting"]
         assert server_event["host"] == "192.168.1.50"
         assert [e for e in events if e["event"] == "tunnel_started"]  # still started
+    finally:
+        admin_server.shutdown()
+
+
+def test_run_as_server_threads_ngrok_domain_through_to_start_tunnel(config, tmp_path, monkeypatch):
+    admin_api_url, admin_server = _admin_api_stub(
+        {"tunnels": [{"proto": "https", "public_url": "https://my-name.ngrok-free.app"}]}
+    )
+    received = {}
+
+    def _fake_start_tunnel(port, domain=None, log_path=None):
+        received["domain"] = domain
+        return real_start_tunnel(
+            port, admin_api_url=admin_api_url, command=_PLACEHOLDER_COMMAND, domain=domain
+        )
+
+    monkeypatch.setattr(server_module, "start_tunnel", _fake_start_tunnel)
+
+    try:
+        orchestrator = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "trace.jsonl"))
+        monkeypatch.setattr(orchestrator.server, "run", lambda **kwargs: None)
+
+        orchestrator.run_as_server(port=_free_port(), use_tunnel=True, ngrok_domain="my-name.ngrok-free.app")
+
+        assert received["domain"] == "my-name.ngrok-free.app"
     finally:
         admin_server.shutdown()

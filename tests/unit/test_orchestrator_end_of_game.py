@@ -101,6 +101,33 @@ def _report_game(client, peer_url, *, is_counted: bool):
     )
 
 
+def test_report_game_logs_and_reraises_a_failure_in_the_reporting_tail(config, tmp_path, monkeypatch):
+    # Closes a real gap: everything past the Final Reveal send used to have
+    # zero exception handling — a failure here (config error, file-write
+    # error, Gatekeeper/Gmail rejection) propagated completely unlogged out
+    # of the whole pipeline. Forcing a failure inside the merge step stands
+    # in for any of those real causes; what matters is that it's now both
+    # logged AND still re-raised (never silently swallowed).
+    client = _client(config, tmp_path)
+    peer_url = _start_peer(config, tmp_path)
+
+    import cop.orchestrator_report_dispatch as report_dispatch_module
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated series-result merge failure")
+
+    monkeypatch.setattr(report_dispatch_module, "merge_into_series_result", _boom)
+
+    with pytest.raises(RuntimeError, match="simulated series-result merge failure"):
+        _report_game(client, peer_url, is_counted=True)
+
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "client_trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "report_game_failed" in events
+
+
 def test_report_game_returns_cleanly_under_draft_mode(config, tmp_path):
     client = _final_sub_game_client(config, tmp_path)  # else None means "not yet final", not "draft"
     peer_url = _start_peer(config, tmp_path)
@@ -217,13 +244,13 @@ def test_report_game_attaches_all_four_table_20_files(config, tmp_path, monkeypa
     peer_url = _start_peer(config, tmp_path)
 
     captured = {}
-    import cop.orchestrator_end_of_game as end_of_game_module
+    import cop.orchestrator_report_dispatch as report_dispatch_module
 
     def _spy_send_report_bundle(service, to_addr, subject, body, attachments, email_mode="send"):
         captured["attachments"] = attachments
         return None
 
-    monkeypatch.setattr(end_of_game_module, "send_report_bundle", _spy_send_report_bundle)
+    monkeypatch.setattr(report_dispatch_module, "send_report_bundle", _spy_send_report_bundle)
 
     _report_game(client, peer_url, is_counted=True)
 

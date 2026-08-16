@@ -198,22 +198,34 @@ tampered step (above), which is the real behavior a "no appeal past
 disqualification" reading calls for, independent of the recompute-
 granularity question.
 
-**A related gap, surfaced the same way, not yet fixed: "TAMPERED" doesn't
-by itself become a `TECHNICAL_LOSS`.** A product-style spec for this flow
-also states that a mismatch "results in a technical loss." In this repo, a
-failed audit never rewrites `Outcome` — by the time
-`report_game`/`run_mutual_audit`/`audit_peer` run, the match's `Outcome`
-is already fixed (capture, survival, ceiling, or an in-play technical
-loss from `play_game`'s own exception handling). What actually happens:
-`self_audit_passed`/`peer_audit_passed` are written into the real,
-mandatory `ResultBundle` every game reports (`orchestrator_end_of_game.py`)
-— tampering is caught and permanently on record — but disqualifying the
-match on that basis is left to the human/grader reading the report, not
-auto-scored by this code. This matches the book's own "no referee"
-design (there is no process with standing to unilaterally overwrite a
-peer's own already-computed `Outcome`), but it is a real difference from
-that spec's literal wording, so it's recorded here rather than left for a
-future reader to rediscover.
+**Update: "TAMPERED" now does automatically zero the score (rule 19),
+though `Outcome` itself still isn't what gets rewritten.** The gap
+described here originally is closed. Rule 19's actual text is "score 0
+to the forging team" — asymmetric, per audit direction — not "flip the
+outcome." `orchestrator_report_entry.py::_build_sub_game_entry` zeroes
+`this_score`/`opponent_score` independently based on
+`self_audit_passed`/`peer_audit_passed`, unconditionally, in both
+directions; `winner_group` then falls out correctly from the existing
+`winner_and_tie()` computation over the corrected scores — no separate
+override needed. `result` (`Outcome.value`) is deliberately left
+untouched, the honest gameplay record: a report can show `"result":
+"capture"` next to a `0` score — a real win, forfeited by a failed
+audit, not silently rewritten into a fictional loss. A new
+`audit_forfeit_applied` trace event records exactly which side(s)
+forfeited and why. `self_audit_passed`/`peer_audit_passed` themselves
+land in the real `result_<game_id>.json` every game reports
+(`SubGameEntry`, PRD 16), same as before.
+
+**Chosen deliberately, symmetric and unconditional, even knowing this
+side's own audit mechanism has a proven false-positive risk**: two real
+bugs were found and fixed this session that made `self_audit`/`peer_audit`
+falsely report failure on an honest match (a shared log file reused
+across local test runs; a race between this side's own local outcome and
+the peer's independently-timed Final Reveal). Rule 19 still applies
+identically to both directions anyway — a local bug that corrupts this
+side's own cryptographic seal is treated exactly like real tampering, no
+carve-out for "our own side." Cryptography is the arbiter (ch. 5.4/7.4),
+not a human reading the report after the fact.
 
 **A third contradiction, same shape, in the state machine itself.** A
 product-style spec's prose implies the state machine natively transitions

@@ -65,6 +65,7 @@ class CaptureClaimMixin:
         if claimed_cell is None:
             return
 
+        connection = self._get_peer_connection(peer_url)
         claim = claim_capture(
             thief_pos=claimed_cell, cop_pos=self.game_state.own_pos, claimed_at_step=step
         )
@@ -77,7 +78,7 @@ class CaptureClaimMixin:
         try:
             await await_with_deadline(
                 send_capture_claim(
-                    peer_url,
+                    connection,
                     claim.thief_pos.col,
                     claim.thief_pos.row,
                     claim.cop_pos.col,

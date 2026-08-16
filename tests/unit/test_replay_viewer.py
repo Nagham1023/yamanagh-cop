@@ -208,7 +208,18 @@ def _run_two_real_committed_turns(config, tmp_path) -> Orchestrator:
     class of bug `integrity/peer_trace.py`'s own fixture already hit).
     `E` twice (never `N`) — `cop_start` is a board corner where `N` is off-
     board and `game_state.apply()` raises on an illegal move, unlike the
-    unvalidated self-audit path the single-turn fixture above relies on."""
+    unvalidated self-audit path the single-turn fixture above relies on.
+
+    Both turns run inside one `asyncio.run(...)` call, not one apiece —
+    matching how a real match actually drives many rounds (`play_game()`'s
+    own loop, always inside a single continuous event loop for the whole
+    match, `cli_peer_match_body.py`). Two separate `asyncio.run()` calls
+    would each tear down their own event loop, and `PeerConnection`'s
+    persistent session (reused across every call site this session, PRD 5
+    hardening) is tied to the loop it was created on — found live: a
+    second `asyncio.run()` here raised `RuntimeError: Client is not
+    connected`, an artifact of this test's own shortcut, not something a
+    real match ever does."""
     port = _free_port()
     server = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "server_trace.jsonl"))
     threading.Thread(
@@ -218,13 +229,17 @@ def _run_two_real_committed_turns(config, tmp_path) -> Orchestrator:
 
     client = Orchestrator(config, CopBrain(), log_path=str(tmp_path / "client_trace.jsonl"))
     url = f"http://127.0.0.1:{port}/mcp"
-    for _ in range(2):
-        move = Move(direction="E")
-        client.game_state.apply(move, client.board)
-        client.state_machine.transition("COMPUTING_MOVE")
-        asyncio.run(client.commit_and_reveal_to_peer(url, move, False, "quiet by the river"))
-        # commit_and_reveal_to_peer's own internal transitions already land
-        # back on WAITING_FOR_OPPONENT — ready for the next COMPUTING_MOVE.
+
+    async def _two_turns() -> None:
+        for _ in range(2):
+            move = Move(direction="E")
+            client.game_state.apply(move, client.board)
+            client.state_machine.transition("COMPUTING_MOVE")
+            await client.commit_and_reveal_to_peer(url, move, False, "quiet by the river")
+            # commit_and_reveal_to_peer's own internal transitions already land
+            # back on WAITING_FOR_OPPONENT — ready for the next COMPUTING_MOVE.
+
+    asyncio.run(_two_turns())
     return client
 
 
