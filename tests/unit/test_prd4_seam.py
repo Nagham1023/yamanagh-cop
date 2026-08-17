@@ -44,6 +44,12 @@ PEER_TRACE_PATH = SRC_ROOT / "integrity" / "peer_trace.py"
 # orchestrator.py's constructor site) and per-turn refresh
 # (turn_handler.py::Std1TurnHandler.play_turn, mirroring
 # orchestrator_turn.py's take_turn) are a second known non-seam pair.
+# `peer_setup.py` grew a second, unrelated site once role alternation
+# (spec Section 6) added `build_thief_components_factory`: the minimal
+# alternated Thief role's own `target_pos` is its belief about the
+# *Cop's* location, seeded from the signed terms' own public `cop_start`
+# — not a ground-truth read of anything secret, so it's non-seam for the
+# same reason the Police-role site is, just the mirror-image role.
 STD_V1_PEER_SETUP_PATH = SRC_ROOT / "std_v1" / "peer_setup.py"
 STD_V1_TURN_HANDLER_PATH = SRC_ROOT / "std_v1" / "turn_handler.py"
 
@@ -137,11 +143,10 @@ def test_peer_trace_routes_its_throwaway_target_pos_through_the_ground_truth_sea
 
 def test_std_v1_peer_setup_no_longer_routes_target_pos_through_the_ground_truth_seam():
     sites = _sites_in(STD_V1_PEER_SETUP_PATH)
-    assert len(sites) == 1, f"expected exactly 1 target_pos site in std_v1/peer_setup.py, found {sites}"
-    ((_, routes),) = sites
-    assert not routes, (
-        "std_v1/peer_setup.py's initial target_pos should come from "
-        "belief_map.most_likely_cell(), same as orchestrator.py's own initial value"
+    assert len(sites) == 2, f"expected exactly 2 target_pos sites in std_v1/peer_setup.py, found {sites}"
+    assert not any(routes for _, routes in sites), (
+        "std_v1/peer_setup.py's two target_pos sites (Police-role belief.most_likely_cell(), "
+        "Thief-role Position(*config.cop_start)) should both be non-seam"
     )
 
 
