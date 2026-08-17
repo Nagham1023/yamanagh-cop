@@ -34,3 +34,17 @@ def test_build_identity_copies_mutable_inputs():
     identity = build_identity(group_id="g", group_name="G", members=members, repos={}, mcp_servers={}, llm_model="m")
     members.append("b")
     assert identity["members"] == ["a"]
+
+
+def test_build_identity_omits_scent_model_lock_when_not_given():
+    identity = build_identity(group_id="g", group_name="G", members=[], repos={}, mcp_servers={}, llm_model="m")
+    assert "scent_model_lock" not in identity
+
+
+def test_build_identity_includes_scent_model_lock_when_given():
+    lock = {"family": "scent_model", "name": "multiplicative_book_v1"}
+    identity = build_identity(
+        group_id="g", group_name="G", members=[], repos={}, mcp_servers={}, llm_model="m",
+        scent_model_lock=lock,
+    )
+    assert identity["scent_model_lock"] == lock

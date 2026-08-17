@@ -46,11 +46,19 @@ def test_advance_composes_decay_and_fresh_deposit_additively(config):
     field.advance(Position(2, 1), board)  # (2,1) is now this turn's centre too
 
     after = field.sample(Position(1, 1), board)[Position(2, 1)]
-    expected = before * (1 - config.scent_decay_rate) + config.scent_source_strength
+    # Capped at source_strength (Appendix E's own min(0.9, ...)) — the raw
+    # decayed-residue-plus-fresh-centre-deposit sum here (1.458) exceeds it,
+    # so the correct expectation is the cap itself, not the uncapped sum.
+    expected = min(config.scent_source_strength, before * (1 - config.scent_decay_rate) + config.scent_source_strength)
     assert after == pytest.approx(expected)
 
 
 def test_repeated_advance_at_a_fixed_point_converges_and_never_goes_negative(config):
+    # Appendix E's own upper clamp (min(source_strength, ...)): a cell
+    # revisited every turn does NOT drift toward the uncapped steady state
+    # source_strength / decay_rate (9.0 at the default 0.9/0.10) -- rule 23
+    # would void the game on that deviation. It saturates at source_strength
+    # instead, reached well within one 35-step sub-game.
     field = _field(config)
     board = Board(size=7)
     center = Position(3, 3)
@@ -59,8 +67,7 @@ def test_repeated_advance_at_a_fixed_point_converges_and_never_goes_negative(con
         field.advance(center, board)
 
     level = field.sample(center, board)[center]
-    steady_state = config.scent_source_strength / config.scent_decay_rate
-    assert level == pytest.approx(steady_state, rel=1e-3)
+    assert level == pytest.approx(config.scent_source_strength, rel=1e-6)
     assert level >= 0.0
 
 

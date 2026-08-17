@@ -92,9 +92,15 @@ def test_a_truthful_scent_map_corroborates_against_a_lying_hint_and_wins(config)
     # true_pos is itself perfectly symmetric (no clipping bias) — every bit
     # of directional lean in the field comes from the earlier, still-
     # decaying residue at `previous_pos`, not from board-edge clipping.
+    # `previous_pos` at the board corner, not one cell in from it: offset
+    # (2, 2) from true_pos, at the very edge of the 5x5 kernel, still gives
+    # a real, small lean (0.85 vs 0.81 pure decay) without both cells
+    # saturating Appendix E's `min(source_strength, ...)` cap to the same
+    # 0.9 and producing a genuine tie the way offset (1, 1) now does
+    # (scent.py's own fix).
     board = Board(size=config.board_size)
     true_pos = Position(2, 2)  # north-west quadrant, 2 cells clear of every edge
-    previous_pos = Position(1, 1)  # further north-west still — a real trail
+    previous_pos = Position(0, 0)  # the board corner — further north-west still, a real trail
     belief = BeliefMap.uniform(board)
     scent = ScentField.from_config(config)
     provider = TemplateHintProvider()

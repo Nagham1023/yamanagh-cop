@@ -32,24 +32,25 @@ def test_update_from_scent_keeps_summing_to_one_and_down_weights_searched_cells(
     assert belief.probability(cop_pos) < before
 
 
-def test_update_from_scent_never_produces_a_negative_or_over_one_probability_when_the_cop_has_stalled(
+def test_update_from_scent_never_produces_a_negative_or_over_one_probability_for_an_out_of_range_concentration(
     config,
 ):
     # The real live bug (belief.py's own docstring on update_from_scent has
-    # the full story): ScentField's tau is an unbounded concentration, not a
-    # [0, 1] fraction — a cop that stalls in place for several turns builds
-    # up a scent level > 1 at its own resting cell, which used to flip
-    # 1 - level negative and corrupt other cells' normalized share above
-    # 1.0. Reproduces the exact mechanism: repeated advance() at the same
-    # position, not a single fresh deposit (that's the test right above,
-    # which never hits the bug since a single deposit stays under 1).
+    # the full story): ScentField's tau is a concentration, not necessarily
+    # a [0, 1] fraction whenever source_strength itself is configured above
+    # 1 — an unclamped `1 - level` then goes negative and corrupts other
+    # cells' normalized share above 1.0. `scent.py`'s own advance() is now
+    # correctly capped at `source_strength` (Appendix E's min(0.9, ...)), so
+    # this can no longer arise from mere repeated stalling at the book's own
+    # 0.9 default -- reproduced instead with a deliberately out-of-spec
+    # source_strength, still through the real advance()/sample() API, to
+    # prove belief.py's own defensive clamp holds regardless.
     board = Board(size=config.board_size)
     belief = BeliefMap.uniform(board)
-    scent = ScentField.from_config(config)
+    scent = ScentField(source_strength=5.0, decay_rate=config.scent_decay_rate, window_size=config.scent_field_size)
     cop_pos = Position(3, 3)
 
-    for _ in range(15):
-        scent.advance(cop_pos, board)
+    scent.advance(cop_pos, board)
     assert scent.sample(cop_pos, board)[cop_pos] > 1.0  # confirms the precondition is real, not assumed
 
     belief.update_from_scent(scent, cop_pos, board)

@@ -19,11 +19,17 @@ def build_identity(
     repos: dict[str, str],
     mcp_servers: dict[str, str],
     llm_model: str,
+    scent_model_lock: dict | None = None,
 ) -> dict:
-    """Assembles the identity block sent inside every `negotiate` offer."""
+    """Assembles the identity block sent inside every `negotiate` offer.
+
+    `scent_model_lock` is a strictly additive, never-required key (see
+    scent_model_lock.py) -- omitted entirely when not given, and invisible
+    to the Section-12 report either way since `report.py::group_details`
+    only ever whitelists specific fields off this dict."""
     commit_hash = current_git_commit_hash()
     hardware = detect_hardware(llm_model)
-    return {
+    identity = {
         "group_id": group_id,
         "group_name": group_name,
         "git_commit_hash": commit_hash,
@@ -40,3 +46,6 @@ def build_identity(
             "vram_gb": hardware.gpu_vram_gb,
         },
     }
+    if scent_model_lock is not None:
+        identity["scent_model_lock"] = scent_model_lock
+    return identity

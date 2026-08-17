@@ -3,8 +3,12 @@ Design Question 1.
 
 Ch. 4.3/Figure 4 of the book define emission as a fixed radial 5x5 kernel
 around the emitting cell, decayed and re-deposited once per full turn via
-`tau(t+1) = max(0, (1-rho)*tau(t) + delta_tau)` — not the single-cell point
-deposit the original PRD 4 build used. `ScentField` still serves its
+`tau(t+1) = min(source_strength, max(0, (1-rho)*tau(t) + delta_tau))` — not
+the single-cell point deposit the original PRD 4 build used. The upper
+clamp matters as much as the floor: without it, a cell an agent revisits
+repeatedly climbs toward a steady state of `source_strength / decay_rate`
+(9.0 at the default 0.9/0.10, not 0.9) inside a single 35-step sub-game —
+a real deviation from rule 23's fixed decay formula, not a cosmetic one. `ScentField` still serves its
 original purpose (down-weighting the agent's own recently-searched cells,
 `memory/belief.py`'s `update_from_scent`) and now also serves as the honest
 source `full_field()` exposes over the `share_scent_map` MCP tool
@@ -73,12 +77,18 @@ class ScentField:
         )
 
     def advance(self, pos: Position, board: Board) -> None:
-        """One full-turn update: `tau(t+1) = max(0, (1-rho)*tau(t) + delta_tau)`,
-        applied to every tracked cell in a single atomic step. Decays all
-        existing levels first, then adds this turn's radial kernel deposit
-        around `pos` (clipped to board bounds) on top of the decayed values
-        — the fresh deposit is never itself decayed in the same step it
-        lands, matching the book's formula exactly (Design Question 1)."""
+        """One full-turn update: `tau(t+1) = min(source_strength, max(0,
+        (1-rho)*tau(t) + delta_tau))`, applied to every tracked cell in a
+        single atomic step. Decays all existing levels first, then adds
+        this turn's radial kernel deposit around `pos` (clipped to board
+        bounds) on top of the decayed values — the fresh deposit is never
+        itself decayed in the same step it lands, matching the book's
+        formula exactly (Design Question 1). The upper clamp is Appendix
+        E's own `min(0.9, ...)`, applied here at `source_strength` rather
+        than a literal `0.9` (I6) — the spec's own emission centre value
+        doubles as the cap, so a non-default `emit_intensity` still caps
+        correctly. Without it a repeatedly-revisited cell has no ceiling
+        and drifts toward `source_strength / decay_rate` instead."""
         factor = 1 - self.decay_rate
         decayed = {p: level * factor for p, level in self._levels.items()}
         scale = self.source_strength / _REFERENCE_STRENGTH
@@ -86,7 +96,7 @@ class ScentField:
             candidate = Position(pos.col + d_col, pos.row + d_row)
             if board.in_bounds(candidate):
                 decayed[candidate] = decayed.get(candidate, 0.0) + value * scale
-        self._levels = {p: max(0.0, level) for p, level in decayed.items()}
+        self._levels = {p: min(self.source_strength, max(0.0, level)) for p, level in decayed.items()}
 
     def sample(self, center: Position, board: Board) -> dict[Position, float]:
         """The `window_size` x `window_size` window around `center`, clipped to

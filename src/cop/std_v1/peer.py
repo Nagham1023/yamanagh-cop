@@ -34,7 +34,9 @@ from .peer_setup import (
     build_thief_components_factory,
     build_turn_handler_factory,
     write_std_v1_result,
+    write_std_v1_sub_game_logs,
 )
+from .scent_model_lock import build_scent_model_lock
 from .series_runner import play_series
 from .server_registration import register_std_v1_tools
 from .terms import DEFAULT_TERMS_PATH, load_terms
@@ -99,6 +101,7 @@ async def run_std_v1_peer(
         repos=private_config.repos,
         mcp_servers={"cop": my_mcp_url, "thief": my_mcp_url},
         llm_model=private_config.model,
+        scent_model_lock=build_scent_model_lock(terms),
     )
 
     connection = PeerConnection(private_config.opponent_url)
@@ -126,4 +129,5 @@ async def run_std_v1_peer(
             stop_tunnel(tunnel)
 
     write_std_v1_result(result, results_dir)
+    write_std_v1_sub_game_logs(result, results_dir)
     return result

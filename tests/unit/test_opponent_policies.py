@@ -147,8 +147,22 @@ def test_scent_backtracking_thief_genuinely_prefers_its_own_high_scent_cell_over
     rng = random.Random(20260813)
     mover = make_scent_backtracking_thief(config, rng)
     barriers = BarrierSet(quota=14)
-    hot_cell = Position(3, 3)
-    branch_point = Position(3, 4)  # south of hot_cell; "N" returns to it, "S" is fresh
+    # hot_cell near a corner, branch_point 3 rows south along the same
+    # column, both interior (all 4 directions stay legal from branch_point):
+    # "N" is the only orthogonal neighbor of branch_point within Chebyshev
+    # distance 2 of hot_cell, so it alone picks up a real pre-existing
+    # residual from the 5 hot_cell visits; "S"/"E"/"W" are all distance 3+
+    # (outside the 5x5 kernel), reading zero residual. The mover's own call
+    # at branch_point deposits its own kernel there too (`_mover` advances
+    # before scoring) -- a flat +0.62 to every orthogonal neighbor -- so
+    # "N" ends at the Appendix E `min(source_strength, ...)` cap (0.9) while
+    # "S"/"E"/"W" land at exactly 0.62, not zero, but still strictly below
+    # "N": a positioning one cell closer (Chebyshev 2, not 3+) used to let
+    # that same self-deposit push a "fresh" neighbor's residual over the
+    # cap too, tying with "N" and turning this into an ambiguous rng.choice
+    # (scent.py's own fix).
+    hot_cell = Position(1, 1)
+    branch_point = Position(1, 4)
 
     for _ in range(5):
         mover(hot_cell, _BOARD, barriers)  # repeatedly "visit" hot_cell to build up its scent
@@ -168,8 +182,9 @@ def test_scent_backtracking_thief_needs_a_fresh_scent_field_per_episode_not_a_re
     # seeds it must pick each side at least once, not deterministically favor
     # the cell a *different*, no-longer-relevant mover happened to visit.
     barriers = BarrierSet(quota=14)
-    hot_cell = Position(3, 3)
-    branch_point = Position(3, 4)  # "N" returns toward hot_cell; "S" is the fresh direction
+    # Same geometry and reasoning as the sibling test above.
+    hot_cell = Position(1, 1)
+    branch_point = Position(1, 4)  # "N" returns toward hot_cell; "S" is the fresh direction
 
     reused_mover = make_scent_backtracking_thief(config, random.Random(1))
     for _ in range(5):
