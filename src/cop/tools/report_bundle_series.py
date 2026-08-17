@@ -27,13 +27,23 @@ def _build_final_result(
     *,
     games_played_including_this: int,
     first_meeting_between_groups: bool,
+    tie_score: int,
 ) -> dict:
     """Recomputed from scratch each call, over `is_counted` entries only —
-    matching `league_ledger.py`'s own "warm-ups are never recorded" scope."""
+    matching `league_ledger.py`'s own "warm-ups are never recorded" scope.
+
+    `tie_score` (Table 17's own fixed `tie_score = 2`, `config.score_draw`)
+    is applied once, symmetrically, only when the raw cumulative totals
+    are already equal — found live: `score_draw` was loaded from config
+    but never actually consumed anywhere in this file, so a real series
+    tie under-reported both sides' final score by the negotiated bonus."""
     counted = [g for g in sub_games if g["is_counted"]]
     this_total = sum(g["score"].get(this_group, 0) for g in counted)
     opponent_total = sum(g["score"].get(opponent_group, 0) for g in counted)
     winner_group, series_tie = winner_and_tie(this_group, this_total, opponent_group, opponent_total)
+    if series_tie:
+        this_total += tie_score
+        opponent_total += tie_score
     # Table 18 row 4's own condition, self-reported truthfully — real
     # enforcement is the lecturer's cross-reference (league_ledger.py).
     diversity_reward_applied = first_meeting_between_groups and winner_group == this_group
@@ -60,6 +70,7 @@ def merge_into_series_result(
     first_meeting_between_groups: bool,
     repo_urls: dict[str, str],
     declaration_file: str,
+    tie_score: int,
 ) -> dict:
     """The real accumulation this repo's own docstrings already promised
     but never built: `sub_games` grows across separate `Orchestrator`
@@ -97,6 +108,7 @@ def merge_into_series_result(
             entry.opponent_group,
             games_played_including_this=games_played_including_this,
             first_meeting_between_groups=first_meeting_between_groups,
+            tie_score=tie_score,
         ),
     }
     payload["mutual_agreement"] = build_mutual_agreement(

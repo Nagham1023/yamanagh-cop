@@ -33,11 +33,12 @@ def group_details(identity: dict) -> dict:
     }
 
 
-def final_result(rows: list[dict], my_group_id: str, their_group_id: str) -> dict:
-    """Section 6's cumulative series aggregate, including the +2 tie
-    bonus — applied once to each side, and only when the raw cumulative
-    totals (before the bonus) are equal, regardless of which per-row
-    outcomes produced them."""
+def final_result(rows: list[dict], my_group_id: str, their_group_id: str, tie_score: int) -> dict:
+    """Section 6's cumulative series aggregate, including the tie bonus
+    (Table 17's own `tie_score`, `GameConfig.score_draw` — I6, not a
+    hardcoded `2`) — applied once to each side, and only when the raw
+    cumulative totals (before the bonus) are equal, regardless of which
+    per-row outcomes produced them."""
     total = {my_group_id: 0, their_group_id: 0}
     won = {my_group_id: 0, their_group_id: 0}
     ties = 0
@@ -51,7 +52,7 @@ def final_result(rows: list[dict], my_group_id: str, their_group_id: str) -> dic
 
     series_tie = total[my_group_id] == total[their_group_id]
     if series_tie:
-        total = {group: score + 2 for group, score in total.items()}
+        total = {group: score + tie_score for group, score in total.items()}
         winner_group = None
     else:
         winner_group = my_group_id if total[my_group_id] > total[their_group_id] else their_group_id
@@ -78,6 +79,7 @@ def build_result_report(
     mutual_agreement: dict,
     game_started_at: str,
     game_ended_at: str,
+    tie_score: int,
 ) -> dict:
     """`sub_game_meta[i]` supplies the per-row fields Section 11's own
     canonical row doesn't carry: `their_github_commit`, `steps`,
@@ -121,7 +123,7 @@ def build_result_report(
         "game_started_at": game_started_at,
         "game_ended_at": game_ended_at,
         "mutual_agreement": mutual_agreement,
-        "final_result": final_result(rows, my_group_id, their_group_id),
+        "final_result": final_result(rows, my_group_id, their_group_id, tie_score),
     }
 
 

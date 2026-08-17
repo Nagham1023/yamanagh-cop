@@ -37,6 +37,7 @@ async def run_peer(
     gui: bool = False,
     log_path: str | None = None,
     league_ledger_path: str | None = None,
+    std_v1_sub_games: int | None = None,
 ) -> Orchestrator | dict:
     """Runs one real match end to end. Returns the finished `Orchestrator`
     — its own `state_machine`/`log_path` are what a caller (or a test)
@@ -54,12 +55,17 @@ async def run_peer(
     a genuinely different match lifecycle (`std_v1/peer.py`'s own
     docstring has the full reasoning) that returns a plain result dict,
     not an `Orchestrator`, since `counted`/`--gui`/the league ledger are
-    all native-protocol-only concerns std_v1 doesn't have."""
+    all native-protocol-only concerns std_v1 doesn't have. `std_v1_sub_games`
+    is std_v1-only too — spec Section 15's compatibility-test launch
+    parameter, ignored on the native path."""
     del gui  # CLI routes --gui to run_peer_with_gui; kept for call-site compat
     private_config = PrivateConfig.from_file(private_config_path)
     if private_config.opponent_protocol == "std_v1":
         base_config = GameConfig.from_file(shared_config_path)
-        return await run_std_v1_peer(private_config, base_config, use_tunnel=use_tunnel, ngrok_domain=ngrok_domain)
+        return await run_std_v1_peer(
+            private_config, base_config, use_tunnel=use_tunnel, ngrok_domain=ngrok_domain,
+            sub_games_to_play=std_v1_sub_games,
+        )
 
     orchestrator, private_config, config, _game_id = build_orchestrator(
         private_config_path,

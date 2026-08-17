@@ -38,15 +38,19 @@ async def send_and_await(
     envelope: dict,
     resend_interval_sec: float = 2.0,
     ceiling_sec: float = 60.0,
+    retry_attempts: int = 3,
+    retry_delay_seconds: float = 1.0,
 ) -> dict:
     """Shared resend-until-matched loop for both the per-sub-game audit
     and the final consensus exchange. `wait_fn(timeout)` is a plain
     (non-async) callable — `exchange.wait_for_audit`/`wait_for_consensus`
     — run via `asyncio.to_thread` here so this coroutine never blocks the
-    event loop on `StdExchange`'s own polling sleep."""
+    event loop on `StdExchange`'s own polling sleep. `retry_attempts`/
+    `retry_delay_seconds` bound each `send_audit`'s own connect-only
+    retry, sourced from `PrivateConfig` at the real call site (I6)."""
     deadline = time.monotonic() + ceiling_sec
     while time.monotonic() < deadline:
-        await send_audit(connection, envelope)
+        await send_audit(connection, envelope, retry_attempts, retry_delay_seconds)
         remaining = deadline - time.monotonic()
         try:
             return await asyncio.to_thread(wait_fn, min(resend_interval_sec, max(0.0, remaining)))

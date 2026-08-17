@@ -21,7 +21,8 @@ from cop.std_v1.exchange import StdExchange
 from cop.std_v1.handshake import build_offer
 from cop.std_v1.roles import opposite_role, role_for_sub_game
 from cop.std_v1.sealing import build_audit_record, build_turn_payload, seal_turn
-from cop.std_v1.series_runner import NATURAL_ROLE, _row_for, play_series
+from cop.std_v1.series_runner import play_series
+from cop.std_v1.series_sub_game import NATURAL_ROLE, _row_for
 from cop.std_v1.terms import load_terms
 
 MY_GROUP = "dev-team"
@@ -51,9 +52,9 @@ def _thief_components_factory():
     return board, state, scent_field
 
 
-def _expected_digest(num_games: int) -> str:
+def _expected_digest(num_games: int, config) -> str:
     rows = [
-        _row_for(n, role_for_sub_game(NATURAL_ROLE, n), "survival", False, MY_GROUP, THEIR_GROUP)
+        _row_for(n, role_for_sub_game(NATURAL_ROLE, n), "survival", False, MY_GROUP, THEIR_GROUP, config)
         for n in range(1, num_games + 1)
     ]
     game_id = derive_game_id(MY_GROUP, THEIR_GROUP)
@@ -67,8 +68,9 @@ class _FakePeerConnection:
     sub-games (never confirms a capture, so it survives) and Police on
     our Thief sub-games (always misses, so we survive)."""
 
-    def __init__(self, my_exchange: StdExchange, peer_digest=None, peer_result_claim=None):
+    def __init__(self, my_exchange: StdExchange, config, peer_digest=None, peer_result_claim=None):
         self._exchange = my_exchange
+        self._config = config
         self._game_uid = derive_game_uid(TERMS, MY_GROUP, THEIR_GROUP)
         self._peer_digest = peer_digest
         self._peer_result_claim = peer_result_claim
@@ -129,7 +131,10 @@ class _FakePeerConnection:
 
     def _handle_audit(self, payload):
         if payload.get("result_claim") == "series_consensus" and "sub_game_number" not in payload:
-            digest = self._peer_digest if self._peer_digest is not None else _expected_digest(TERMS["num_games"])
+            digest = (
+                self._peer_digest if self._peer_digest is not None
+                else _expected_digest(TERMS["num_games"], self._config)
+            )
             self._exchange.record_audit(build_consensus_envelope(self._peer_role, digest))
             return
         sub_game_number = payload["sub_game_number"]
@@ -140,13 +145,13 @@ class _FakePeerConnection:
         self._exchange.record_audit(envelope)
 
 
-def test_play_series_happy_path_reaches_agreement():
+def test_play_series_happy_path_reaches_agreement(config):
     exchange = StdExchange(poll_interval=0.01)
-    connection = _FakePeerConnection(exchange)
+    connection = _FakePeerConnection(exchange, config)
 
     result = asyncio.run(play_series(
         connection, exchange, TERMS, MY_GROUP, THEIR_GROUP, {"group_id": MY_GROUP},
-        lambda: _FakeTurnHandler(), _thief_components_factory,
+        lambda: _FakeTurnHandler(), _thief_components_factory, config,
         turn_deadline_sec=2.0, resend_interval_sec=0.05, negotiate_ceiling_sec=2.0, audit_ceiling_sec=2.0,
     ))
 
@@ -169,13 +174,13 @@ def test_play_series_happy_path_reaches_agreement():
     assert report["group_details"][THEIR_GROUP]["group_id"] == THEIR_GROUP
 
 
-def test_play_series_flags_disagreement_when_peer_digest_differs():
+def test_play_series_flags_disagreement_when_peer_digest_differs(config):
     exchange = StdExchange(poll_interval=0.01)
-    connection = _FakePeerConnection(exchange, peer_digest="0" * 64)
+    connection = _FakePeerConnection(exchange, config, peer_digest="0" * 64)
 
     result = asyncio.run(play_series(
         connection, exchange, TERMS, MY_GROUP, THEIR_GROUP, {"group_id": MY_GROUP},
-        lambda: _FakeTurnHandler(), _thief_components_factory,
+        lambda: _FakeTurnHandler(), _thief_components_factory, config,
         turn_deadline_sec=2.0, resend_interval_sec=0.05, negotiate_ceiling_sec=2.0, audit_ceiling_sec=2.0,
     ))
 
@@ -183,29 +188,82 @@ def test_play_series_flags_disagreement_when_peer_digest_differs():
     assert result["peer_consensus_sha"] == "0" * 64
 
 
-def test_play_series_flags_disagreement_when_peer_result_claim_differs():
+def test_play_series_flags_disagreement_when_peer_result_claim_differs(config):
     exchange = StdExchange(poll_interval=0.01)
-    connection = _FakePeerConnection(exchange, peer_result_claim="capture")
+    connection = _FakePeerConnection(exchange, config, peer_result_claim="capture")
 
     result = asyncio.run(play_series(
         connection, exchange, TERMS, MY_GROUP, THEIR_GROUP, {"group_id": MY_GROUP},
-        lambda: _FakeTurnHandler(), _thief_components_factory,
+        lambda: _FakeTurnHandler(), _thief_components_factory, config,
         turn_deadline_sec=2.0, resend_interval_sec=0.05, negotiate_ceiling_sec=2.0, audit_ceiling_sec=2.0,
     ))
 
     assert result["agreed"] is False
 
 
-def test_row_for_uses_the_spec_score_table_and_flips_with_role():
-    capture_row = _row_for(1, "police", "capture", False, MY_GROUP, THEIR_GROUP)
-    assert capture_row["score"] == {MY_GROUP: 20, THEIR_GROUP: 5}
+def test_play_series_sub_games_to_play_shortens_the_run_without_changing_game_uid(config):
+    # Spec Section 15: the compatibility-test launch parameter must NOT
+    # change the signed num_games -- game_uid is derived from the signed
+    # terms alone, so it must be identical whether the full series or a
+    # short one is played.
+    exchange = StdExchange(poll_interval=0.01)
+    connection = _FakePeerConnection(exchange, config)
+
+    result = asyncio.run(play_series(
+        connection, exchange, TERMS, MY_GROUP, THEIR_GROUP, {"group_id": MY_GROUP},
+        lambda: _FakeTurnHandler(), _thief_components_factory, config,
+        turn_deadline_sec=2.0, resend_interval_sec=0.05, negotiate_ceiling_sec=2.0, audit_ceiling_sec=2.0,
+        sub_games_to_play=1,
+    ))
+
+    assert len(result["sub_games"]) == 1
+    assert TERMS["num_games"] == 2  # the signed terms themselves are untouched
+    assert result["game_uid"] == derive_game_uid(TERMS, MY_GROUP, THEIR_GROUP)
+    assert result["report"]["sub_games"][0]["sub_game_number"] == 1
+
+
+class _SilentPeerConnection:
+    """Never answers anything -- every `negotiate_sub_game`/`send_and_await`
+    ceiling on our side is guaranteed to expire. Proves Section 13's own
+    required fallback: a peer that never responds costs one sub-game
+    (`timeout`, 0/0), not the whole series."""
+
+    async def call_tool(self, name, arguments):
+        return _Result({"ok": True})
+
+
+def test_play_series_records_one_timeout_sub_game_instead_of_aborting_the_series(config):
+    # The real bug this closes: found via rule-auditor cross-check against
+    # a real opponent's own interop guide -- every ceiling in the old code
+    # raised DeadlineExceededError straight out of play_series's own loop,
+    # uncaught, aborting every remaining sub-game on one dropped peer.
+    exchange = StdExchange(poll_interval=0.01)
+    connection = _SilentPeerConnection()
+
+    result = asyncio.run(play_series(
+        connection, exchange, TERMS, MY_GROUP, THEIR_GROUP, {"group_id": MY_GROUP},
+        lambda: _FakeTurnHandler(), _thief_components_factory, config,
+        turn_deadline_sec=0.2, resend_interval_sec=0.05, negotiate_ceiling_sec=0.2, audit_ceiling_sec=0.2,
+    ))
+
+    assert len(result["sub_games"]) == 2  # both sub-games recorded, series ran to completion
+    assert all(row["end_reason"] == "timeout" for row in result["sub_games"])
+    rows = result["consensus_object"]["sub_games"]
+    assert all(row["result"] == "timeout" for row in rows)
+    assert all(row["score"] == {MY_GROUP: 0, THEIR_GROUP: 0} for row in rows)
+    assert result["agreed"] is False  # never verified, correctly not confirmed
+
+
+def test_row_for_uses_the_spec_score_table_and_flips_with_role(config):
+    capture_row = _row_for(1, "police", "capture", False, MY_GROUP, THEIR_GROUP, config)
+    assert capture_row["score"] == {MY_GROUP: config.score_capture_cop, THEIR_GROUP: config.score_capture_thief}
     assert capture_row["winner_group"] == MY_GROUP
 
-    survival_row = _row_for(2, "thief", "survival", False, MY_GROUP, THEIR_GROUP)
-    assert survival_row["score"] == {MY_GROUP: 10, THEIR_GROUP: 5}
+    survival_row = _row_for(2, "thief", "survival", False, MY_GROUP, THEIR_GROUP, config)
+    assert survival_row["score"] == {MY_GROUP: config.score_survival_thief, THEIR_GROUP: config.score_survival_cop}
     assert survival_row["winner_group"] == MY_GROUP
 
-    tamper_row = _row_for(3, "police", "capture", True, MY_GROUP, THEIR_GROUP)
+    tamper_row = _row_for(3, "police", "capture", True, MY_GROUP, THEIR_GROUP, config)
     assert tamper_row["result"] == "tamper_forfeit"
     assert tamper_row["score"] == {MY_GROUP: 0, THEIR_GROUP: 0}
     assert tamper_row["winner_group"] is None

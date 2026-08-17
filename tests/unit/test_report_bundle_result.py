@@ -48,6 +48,7 @@ def _merge(previous, entry, **overrides):
         "first_meeting_between_groups": True,
         "repo_urls": _REPO_URLS,
         "declaration_file": "declaration_game1.json",
+        "tie_score": 2,  # Table 17's own fixed value
     }
     defaults.update(overrides)
     return merge_into_series_result(previous, entry, **defaults)
@@ -123,6 +124,25 @@ def test_merge_into_series_result_second_call_accumulates_not_replaces():
     assert second["game_uid"] == first["game_uid"]  # same series identity, not regenerated
     assert [g["sub_game_number"] for g in second["sub_games"]] == [1, 2]
     assert second["final_result"]["total_score"] == {"team-a": 25, "team-b": 15}
+
+
+def test_merge_into_series_result_applies_the_tie_score_bonus_once_on_a_series_tie():
+    # Table 17's own tie_score = 2: config.score_draw was loaded but never
+    # actually applied anywhere in this file — a real series tie
+    # under-reported both sides' final score by the negotiated bonus.
+    first = _merge(None, _entry(sub_game_number=1, this_score=20, opponent_score=5))
+    second = _merge(
+        first, _entry(sub_game_number=2, this_score=5, opponent_score=20), first_meeting_between_groups=False
+    )
+    assert second["final_result"]["total_score"] == {"team-a": 27, "team-b": 27}
+    assert second["final_result"]["series_tie"] is True
+    assert second["final_result"]["winner_group"] is None
+
+
+def test_merge_into_series_result_does_not_apply_the_tie_score_bonus_when_not_tied():
+    result = _merge(None, _entry(sub_game_number=1, this_score=20, opponent_score=5))
+    assert result["final_result"]["total_score"] == {"team-a": 20, "team-b": 5}
+    assert result["final_result"]["series_tie"] is False
 
 
 def test_merge_into_series_result_resubmitting_the_same_sub_game_updates_in_place():

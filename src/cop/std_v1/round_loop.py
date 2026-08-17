@@ -26,12 +26,17 @@ async def play_sub_game(
     exchange: StdExchange,
     max_steps: int,
     turn_deadline_sec: float,
+    retry_attempts: int = 3,
+    retry_delay_seconds: float = 1.0,
 ) -> tuple[str, list[dict], dict[int, str]]:
     """Runs one full sub-game as the Cop. Returns `(end_reason, records,
     peer_commits)` — `end_reason` is `"capture"`, `"survival"`, or
     `"timeout"`; `records` are this repo's own sealed turns, ready for
     the audit exchange; `peer_commits` are the Thief's own live commits,
-    keyed by step, for verifying its later-revealed records against."""
+    keyed by step, for verifying its later-revealed records against.
+    `retry_attempts`/`retry_delay_seconds` bound `send_turn`'s own
+    connect-only retry, sourced from `PrivateConfig` at the real call
+    site (I6)."""
     records: list[dict] = []
     peer_commits: dict[int, str] = {}
 
@@ -53,7 +58,7 @@ async def play_sub_game(
         )
         sealed = seal_turn(payload)
         records.append(build_audit_record(payload, sealed["nonce"]))
-        await send_turn(connection, build_turn_message(payload, sealed["commit"]))
+        await send_turn(connection, build_turn_message(payload, sealed["commit"]), retry_attempts, retry_delay_seconds)
 
         try:
             thief_turn = await asyncio.to_thread(

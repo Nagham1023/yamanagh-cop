@@ -19,10 +19,12 @@ def test_peer_subcommand_dispatches_to_run_peer_with_parsed_flags(monkeypatch):
     captured = {}
 
     async def _fake_run_peer(
-        private_config_path, shared_config_path, *, counted, use_tunnel, ngrok_domain, tunnel_provider
+        private_config_path, shared_config_path, *,
+        counted, use_tunnel, ngrok_domain, tunnel_provider, std_v1_sub_games,
     ):
         captured["args"] = (
-            private_config_path, shared_config_path, counted, use_tunnel, ngrok_domain, tunnel_provider
+            private_config_path, shared_config_path, counted, use_tunnel, ngrok_domain,
+            tunnel_provider, std_v1_sub_games,
         )
 
     monkeypatch.setattr(main_module, "run_peer", _fake_run_peer)
@@ -30,24 +32,26 @@ def test_peer_subcommand_dispatches_to_run_peer_with_parsed_flags(monkeypatch):
         sys, "argv",
         [
             "cop", "peer", "--counted", "--tunnel", "--ngrok-domain", "my-name.ngrok-free.app",
-            "--tunnel-provider", "cloudflare",
+            "--tunnel-provider", "cloudflare", "--std-v1-sub-games", "2",
             "--private-config", "a.toml", "--shared-config", "b.json",
         ],
     )
 
     main_module.main()
 
-    assert captured["args"] == ("a.toml", "b.json", True, True, "my-name.ngrok-free.app", "cloudflare")
+    assert captured["args"] == ("a.toml", "b.json", True, True, "my-name.ngrok-free.app", "cloudflare", 2)
 
 
 def test_peer_subcommand_defaults_to_zero_extra_flags(monkeypatch):
     captured = {}
 
     async def _fake_run_peer(
-        private_config_path, shared_config_path, *, counted, use_tunnel, ngrok_domain, tunnel_provider
+        private_config_path, shared_config_path, *,
+        counted, use_tunnel, ngrok_domain, tunnel_provider, std_v1_sub_games,
     ):
         captured["args"] = (
-            private_config_path, shared_config_path, counted, use_tunnel, ngrok_domain, tunnel_provider
+            private_config_path, shared_config_path, counted, use_tunnel, ngrok_domain,
+            tunnel_provider, std_v1_sub_games,
         )
 
     monkeypatch.setattr(main_module, "run_peer", _fake_run_peer)
@@ -55,11 +59,12 @@ def test_peer_subcommand_defaults_to_zero_extra_flags(monkeypatch):
 
     main_module.main()
 
-    _, _, counted, use_tunnel, ngrok_domain, tunnel_provider = captured["args"]
+    _, _, counted, use_tunnel, ngrok_domain, tunnel_provider, std_v1_sub_games = captured["args"]
     assert counted is False
     assert use_tunnel is False
     assert ngrok_domain is None
     assert tunnel_provider == "ngrok"
+    assert std_v1_sub_games is None
 
 
 def test_peer_subcommand_exits_nonzero_on_a_step0_mismatch(monkeypatch, capsys):

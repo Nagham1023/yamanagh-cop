@@ -5,6 +5,7 @@ takes `message`."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -82,4 +83,26 @@ def test_send_negotiate_retries_past_a_connect_only_failure():
     connection = _FailsOnceThenSucceedsConnection()
     result = asyncio.run(send_negotiate(connection, {}))
     assert result == {"ok": True}
+    assert connection.attempts == 2
+
+
+class _AlwaysFailsConnection:
+    def __init__(self):
+        self.attempts = 0
+
+    async def call_tool(self, name, arguments):
+        self.attempts += 1
+        try:
+            raise httpx.ConnectError("connection refused")
+        except httpx.ConnectError as exc:
+            raise RuntimeError("Client failed to connect: All connection attempts failed") from exc
+
+
+def test_send_negotiate_honors_a_custom_retry_attempts_not_the_fixed_default():
+    # I6: retry_attempts/retry_delay_seconds used to be fixed module
+    # constants -- proving a caller-supplied value is actually consumed,
+    # not silently ignored in favor of the old hardcoded 3.
+    connection = _AlwaysFailsConnection()
+    with contextlib.suppress(Exception):  # retries genuinely exhausted, only the count matters here
+        asyncio.run(send_negotiate(connection, {}, retry_attempts=2, retry_delay_seconds=0.01))
     assert connection.attempts == 2

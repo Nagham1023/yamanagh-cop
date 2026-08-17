@@ -58,7 +58,10 @@ def build_turn_handler_factory(config: GameConfig, private_config: PrivateConfig
         )
         scent_field = ScentField.from_config(config)
         hint_provider = build_provider(private_config.provider)
-        return Std1TurnHandler(board, state, brain_cls(), belief_map, scent_field, config, hint_provider)
+        return Std1TurnHandler(
+            board, state, brain_cls(), belief_map, scent_field, config, hint_provider,
+            every_n_steps=private_config.every_n_steps,
+        )
 
     return factory
 

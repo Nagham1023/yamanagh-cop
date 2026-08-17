@@ -55,9 +55,12 @@ def test_run_peer_dispatches_to_std_v1_when_configured(tmp_path, monkeypatch):
     )
     captured = {}
 
-    async def _fake_run_std_v1_peer(private_config, base_config, *, use_tunnel=False, ngrok_domain=None):
+    async def _fake_run_std_v1_peer(
+        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, sub_games_to_play=None
+    ):
         captured["private_config"] = private_config
         captured["base_config"] = base_config
+        captured["sub_games_to_play"] = sub_games_to_play
         return {"agreed": True}
 
     monkeypatch.setattr(cli_peer, "run_std_v1_peer", _fake_run_std_v1_peer)
@@ -70,6 +73,32 @@ def test_run_peer_dispatches_to_std_v1_when_configured(tmp_path, monkeypatch):
     assert result == {"agreed": True}
     assert captured["private_config"].opponent_protocol == "std_v1"
     assert captured["private_config"].opponent_group_id == "thief-team"
+    assert captured["sub_games_to_play"] is None  # default: play the full signed series
+
+
+def test_run_peer_threads_std_v1_sub_games_through_to_run_std_v1_peer(tmp_path, monkeypatch):
+    # Spec Section 15's own compatibility-test launch parameter — must
+    # reach run_std_v1_peer unchanged, never silently dropped.
+    private_config_path = _write_private_config(
+        tmp_path, opponent_protocol="std_v1", opponent_group_id="thief-team"
+    )
+    captured = {}
+
+    async def _fake_run_std_v1_peer(
+        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, sub_games_to_play=None
+    ):
+        captured["sub_games_to_play"] = sub_games_to_play
+        return {"agreed": True}
+
+    monkeypatch.setattr(cli_peer, "run_std_v1_peer", _fake_run_std_v1_peer)
+
+    asyncio.run(cli_peer.run_peer(
+        private_config_path=private_config_path,
+        shared_config_path="config/shared/config_dev_g01.json",
+        std_v1_sub_games=2,
+    ))
+
+    assert captured["sub_games_to_play"] == 2
 
 
 def test_run_peer_does_not_dispatch_to_std_v1_by_default(tmp_path, monkeypatch):

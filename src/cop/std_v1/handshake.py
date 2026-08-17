@@ -70,19 +70,24 @@ async def negotiate_sub_game(
     identity: dict,
     resend_interval_sec: float = 2.0,
     ceiling_sec: float = 300.0,
+    retry_attempts: int = 3,
+    retry_delay_seconds: float = 1.0,
 ) -> dict:
     """Sends this side's own offer, then repeatedly re-sends the identical
     offer (same nonce/terms/identity, never regenerated on a retry — the
     spec's own explicit requirement) while polling `exchange` for the
     peer's matching one, until either it arrives or `ceiling_sec` elapses.
-    Returns the peer's own validated offer."""
+    Returns the peer's own validated offer. `retry_attempts`/
+    `retry_delay_seconds` bound each individual `send_negotiate` call's
+    own connect-only retry (`wire.py`), sourced from `PrivateConfig` at
+    the real call site — I6, not a fixed default."""
     game_uid = derive_game_uid(my_terms, my_group_id, their_group_id)
     nonce = fresh_nonce()
     my_offer = build_offer(my_terms, my_group_id, role, sub_game_number, identity, game_uid, nonce)
 
     deadline = time.monotonic() + ceiling_sec
     while time.monotonic() < deadline:
-        await send_negotiate(connection, my_offer)
+        await send_negotiate(connection, my_offer, retry_attempts, retry_delay_seconds)
         remaining = deadline - time.monotonic()
         wait_timeout = min(resend_interval_sec, max(0.0, remaining))
         try:

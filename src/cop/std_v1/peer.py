@@ -50,11 +50,16 @@ async def run_std_v1_peer(
     use_tunnel: bool = False,
     ngrok_domain: str | None = None,
     results_dir: str = "logs",
+    sub_games_to_play: int | None = None,
 ) -> dict:
     """Runs one full std_v1 series against `private_config.opponent_url`,
     writes the result JSON, and returns it. Raises `ValueError` up front
     if `opponent_group_id` (rule 6's own prerequisite — see
-    `private_config.py`'s docstring) was never configured."""
+    `private_config.py`'s docstring) was never configured.
+
+    `sub_games_to_play`: spec Section 15's own compatibility-test launch
+    parameter, passed straight through to `play_series` — `None` (the
+    default) plays the full signed series."""
     if not private_config.opponent_group_id:
         raise ValueError('[network] opponent_group_id is required when opponent_protocol = "std_v1"')
 
@@ -81,15 +86,18 @@ async def run_std_v1_peer(
     brain_cls = load_brain_class(private_config.police_class) if private_config.police_class else CopBrain
     turn_handler_factory = build_turn_handler_factory(config, private_config, brain_cls)
     thief_components_factory = build_thief_components_factory(config)
+    # Rule-auditor cross-check against the real opponent's own interop
+    # guide (spec Section 3/12, [REPORT]): this address is what the
+    # opponent's own report records as *our* reachable endpoint — it must
+    # be the real public tunnel URL, not the loopback address that's
+    # useless to anyone outside this machine, whenever a tunnel is up.
+    my_mcp_url = f"{tunnel.public_url}/mcp" if tunnel is not None else f"http://127.0.0.1:{private_config.my_port}/mcp"
     identity = build_identity(
         group_id=private_config.group_id,
         group_name=private_config.group_name,
         members=list(private_config.members),
         repos=private_config.repos,
-        mcp_servers={
-            "cop": f"http://127.0.0.1:{private_config.my_port}/mcp",
-            "thief": f"http://127.0.0.1:{private_config.my_port}/mcp",
-        },
+        mcp_servers={"cop": my_mcp_url, "thief": my_mcp_url},
         llm_model=private_config.model,
     )
 
@@ -97,8 +105,20 @@ async def run_std_v1_peer(
     try:
         result = await play_series(
             connection, exchange, terms, private_config.group_id, private_config.opponent_group_id,
-            identity, turn_handler_factory, thief_components_factory,
+            identity, turn_handler_factory, thief_components_factory, config,
             turn_deadline_sec=private_config.turn_timeout_seconds,
+            # I6: no fixed defaults for a real match — negotiate/audit
+            # ceilings reuse the same "let a slower peer catch up" budgets
+            # already negotiated for the native protocol's own Step-0 wait
+            # and post-match grace period; the resend cadence reuses the
+            # same shared retry-pacing field the connect-only retries below
+            # already do, rather than a fifth set of numbers.
+            resend_interval_sec=private_config.scent_map_retry_delay_seconds,
+            negotiate_ceiling_sec=private_config.step0_wait_seconds,
+            audit_ceiling_sec=private_config.post_match_grace_seconds,
+            sub_games_to_play=sub_games_to_play,
+            retry_attempts=private_config.scent_map_retry_attempts,
+            retry_delay_seconds=private_config.scent_map_retry_delay_seconds,
         )
     finally:
         await connection.close()

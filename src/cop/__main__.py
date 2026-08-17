@@ -53,6 +53,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--gui", action="store_true",
         help="open live belief heatmap GUI window during the match",
     )
+    peer_parser.add_argument(
+        "--std-v1-sub-games", type=int, default=None,
+        help="play only this many sub-games instead of the full signed series (interop spec "
+        "Section 15's compatibility-test launch parameter — does not change the signed "
+        "num_games). Ignored under the native protocol and unless "
+        "[network] opponent_protocol = \"std_v1\"",
+    )
     peer_parser.add_argument("--private-config", default=DEFAULT_PRIVATE_CONFIG_PATH)
     peer_parser.add_argument("--shared-config", default=DEFAULT_SHARED_CONFIG_PATH)
 
@@ -90,6 +97,7 @@ def main() -> None:
                         use_tunnel=args.tunnel,
                         ngrok_domain=args.ngrok_domain,
                         tunnel_provider=args.tunnel_provider,
+                        std_v1_sub_games=args.std_v1_sub_games,
                     )
                 )
         except Step0MismatchError as exc:

@@ -75,6 +75,7 @@ class ReportDispatchMixin:
             first_meeting_between_groups=first_meeting,
             repo_urls=repo_urls,
             declaration_file=declaration_filename(game_id),
+            tie_score=self.config.score_draw,
         )
         reports_dir.mkdir(parents=True, exist_ok=True)
         result_path.write_text(json.dumps(result_payload, sort_keys=True), encoding="utf-8")

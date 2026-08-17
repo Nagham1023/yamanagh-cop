@@ -55,10 +55,14 @@ class Std1TurnHandler:
         config: GameConfig,
         hint_provider: HintProvider | None = None,
         rng: random.Random | None = None,
+        every_n_steps: int = 1,
     ) -> None:
         """`config` should already be std_v1-scoped (board size, arena,
         hint word limit, scent constants all overridden from the signed
-        terms) — see `std_v1_peer.py::_build_std_v1_config`."""
+        terms) — see `std_v1_peer.py::_build_std_v1_config`. `every_n_steps`
+        (Table 21, `PrivateConfig.every_n_steps`) throttles the real hint
+        provider the same way `orchestrator_turn.py::take_turn` already
+        does for the native protocol — I6, not a fixed `1`."""
         self.board = board
         self.state = state
         self.brain = brain
@@ -68,6 +72,7 @@ class Std1TurnHandler:
         self.hint_provider = hint_provider or TemplateHintProvider()
         self.template_provider = TemplateHintProvider()
         self._rng = rng or random.Random()
+        self.every_n_steps = every_n_steps
 
     def play_turn(self, thief_smell_grid: dict, thief_hint_text: str) -> dict:
         """Folds in the Thief's own scent report and hint, decides this
@@ -90,7 +95,9 @@ class Std1TurnHandler:
         self.state.target_pos = self.belief_map.most_likely_cell()
 
         intent = decide_intent(_DEFAULT_LIE_PROBABILITY, self._rng)
-        provider = choose_provider(self.state.steps_taken, self.hint_provider, self.template_provider, 1)
+        provider = choose_provider(
+            self.state.steps_taken, self.hint_provider, self.template_provider, self.every_n_steps
+        )
         hint_text = generate_hint(self.state.own_pos, provider, self.config, intent)
 
         move_token = action.direction if isinstance(action, Move) else "STAY"

@@ -68,10 +68,14 @@ async def play_sub_game(
     exchange,
     max_steps: int,
     turn_deadline_sec: float,
+    retry_attempts: int = 3,
+    retry_delay_seconds: float = 1.0,
 ) -> tuple[str, list[dict], dict[int, str]]:
     """Runs one full sub-game as the Thief. Returns `(end_reason, records,
     peer_commits)`, the same shape as round_loop.py's own Police-role
-    `play_sub_game`."""
+    `play_sub_game`. `retry_attempts`/`retry_delay_seconds` bound each
+    `send_turn`'s own connect-only retry, sourced from `PrivateConfig` at
+    the real call site (I6)."""
     records: list[dict] = []
     peer_commits: dict[int, str] = {}
     last_cop_scent: dict = {}
@@ -92,7 +96,7 @@ async def play_sub_game(
         )
         sealed = seal_turn(payload)
         records.append(build_audit_record(payload, sealed["nonce"]))
-        await send_turn(connection, build_turn_message(payload, sealed["commit"]))
+        await send_turn(connection, build_turn_message(payload, sealed["commit"]), retry_attempts, retry_delay_seconds)
         pending_claim_response = None
 
         if win_claim is not None:
@@ -119,7 +123,10 @@ async def play_sub_game(
             )
             final_sealed = seal_turn(final_payload)
             records.append(build_audit_record(final_payload, final_sealed["nonce"]))
-            await send_turn(connection, build_turn_message(final_payload, final_sealed["commit"]))
+            await send_turn(
+                connection, build_turn_message(final_payload, final_sealed["commit"]),
+                retry_attempts, retry_delay_seconds,
+            )
             return "capture", records, peer_commits
 
         pending_claim_response = claim_response

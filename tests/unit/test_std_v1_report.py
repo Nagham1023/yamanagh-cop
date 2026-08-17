@@ -29,7 +29,7 @@ def test_final_result_sums_scores_and_applies_tie_bonus_once_on_equal_totals():
         {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP},
         {"score": {MY_GROUP: 5, THEIR_GROUP: 20}, "winner_group": THEIR_GROUP},
     ]
-    result = final_result(rows, MY_GROUP, THEIR_GROUP)
+    result = final_result(rows, MY_GROUP, THEIR_GROUP, tie_score=2)
     assert result["total_score"] == {MY_GROUP: 27, THEIR_GROUP: 27}
     assert result["series_tie"] is True
     assert result["winner_group"] is None
@@ -37,12 +37,23 @@ def test_final_result_sums_scores_and_applies_tie_bonus_once_on_equal_totals():
     assert result["ties"] == 0
 
 
+def test_final_result_applies_whatever_tie_score_is_passed_not_a_hardcoded_two():
+    # I6: tie_score must be a real, threaded-through parameter, not a
+    # literal baked into final_result itself.
+    rows = [
+        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP},
+        {"score": {MY_GROUP: 5, THEIR_GROUP: 20}, "winner_group": THEIR_GROUP},
+    ]
+    result = final_result(rows, MY_GROUP, THEIR_GROUP, tie_score=7)
+    assert result["total_score"] == {MY_GROUP: 32, THEIR_GROUP: 32}
+
+
 def test_final_result_no_bonus_when_totals_differ():
     rows = [
         {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP},
         {"score": {MY_GROUP: 0, THEIR_GROUP: 0}, "winner_group": None},
     ]
-    result = final_result(rows, MY_GROUP, THEIR_GROUP)
+    result = final_result(rows, MY_GROUP, THEIR_GROUP, tie_score=2)
     assert result["total_score"] == {MY_GROUP: 20, THEIR_GROUP: 5}
     assert result["series_tie"] is False
     assert result["winner_group"] == MY_GROUP
@@ -72,7 +83,7 @@ def test_build_result_report_shapes_a_full_section_12_report():
 
     report = build_result_report(
         "dev-team-vs-thief-team", "uid-1", MY_GROUP, THEIR_GROUP, my_identity, their_identity,
-        rows, sub_game_meta, mutual_agreement, "start", "end",
+        rows, sub_game_meta, mutual_agreement, "start", "end", 2,
     )
 
     assert report["game_id"] == "dev-team-vs-thief-team"
