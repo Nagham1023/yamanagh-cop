@@ -38,6 +38,14 @@ SUBGAME_PATH = SRC_ROOT / "reasoning" / "subgame.py"
 ORCHESTRATOR_PATH = SRC_ROOT / "orchestrator.py"
 ORCHESTRATOR_TURN_PATH = SRC_ROOT / "orchestrator_turn.py"
 PEER_TRACE_PATH = SRC_ROOT / "integrity" / "peer_trace.py"
+# std_v1's own Cop role is belief-driven the same way the native protocol
+# is (PRD 4's own design, not re-litigated for this third protocol) — its
+# initial value (peer_setup.py::build_turn_handler_factory, mirroring
+# orchestrator.py's constructor site) and per-turn refresh
+# (turn_handler.py::Std1TurnHandler.play_turn, mirroring
+# orchestrator_turn.py's take_turn) are a second known non-seam pair.
+STD_V1_PEER_SETUP_PATH = SRC_ROOT / "std_v1" / "peer_setup.py"
+STD_V1_TURN_HANDLER_PATH = SRC_ROOT / "std_v1" / "turn_handler.py"
 
 
 def _is_seam_call(node: ast.AST | None) -> bool:
@@ -127,8 +135,31 @@ def test_peer_trace_routes_its_throwaway_target_pos_through_the_ground_truth_sea
     assert routes, "peer_trace.py's throwaway target_pos should route through the seam function"
 
 
+def test_std_v1_peer_setup_no_longer_routes_target_pos_through_the_ground_truth_seam():
+    sites = _sites_in(STD_V1_PEER_SETUP_PATH)
+    assert len(sites) == 1, f"expected exactly 1 target_pos site in std_v1/peer_setup.py, found {sites}"
+    ((_, routes),) = sites
+    assert not routes, (
+        "std_v1/peer_setup.py's initial target_pos should come from "
+        "belief_map.most_likely_cell(), same as orchestrator.py's own initial value"
+    )
+
+
+def test_std_v1_turn_handler_no_longer_routes_target_pos_through_the_ground_truth_seam():
+    sites = _sites_in(STD_V1_TURN_HANDLER_PATH)
+    assert len(sites) == 1, f"expected exactly 1 target_pos site in std_v1/turn_handler.py, found {sites}"
+    ((_, routes),) = sites
+    assert not routes, (
+        "std_v1/turn_handler.py's per-turn target_pos refresh should also come from "
+        "belief_map.most_likely_cell(), same as orchestrator_turn.py's own refresh"
+    )
+
+
 def test_no_other_file_has_grown_an_unaccounted_for_target_pos_assignment():
-    known = {SUBGAME_PATH, ORCHESTRATOR_PATH, ORCHESTRATOR_TURN_PATH, PEER_TRACE_PATH}
+    known = {
+        SUBGAME_PATH, ORCHESTRATOR_PATH, ORCHESTRATOR_TURN_PATH, PEER_TRACE_PATH,
+        STD_V1_PEER_SETUP_PATH, STD_V1_TURN_HANDLER_PATH,
+    }
     unexpected = []
     for path in SRC_ROOT.rglob("*.py"):
         if path in known:

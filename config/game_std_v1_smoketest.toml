@@ -1,0 +1,29 @@
+# Local-only smoketest config for the std_v1 interop protocol, validating
+# real interoperability between this repo's Cop adapter and thief-peer's
+# Thief adapter over localhost -- not a real cross-team match config.
+
+[game]
+group_name = "dev-team"
+group_id = "dev-team"
+sub_game_number = 1
+members = ["dev-1"]
+repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://github.com/yamandahle/thief-peer" }
+
+[network]
+my_port = 8902
+opponent_url = "http://127.0.0.1:8901/mcp"
+turn_timeout_seconds = 30
+opponent_protocol = "std_v1"
+opponent_group_id = "thief-team"
+
+[trash_talk]
+provider = "template"
+every_n_steps = 1
+
+[llm]
+model = "claude-sonnet-5"
+step_deadline_seconds = 30
+
+[email]
+recipient = "x@y.com"
+mode = "draft"

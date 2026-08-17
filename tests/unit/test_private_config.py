@@ -163,6 +163,20 @@ def test_post_match_grace_seconds_round_trips_when_present():
     assert config.post_match_grace_seconds == 15.0
 
 
+def test_opponent_protocol_defaults_to_native_when_absent():
+    config = PrivateConfig.from_dict(_full_private())
+    assert config.opponent_protocol == "native"
+    assert config.opponent_group_id is None
+
+
+def test_opponent_protocol_round_trips_when_present():
+    config = PrivateConfig.from_dict(
+        _full_private(network={"opponent_protocol": "std_v1", "opponent_group_id": "thief-team"})
+    )
+    assert config.opponent_protocol == "std_v1"
+    assert config.opponent_group_id == "thief-team"
+
+
 def test_this_loader_is_not_gameconfig_from_file():
     # Design Question 7's own point: a distinct loader, not a shape that
     # could accidentally be folded into the negotiated GameConfig object.

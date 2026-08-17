@@ -96,6 +96,15 @@ class PrivateConfig:
     email_mode: str
     thief_class: str | None = None
     police_class: str | None = None
+    # "native" (default) speaks this repo's own PRD 1-16 protocol; "std_v1"
+    # switches to the cross-team spec adapter (std_v1/peer.py), which runs
+    # its own self-contained multi-sub-game series instead of a single
+    # native match. opponent_group_id is required only under "std_v1" —
+    # unlike the native handshake, std_v1's own game_uid derivation needs
+    # both group ids known *before* negotiation starts (rule 6), so it
+    # can't be learned from Step-0 the way the opponent's group_name is.
+    opponent_protocol: str = "native"
+    opponent_group_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PrivateConfig:
@@ -139,6 +148,8 @@ class PrivateConfig:
             email_mode=email["mode"],
             thief_class=strategy.get("thief_class"),
             police_class=strategy.get("police_class"),
+            opponent_protocol=network.get("opponent_protocol", "native"),
+            opponent_group_id=network.get("opponent_group_id"),
         )
 
     @classmethod

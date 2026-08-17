@@ -18,6 +18,9 @@ from .cli_peer_build import build_orchestrator
 from .cli_peer_match_body import run_match_body
 from .observability.live_gui_session import LiveGuiSession
 from .orchestrator import Orchestrator
+from .shared.config import GameConfig
+from .shared.private_config import PrivateConfig
+from .std_v1.peer import run_std_v1_peer
 
 DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
 DEFAULT_SHARED_CONFIG_PATH = "config/shared/config_dev_g01.json"
@@ -34,7 +37,7 @@ async def run_peer(
     gui: bool = False,
     log_path: str | None = None,
     league_ledger_path: str | None = None,
-) -> Orchestrator:
+) -> Orchestrator | dict:
     """Runs one real match end to end. Returns the finished `Orchestrator`
     — its own `state_machine`/`log_path` are what a caller (or a test)
     inspects; `main()` itself doesn't need the return value. `log_path`/
@@ -44,8 +47,20 @@ async def run_peer(
 
     Prefer `run_peer_with_gui` when `gui=True` — this async entry ignores
     the flag so callers that accidentally pass it still get a correct
-    headless match rather than a blank Tk window under asyncio."""
+    headless match rather than a blank Tk window under asyncio.
+
+    `[network] opponent_protocol = "std_v1"` (checked before any
+    `Orchestrator` is built) short-circuits to `run_std_v1_peer` instead —
+    a genuinely different match lifecycle (`std_v1/peer.py`'s own
+    docstring has the full reasoning) that returns a plain result dict,
+    not an `Orchestrator`, since `counted`/`--gui`/the league ledger are
+    all native-protocol-only concerns std_v1 doesn't have."""
     del gui  # CLI routes --gui to run_peer_with_gui; kept for call-site compat
+    private_config = PrivateConfig.from_file(private_config_path)
+    if private_config.opponent_protocol == "std_v1":
+        base_config = GameConfig.from_file(shared_config_path)
+        return await run_std_v1_peer(private_config, base_config, use_tunnel=use_tunnel, ngrok_domain=ngrok_domain)
+
     orchestrator, private_config, config, _game_id = build_orchestrator(
         private_config_path,
         shared_config_path,

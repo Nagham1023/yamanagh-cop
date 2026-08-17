@@ -27,6 +27,10 @@ _ALLOWED_RANDOM_FILES = {
     # random_source default for the 90/10 RL/heuristic mix — a move-choice
     # weighting, not a nonce or anything that gets hashed/committed.
     SRC_ROOT / "reasoning" / "weighted_cop_brain.py",
+    # self._rng = random.Random() — same role as orchestrator.py's own
+    # entry above: feeds decide_intent for std_v1's own turn cycle, never
+    # a nonce (std_v1/crypto.py uses secrets.token_hex, not this rng).
+    SRC_ROOT / "std_v1" / "turn_handler.py",
 }
 
 _RANDOM_IMPORT_PATTERN = re.compile(r"^\s*import random\b|^\s*from random\b", re.MULTILINE)
