@@ -70,14 +70,17 @@ async def play_sub_game(
     turn_deadline_sec: float,
     retry_attempts: int = 3,
     retry_delay_seconds: float = 1.0,
-) -> tuple[str, list[dict], dict[int, str]]:
+) -> tuple[str, list[dict], dict[int, str], dict[int, str]]:
     """Runs one full sub-game as the Thief. Returns `(end_reason, records,
-    peer_commits)`, the same shape as round_loop.py's own Police-role
-    `play_sub_game`. `retry_attempts`/`retry_delay_seconds` bound each
-    `send_turn`'s own connect-only retry, sourced from `PrivateConfig` at
-    the real call site (I6)."""
+    peer_commits, my_commits)`, the same shape as round_loop.py's own
+    Police-role `play_sub_game` — `my_commits` are this side's own
+    live-sent commits, keyed by step, which rule 20's replay log needs
+    alongside `peer_commits` to be independently checkable. `retry_attempts`/
+    `retry_delay_seconds` bound each `send_turn`'s own connect-only retry,
+    sourced from `PrivateConfig` at the real call site (I6)."""
     records: list[dict] = []
     peer_commits: dict[int, str] = {}
+    my_commits: dict[int, str] = {}
     last_cop_scent: dict = {}
     pending_claim_response: dict | None = None
 
@@ -96,16 +99,17 @@ async def play_sub_game(
         )
         sealed = seal_turn(payload)
         records.append(build_audit_record(payload, sealed["nonce"]))
+        my_commits[step] = sealed["commit"]
         await send_turn(connection, build_turn_message(payload, sealed["commit"]), retry_attempts, retry_delay_seconds)
         pending_claim_response = None
 
         if win_claim is not None:
-            return "survival", records, peer_commits
+            return "survival", records, peer_commits, my_commits
 
         try:
             cop_message = await asyncio.to_thread(exchange.wait_for_turn, step + 1, turn_deadline_sec)
         except DeadlineExceededError:
-            return "timeout", records, peer_commits
+            return "timeout", records, peer_commits, my_commits
         peer_commits[cop_message["step"]] = cop_message["commit"]
 
         caught = _evaluate_capture(
@@ -123,14 +127,15 @@ async def play_sub_game(
             )
             final_sealed = seal_turn(final_payload)
             records.append(build_audit_record(final_payload, final_sealed["nonce"]))
+            my_commits[final_step] = final_sealed["commit"]
             await send_turn(
                 connection, build_turn_message(final_payload, final_sealed["commit"]),
                 retry_attempts, retry_delay_seconds,
             )
-            return "capture", records, peer_commits
+            return "capture", records, peer_commits, my_commits
 
         pending_claim_response = claim_response
         last_cop_scent = cop_message.get("smell_grid") or {}
         step += 2
 
-    return "survival", records, peer_commits
+    return "survival", records, peer_commits, my_commits

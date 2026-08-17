@@ -28,25 +28,28 @@ async def play_sub_game(
     turn_deadline_sec: float,
     retry_attempts: int = 3,
     retry_delay_seconds: float = 1.0,
-) -> tuple[str, list[dict], dict[int, str]]:
+) -> tuple[str, list[dict], dict[int, str], dict[int, str]]:
     """Runs one full sub-game as the Cop. Returns `(end_reason, records,
-    peer_commits)` — `end_reason` is `"capture"`, `"survival"`, or
-    `"timeout"`; `records` are this repo's own sealed turns, ready for
+    peer_commits, my_commits)` — `end_reason` is `"capture"`, `"survival"`,
+    or `"timeout"`; `records` are this repo's own sealed turns, ready for
     the audit exchange; `peer_commits` are the Thief's own live commits,
-    keyed by step, for verifying its later-revealed records against.
-    `retry_attempts`/`retry_delay_seconds` bound `send_turn`'s own
-    connect-only retry, sourced from `PrivateConfig` at the real call
-    site (I6)."""
+    keyed by step, for verifying its later-revealed records against;
+    `my_commits` are this side's own live-sent commits, keyed by step —
+    rule 20's replay log needs both halves to be independently checkable
+    without a live process. `retry_attempts`/`retry_delay_seconds` bound
+    `send_turn`'s own connect-only retry, sourced from `PrivateConfig` at
+    the real call site (I6)."""
     records: list[dict] = []
     peer_commits: dict[int, str] = {}
+    my_commits: dict[int, str] = {}
 
     try:
         thief_turn = await asyncio.to_thread(exchange.wait_for_turn, 1, turn_deadline_sec)
     except DeadlineExceededError:
-        return "timeout", records, peer_commits
+        return "timeout", records, peer_commits, my_commits
     peer_commits[1] = thief_turn["commit"]
     if thief_turn.get("win_claim"):
-        return "survival", records, peer_commits
+        return "survival", records, peer_commits, my_commits
 
     step = 2
     while step <= max_steps:
@@ -58,6 +61,7 @@ async def play_sub_game(
         )
         sealed = seal_turn(payload)
         records.append(build_audit_record(payload, sealed["nonce"]))
+        my_commits[step] = sealed["commit"]
         await send_turn(connection, build_turn_message(payload, sealed["commit"]), retry_attempts, retry_delay_seconds)
 
         try:
@@ -65,13 +69,13 @@ async def play_sub_game(
                 exchange.wait_for_turn, step + 1, turn_deadline_sec
             )
         except DeadlineExceededError:
-            return "timeout", records, peer_commits
+            return "timeout", records, peer_commits, my_commits
         peer_commits[step + 1] = thief_turn["commit"]
 
         if was_caught(thief_turn.get("claim_response")):
-            return "capture", records, peer_commits
+            return "capture", records, peer_commits, my_commits
         if thief_turn.get("win_claim"):
-            return "survival", records, peer_commits
+            return "survival", records, peer_commits, my_commits
         step += 2
 
-    return "survival", records, peer_commits
+    return "survival", records, peer_commits, my_commits

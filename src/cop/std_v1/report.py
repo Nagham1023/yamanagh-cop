@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from ..tools.report_bundle import log_filename
+
 _HEX_CHARS = set("0123456789abcdefABCDEF")
 
 
@@ -96,7 +98,7 @@ def build_result_report(
             },
             "tokens": {my_group_id: 0, their_group_id: 0},
             "audit": meta["audit"],
-            "log_files": [],
+            "log_files": [log_filename(game_id, row["sub_game_number"])] if meta.get("has_log") else [],
             "steps": meta["steps"],
             "started_at": meta["started_at"],
             "ended_at": meta["ended_at"],
@@ -108,6 +110,7 @@ def build_result_report(
         "report_type": "std_v1_result",
         "schema_version": "1.0",
         "groups": [my_group_id, their_group_id],
+        "num_sub_games": len(sub_games),
         "sub_games": sub_games,
         "links": {
             "github": {

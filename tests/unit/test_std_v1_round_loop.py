@@ -41,7 +41,7 @@ def test_survival_when_the_thief_wins_on_its_very_first_turn():
     exchange = StdExchange(poll_interval=0.01)
     exchange.record_turn(_thief_turn(1, win_claim={"type": "survival"}))
 
-    end_reason, records, peer_commits = asyncio.run(
+    end_reason, records, peer_commits, _my_commits = asyncio.run(
         play_sub_game(_FakeTurnHandler(), _SpyConnection(), exchange, max_steps=1, turn_deadline_sec=1.0)
     )
 
@@ -55,7 +55,7 @@ def test_capture_when_the_thief_confirms_the_claim():
     exchange.record_turn(_thief_turn(1, commit="c1"))
     exchange.record_turn(_thief_turn(3, commit="c3", claim_response={"claim": [9, 9], "caught": True}))
 
-    end_reason, records, peer_commits = asyncio.run(
+    end_reason, records, peer_commits, _my_commits = asyncio.run(
         play_sub_game(_FakeTurnHandler(), _SpyConnection(), exchange, max_steps=35, turn_deadline_sec=1.0)
     )
 
@@ -70,7 +70,7 @@ def test_survival_when_the_thief_eventually_sends_win_claim():
     exchange.record_turn(_thief_turn(3, commit="c3", claim_response={"claim": [9, 9], "caught": False}))
     exchange.record_turn(_thief_turn(5, commit="c5", win_claim={"type": "survival"}))
 
-    end_reason, records, _peer_commits = asyncio.run(
+    end_reason, records, _peer_commits, _my_commits = asyncio.run(
         play_sub_game(_FakeTurnHandler(), _SpyConnection(), exchange, max_steps=5, turn_deadline_sec=1.0)
     )
 
@@ -81,7 +81,7 @@ def test_survival_when_the_thief_eventually_sends_win_claim():
 def test_timeout_when_the_thief_never_sends_a_first_turn():
     exchange = StdExchange(poll_interval=0.01)
 
-    end_reason, records, peer_commits = asyncio.run(
+    end_reason, records, peer_commits, _my_commits = asyncio.run(
         play_sub_game(_FakeTurnHandler(), _SpyConnection(), exchange, max_steps=35, turn_deadline_sec=0.1)
     )
 

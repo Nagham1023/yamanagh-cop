@@ -19,6 +19,7 @@ from ..reasoning.state import GameState
 from ..shared.config import GameConfig
 from ..shared.private_config import PrivateConfig
 from ..tools.hint_providers import build_provider
+from .replay_log import merge_records, write_sub_game_log
 from .turn_handler import Std1TurnHandler
 
 
@@ -99,3 +100,22 @@ def write_std_v1_result(result: dict, results_dir: str | Path) -> Path:
     out_path = out_dir / f"result_{result['game_id']}.json"
     out_path.write_text(json.dumps(result["report"], indent=2), encoding="utf-8")
     return out_path
+
+
+def write_std_v1_sub_game_logs(result: dict, results_dir: str | Path) -> list[Path]:
+    """Rule 20 **[FATAL]**: one `log_<game_id>_g<NN>.json` per sub-game
+    that actually produced a transcript (never for a `timeout` row, which
+    has none — `play_one_sub_game` already returns `None` for those).
+    Written from the raw records/commits `play_series` already collected
+    (`series_sub_game.py`'s `sub_game_log`), not re-derived, so this can
+    never silently diverge from what was actually played and audited."""
+    game_id = result["game_id"]
+    written = []
+    for entry in result.get("sub_game_logs", []):
+        if entry is None:
+            continue
+        merged = merge_records(
+            entry["my_records"], entry["my_commits"], entry["peer_records"], entry["peer_commits"]
+        )
+        written.append(write_sub_game_log(game_id, entry["sub_game_number"], merged, results_dir))
+    return written

@@ -69,6 +69,7 @@ async def play_series(
     rows: list[dict] = []
     sub_game_reports: list[dict] = []
     sub_game_meta: list[dict] = []
+    sub_game_logs: list[dict | None] = []
     their_identity: dict = {}
     all_clean = True
     game_started_at = now_iso()
@@ -76,7 +77,7 @@ async def play_series(
     for sub_game_number in range(1, num_games + 1):
         exchange.reset_turns()
         role = role_for_sub_game(NATURAL_ROLE, sub_game_number)
-        row, report_entry, meta_entry, log_verified, their_identity = await play_one_sub_game(
+        row, report_entry, meta_entry, log_verified, their_identity, sub_game_log = await play_one_sub_game(
             connection, exchange, my_terms, my_group_id, their_group_id, identity,
             turn_handler_factory, thief_components_factory,
             sub_game_number, role, their_identity, config,
@@ -87,6 +88,7 @@ async def play_series(
         rows.append(row)
         sub_game_reports.append(report_entry)
         sub_game_meta.append(meta_entry)
+        sub_game_logs.append(sub_game_log)
 
     game_ended_at = now_iso()
     consensus_object = build_consensus_object(game_id, game_uid, rows)
@@ -130,5 +132,6 @@ async def play_series(
         "peer_consensus_sha": peer_digest,
         "agreed": agreed,
         "sub_games": sub_game_reports,
+        "sub_game_logs": sub_game_logs,
         "report": report,
     }

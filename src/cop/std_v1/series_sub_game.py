@@ -9,70 +9,14 @@ from __future__ import annotations
 
 from ..planner.deadline import DeadlineExceededError
 from ..shared.config import GameConfig
-from .audit import build_audit_envelope, build_sub_game_row, send_and_await, verify_peer_records
+from .audit import build_audit_envelope, send_and_await, verify_peer_records
 from .handshake import negotiate_sub_game
 from .report import now_iso
-from .roles import opposite_role
 from .round_loop import play_sub_game
+from .sub_game_rows import _row_for, _timeout_row
 from .thief_round_loop import play_sub_game as play_sub_game_as_thief
 
 NATURAL_ROLE = "police"
-
-
-def _score_table(config: GameConfig) -> dict[str, dict[str, int]]:
-    """Section 6's point table. The four non-zero cells are the same
-    negotiated values `GameConfig`/PARAMETERS.md already lock (I6) — no
-    second, hardcoded copy. The three zeroed outcomes have no dedicated
-    config field; `0` there is the rule itself (Table 17: "technical
-    loss: 0 to both sides, no exceptions"), the same convention
-    `domain/scoring.py::score_outcome` already uses, not a magic number."""
-    return {
-        "capture": {"police": config.score_capture_cop, "thief": config.score_capture_thief},
-        "survival": {"police": config.score_survival_cop, "thief": config.score_survival_thief},
-        "timeout": {"police": 0, "thief": 0},
-        "technical_loss": {"police": 0, "thief": 0},
-        "tamper_forfeit": {"police": 0, "thief": 0},
-    }
-
-
-def _row_for(
-    sub_game_number: int, my_role: str, end_reason: str, tampered: bool,
-    my_group_id: str, their_group_id: str, config: GameConfig,
-) -> dict:
-    """Builds one Section-11 row for a finished sub-game."""
-    result = "tamper_forfeit" if tampered else end_reason
-    their_role = opposite_role(my_role)
-    points = _score_table(config)[result]
-    score = {my_group_id: points[my_role], their_group_id: points[their_role]}
-    winner = None if score[my_group_id] == score[their_group_id] else (
-        my_group_id if score[my_group_id] > score[their_group_id] else their_group_id
-    )
-    roles = {my_group_id: my_role, their_group_id: their_role}
-    return build_sub_game_row(sub_game_number, result, roles, score, winner)
-
-
-def _timeout_row(
-    sub_game_number: int, role: str, my_group_id: str, their_group_id: str,
-    started_at: str, ended_at: str, their_identity: dict, config: GameConfig,
-) -> tuple[dict, dict, dict]:
-    """Spec Section 13's own required fallback: a negotiate or audit call
-    that never gets a matching response costs *this one sub-game alone* —
-    scored `timeout` (0/0), unverified — never the whole series. Found
-    live (rule-auditor cross-check against a real opponent's own interop
-    guide): every ceiling here previously raised `DeadlineExceededError`
-    straight out of `play_series`'s own loop, uncaught, aborting all
-    remaining sub-games on a single transient drop."""
-    row = _row_for(sub_game_number, role, "timeout", False, my_group_id, their_group_id, config)
-    report_entry = {
-        "sub_game_number": sub_game_number, "role": role, "end_reason": "timeout",
-        "peer_result_claim": None, "verify": {"log_verified": False, "tampered": False, "mismatched_steps": []},
-    }
-    meta_entry = {
-        "their_github_commit": their_identity.get("github_commit"),
-        "steps": 0, "started_at": started_at, "ended_at": ended_at,
-        "audit": {"log_verified": False, "tampered": False, "result_agreed": False},
-    }
-    return row, report_entry, meta_entry
 
 
 async def play_one_sub_game(
@@ -81,10 +25,13 @@ async def play_one_sub_game(
     sub_game_number: int, role: str, their_identity: dict, config: GameConfig,
     turn_deadline_sec: float, resend_interval_sec: float, negotiate_ceiling_sec: float, audit_ceiling_sec: float,
     retry_attempts: int, retry_delay_seconds: float,
-) -> tuple[dict, dict, dict, bool, dict]:
-    """Returns `(row, report_entry, meta_entry, log_verified, their_identity)`
-    — `their_identity` comes back out since a successful negotiate is the
-    only place it updates. A `DeadlineExceededError` anywhere here (negotiate,
+) -> tuple[dict, dict, dict, bool, dict, dict | None]:
+    """Returns `(row, report_entry, meta_entry, log_verified, their_identity,
+    sub_game_log)` — `their_identity` comes back out since a successful
+    negotiate is the only place it updates. `sub_game_log` is the raw
+    transcript (both sides' records + the commits actually witnessed live)
+    rule 20's replay verifier needs; `None` on a `timeout`, which has no
+    transcript to log. A `DeadlineExceededError` anywhere here (negotiate,
     gameplay wait, or the per-sub-game audit) is caught here, not left to
     `play_series`'s own loop, so it costs only this sub-game. `config`
     supplies the real scoring point table (I6); `retry_attempts`/
@@ -102,13 +49,13 @@ async def play_one_sub_game(
 
         if role == "police":
             turn_handler = turn_handler_factory()
-            end_reason, records, peer_commits = await play_sub_game(
+            end_reason, records, peer_commits, my_commits = await play_sub_game(
                 turn_handler, connection, exchange, max_steps, turn_deadline_sec,
                 retry_attempts, retry_delay_seconds,
             )
         else:
             board, state, scent_field = thief_components_factory()
-            end_reason, records, peer_commits = await play_sub_game_as_thief(
+            end_reason, records, peer_commits, my_commits = await play_sub_game_as_thief(
                 board, state, scent_field, connection, exchange, max_steps, turn_deadline_sec,
                 retry_attempts, retry_delay_seconds,
             )
@@ -141,10 +88,16 @@ async def play_one_sub_game(
                 "tampered": verify_result["tampered"],
                 "result_agreed": peer_envelope.get("result_claim") == end_reason,
             },
+            "has_log": True,
         }
-        return row, report_entry, meta_entry, verify_result["log_verified"], their_identity
+        sub_game_log = {
+            "sub_game_number": sub_game_number,
+            "my_records": records, "my_commits": my_commits,
+            "peer_records": peer_envelope.get("records", []), "peer_commits": peer_commits,
+        }
+        return row, report_entry, meta_entry, verify_result["log_verified"], their_identity, sub_game_log
     except DeadlineExceededError:
         row, report_entry, meta_entry = _timeout_row(
             sub_game_number, role, my_group_id, their_group_id, started_at, now_iso(), their_identity, config
         )
-        return row, report_entry, meta_entry, False, their_identity
+        return row, report_entry, meta_entry, False, their_identity, None
