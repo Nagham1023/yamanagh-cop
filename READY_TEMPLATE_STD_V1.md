@@ -17,7 +17,7 @@ side's own protocol behaviour — are already fixed by what `src/cop/std_v1/` ac
 ```
 READY
 
-Group:                <OUR_GROUP_ID>                    # TODO: our real league group id
+Group:                 yamanagh
 Members:               <OUR_TEAM_MEMBERS>                 # TODO
 Cop repo:              https://github.com/Nagham1023/yamanagh-cop
 Thief repo:            https://github.com/yamandahle/thief-peer
@@ -25,7 +25,7 @@ Cop runtime SHA:       <git rev-parse HEAD, this repo, at launch time>
 Thief runtime SHA:     <same, from the paired thief-peer repo>
 Public MCP endpoint:   <https://ACTIVE-TUNNEL-URL/mcp>     # from `--tunnel`'s printed URL; re-check reachable (Section 8) immediately before sending
 Starting role:         <cop | thief>                        # complement of the opponent's own declared starting role
-Agreed game_id:        <OUR_GROUP_ID>-vs-<THEIR_GROUP_ID>   # sorted per Appendix B — whichever group id sorts first goes first
+Agreed game_id:        yamanagh-vs-<THEIR_GROUP_ID>   # sorted per Appendix B — whichever group id sorts first goes first
 
 14 signed terms match Appendix A (values and JSON types):         YES  (config/interop_spec_terms.json, byte-checked)
 35-step survival semantics:                                       YES
@@ -73,7 +73,7 @@ carries τ = 0.9; after one full turn's decay at ρ = 0.10 with no fresh deposit
 
 ## Before sending
 
-- [ ] Fill in `<OUR_GROUP_ID>` / `<OUR_TEAM_MEMBERS>` with the real, agreed values.
+- [ ] Fill in `<OUR_TEAM_MEMBERS>` with the real team member names.
 - [ ] Re-run `curl -sS -o /dev/null -w '%{http_code}\n' https://<tunnel>/mcp` — Section 8's
       own reachability check — immediately before sending, not from an earlier session.
 - [ ] Confirm the opponent's own Ready template states a complementary starting role and an

@@ -3,8 +3,8 @@
 # Thief adapter over localhost -- not a real cross-team match config.
 
 [game]
-group_name = "dev-team"
-group_id = "dev-team"
+group_name = "yamanagh"
+group_id = "yamanagh"
 sub_game_number = 1
 members = ["dev-1"]
 repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://github.com/yamandahle/thief-peer" }

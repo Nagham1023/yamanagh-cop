@@ -52,7 +52,7 @@ def test_loads_the_dev_private_config_from_disk():
     assert config.opponent_url == "https://viewer-bangkok-notebooks-promotion.trycloudflare.com/mcp"
     assert config.my_port == 8801
     assert config.turn_timeout_seconds == 180.0
-    assert config.group_name == "dev-team"
+    assert config.group_name == "yamanagh"
     assert config.members == ("dev-1",)
     assert config.repos["cop"] == "https://github.com/Nagham1023/yamanagh-cop"
     assert config.model == "claude-sonnet-5"
