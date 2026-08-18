@@ -56,6 +56,52 @@ def test_negotiate_sub_game_returns_the_peers_validated_offer():
     assert sent["role"] == "police"
 
 
+class _FlakyThenHealthyConnection:
+    """Raises on its first N calls (a flaky tunnel/peer session drop),
+    then behaves like a real _PeerConnection -- proves a transient
+    send_negotiate failure costs one resend, not the whole handshake."""
+
+    def __init__(self, peer_exchange: StdExchange, fail_times: int):
+        self._peer_exchange = peer_exchange
+        self._fail_times = fail_times
+        self.calls = 0
+
+    async def call_tool(self, name, arguments):
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise RuntimeError("Session terminated")
+        assert name == "negotiate"
+        self._peer_exchange.record_offer(arguments["message"])
+
+        class _Result:
+            data = {"ok": True}
+
+        return _Result()
+
+
+def test_negotiate_sub_game_survives_a_transient_send_failure_and_still_completes():
+    # The real bug this closes: send_negotiate's own exception used to
+    # propagate straight out of negotiate_sub_game's own loop, ending the
+    # whole handshake in seconds instead of retrying for ceiling_sec --
+    # found live against a real, intermittently-flaky opponent.
+    my_exchange = StdExchange(poll_interval=0.01)
+    their_exchange = StdExchange(poll_interval=0.01)
+    connection = _FlakyThenHealthyConnection(their_exchange, fail_times=2)
+
+    game_uid = derive_game_uid(TERMS, "dev-team", "thief-team")
+    their_offer = build_offer(TERMS, "thief-team", "thief", 1, {"group_id": "thief-team"}, game_uid, fresh_nonce())
+    my_exchange.record_offer(their_offer)
+
+    result = asyncio.run(negotiate_sub_game(
+        connection, my_exchange, TERMS, "dev-team", "thief-team", "police", 1,
+        {"group_id": "dev-team"}, resend_interval_sec=0.05, ceiling_sec=2.0,
+        retry_attempts=1, retry_delay_seconds=0.01,
+    ))
+
+    assert result == their_offer
+    assert connection.calls >= 3  # 2 failures, then the real send that landed
+
+
 def test_negotiate_sub_game_times_out_when_the_peer_never_answers():
     my_exchange = StdExchange(poll_interval=0.01)
     their_exchange = StdExchange(poll_interval=0.01)

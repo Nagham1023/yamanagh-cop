@@ -87,7 +87,19 @@ async def negotiate_sub_game(
 
     deadline = time.monotonic() + ceiling_sec
     while time.monotonic() < deadline:
-        await send_negotiate(connection, my_offer, retry_attempts, retry_delay_seconds)
+        try:
+            await send_negotiate(connection, my_offer, retry_attempts, retry_delay_seconds)
+        except Exception:
+            # A flaky peer (tunnel blip, a session drop on their own end)
+            # must cost this one send, not the whole handshake -- found
+            # live: send_negotiate's own inner connect-retry (a few
+            # seconds) used to propagate straight out of this function,
+            # ending the match in seconds instead of the ceiling_sec this
+            # loop's own docstring promises. Never regenerates my_offer;
+            # same "re-send the identical offer" contract as the
+            # DeadlineExceededError branch below.
+            await asyncio.sleep(min(resend_interval_sec, max(0.0, deadline - time.monotonic())))
+            continue
         remaining = deadline - time.monotonic()
         wait_timeout = min(resend_interval_sec, max(0.0, remaining))
         try:
