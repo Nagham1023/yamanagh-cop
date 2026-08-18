@@ -69,6 +69,36 @@ def test_run_std_v1_peer_declares_the_real_tunnel_url_not_localhost(config, monk
     }
 
 
+def test_run_std_v1_peer_uses_cloudflare_when_asked_not_hardcoded_ngrok(config, monkeypatch, tmp_path):
+    # The real bug this closes: --tunnel-provider cloudflare was silently
+    # ignored here -- run_std_v1_peer always called ngrok's own
+    # start_tunnel regardless, found live starting a real match.
+    captured = {}
+
+    def _fake_start_cloudflare_tunnel(port, log_path=None):
+        captured["cloudflare_called"] = True
+        return Tunnel(process=None, public_url="https://fake.trycloudflare.com", log_file=None)
+
+    def _fake_start_tunnel(port, domain=None, log_path=None):
+        captured["ngrok_called"] = True
+        return Tunnel(process=None, public_url="https://fake-tunnel.example.com", log_file=None)
+
+    async def _fake_play_series(connection, exchange, terms, my_group_id, their_group_id, identity, *a, **kw):
+        return {"report": {"game_id": "x"}, "game_id": "x"}
+
+    monkeypatch.setattr(peer_module, "start_cloudflare_tunnel", _fake_start_cloudflare_tunnel)
+    monkeypatch.setattr(peer_module, "start_tunnel", _fake_start_tunnel)
+    monkeypatch.setattr(peer_module, "play_series", _fake_play_series)
+    monkeypatch.setattr(peer_module, "stop_tunnel", lambda tunnel: None)
+
+    asyncio.run(peer_module.run_std_v1_peer(
+        _private_config(), config, use_tunnel=True, tunnel_provider="cloudflare", results_dir=str(tmp_path),
+    ))
+
+    assert captured.get("cloudflare_called") is True
+    assert "ngrok_called" not in captured
+
+
 def test_run_std_v1_peer_threads_real_private_config_values_into_play_series(config, monkeypatch, tmp_path):
     # I6: negotiate_ceiling_sec/audit_ceiling_sec/resend_interval_sec/
     # retry_attempts/retry_delay_seconds used to default to fixed literals

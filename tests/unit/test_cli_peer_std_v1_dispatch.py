@@ -70,8 +70,8 @@ def test_run_peer_dispatches_to_std_v1_when_configured(tmp_path, monkeypatch):
     captured = {}
 
     async def _fake_run_std_v1_peer(
-        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, sub_games_to_play=None,
-        counted=False, league_ledger_path=None,
+        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, tunnel_provider="ngrok",
+        sub_games_to_play=None, counted=False, league_ledger_path=None,
     ):
         captured["private_config"] = private_config
         captured["base_config"] = base_config
@@ -100,8 +100,8 @@ def test_run_peer_threads_std_v1_sub_games_through_to_run_std_v1_peer(tmp_path, 
     captured = {}
 
     async def _fake_run_std_v1_peer(
-        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, sub_games_to_play=None,
-        counted=False, league_ledger_path=None,
+        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, tunnel_provider="ngrok",
+        sub_games_to_play=None, counted=False, league_ledger_path=None,
     ):
         captured["sub_games_to_play"] = sub_games_to_play
         return {"agreed": True}
@@ -147,7 +147,7 @@ def test_run_peer_threads_counted_and_league_ledger_path_through_to_run_std_v1_p
     captured = {}
 
     async def _fake_run_std_v1_peer(
-        private_config, base_config, *, use_tunnel=False, ngrok_domain=None,
+        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, tunnel_provider="ngrok",
         sub_games_to_play=None, counted=False, league_ledger_path=None,
     ):
         captured["counted"] = counted
@@ -174,7 +174,7 @@ def test_run_peer_defaults_counted_false_and_league_ledger_path_none_for_std_v1_
     captured = {}
 
     async def _fake_run_std_v1_peer(
-        private_config, base_config, *, use_tunnel=False, ngrok_domain=None,
+        private_config, base_config, *, use_tunnel=False, ngrok_domain=None, tunnel_provider="ngrok",
         sub_games_to_play=None, counted=False, league_ledger_path=None,
     ):
         captured["counted"] = counted

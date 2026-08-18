@@ -1,16 +1,14 @@
 """`run_std_v1_peer` — the whole std_v1 match, start to finish, for this
 repo's Cop role. Selected by `[network] opponent_protocol = "std_v1"` in
-`config/game.toml`, the same one-value-in-a-TOML-file switch
-`private_config.py`'s own docstring describes. Deliberately a separate
-entry point from `cli_peer.py::run_peer` rather than woven into
-`Orchestrator`'s own fifteen-plus mixins: std_v1's match lifecycle
-(per-sub-game negotiation, its own shared step counter, a final
-series-consensus exchange, via `series_runner.py`) doesn't fit that
-class's single-native-match shape, and grafting it in would risk the
-watchdog/state-machine/gatekeeper machinery those mixins already carefully
-coordinate. Runs its own dedicated `FastMCP` server on a background
-thread (same shape as `orchestrator_server.py::run_as_server`) while the
-async series runner drives the match on the caller's own event loop.
+`config/game.toml`. Deliberately a separate entry point from
+`cli_peer.py::run_peer` rather than woven into `Orchestrator`'s own
+fifteen-plus mixins: std_v1's match lifecycle (per-sub-game negotiation,
+its own shared step counter, a final series-consensus exchange, via
+`series_runner.py`) doesn't fit that class's single-native-match shape,
+and grafting it in would risk the watchdog/state-machine/gatekeeper
+machinery those mixins already coordinate. Runs its own dedicated
+`FastMCP` server on a background thread while the async series runner
+drives the match on the caller's own event loop.
 """
 
 from __future__ import annotations
@@ -25,6 +23,7 @@ from ..reasoning.cop_brain import CopBrain
 from ..shared.config import GameConfig
 from ..shared.private_config import PrivateConfig
 from ..shared.strategy_loader import load_brain_class
+from ..tools.cloudflare_tunnel import start_cloudflare_tunnel
 from ..tools.peer_connection import PeerConnection
 from ..tools.tunnel import stop_tunnel
 from ..tools.tunnel_start import start_tunnel
@@ -51,6 +50,7 @@ async def run_std_v1_peer(
     *,
     use_tunnel: bool = False,
     ngrok_domain: str | None = None,
+    tunnel_provider: str = "ngrok",
     results_dir: str = "logs",
     sub_games_to_play: int | None = None,
     counted: bool = False,
@@ -66,13 +66,13 @@ async def run_std_v1_peer(
     default) plays the full signed series.
 
     `counted`/`league_ledger_path`: rule 52 (**[FATAL]**), enforced exactly
-    as native — same `LeagueLedger`, keyed by `opponent_url`
-    (`cli_peer_match_body.py`'s own convention), recorded once the series
-    finishes regardless of outcome; `record_counted_game`'s own
-    `ValueError` on a repeat opponent *is* the rule-52 gate, purely
-    reactive like native. Every series also emails/draft-previews its own
-    report (rule 34/35, unconditional on `counted`) — see
-    `reporting.py::send_std_v1_report`."""
+    as native — same `LeagueLedger`, keyed by `opponent_url`, recorded once
+    the series finishes regardless of outcome; `record_counted_game`'s own
+    `ValueError` on a repeat opponent *is* the rule-52 gate. Every series
+    also emails/draft-previews its own report (rule 34/35, unconditional
+    on `counted`) — see `reporting.py::send_std_v1_report`. `tunnel_provider`
+    ("ngrok" default, "cloudflare") — previously hardcoded to ngrok
+    regardless of the CLI flag, found live against a real opponent."""
     if not private_config.opponent_group_id:
         raise ValueError('[network] opponent_group_id is required when opponent_protocol = "std_v1"')
 
@@ -89,9 +89,12 @@ async def run_std_v1_peer(
         daemon=True,
     ).start()
     tunnel = None
-    if use_tunnel:
+    if use_tunnel and tunnel_provider == "cloudflare":
+        tunnel = start_cloudflare_tunnel(private_config.my_port, log_path="logs/cloudflare_tunnel_std_v1.log")
+    elif use_tunnel:
         tunnel = start_tunnel(private_config.my_port, domain=ngrok_domain, log_path="logs/ngrok_tunnel_std_v1.log")
-        print(f"[tunnel] ngrok public URL: {tunnel.public_url}", flush=True)
+    if tunnel is not None:
+        print(f"[tunnel] {tunnel_provider} public URL: {tunnel.public_url}", flush=True)
     await asyncio.sleep(_SERVER_STARTUP_GRACE_SECONDS)
 
     brain_cls = load_brain_class(private_config.police_class) if private_config.police_class else CopBrain
@@ -119,12 +122,9 @@ async def run_std_v1_peer(
             connection, exchange, terms, private_config.group_id, private_config.opponent_group_id,
             identity, turn_handler_factory, thief_components_factory, config,
             turn_deadline_sec=private_config.turn_timeout_seconds,
-            # I6: no fixed defaults for a real match — negotiate/audit
-            # ceilings reuse the same "let a slower peer catch up" budgets
-            # already negotiated for the native protocol's own Step-0 wait
-            # and post-match grace period; the resend cadence reuses the
-            # same shared retry-pacing field the connect-only retries below
-            # already do, rather than a fifth set of numbers.
+            # I6: negotiate/audit ceilings reuse native's own Step-0 wait /
+            # post-match grace budgets; resend cadence reuses the shared
+            # retry-pacing field the connect-only retries below already do.
             resend_interval_sec=private_config.scent_map_retry_delay_seconds,
             negotiate_ceiling_sec=private_config.step0_wait_seconds,
             audit_ceiling_sec=private_config.post_match_grace_seconds,

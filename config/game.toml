@@ -21,6 +21,8 @@ step0_wait_seconds = 300     # how long the passive side waits for the other to 
 scent_map_retry_attempts = 3       # share_scent_map / Final Reveal are both idempotent (no double-apply risk) — retry a dropped tunnel before forfeiting
 scent_map_retry_delay_seconds = 1.0
 post_match_grace_seconds = 60      # keep this side's own server (and tunnel) alive after its own match ends, so a genuinely slower peer's own Final Reveal doesn't hit a bare connection refusal
+opponent_protocol = "std_v1"       # bestteam confirmed std_v1 (four-mailbox reference) for this match
+opponent_group_id = "bestteam"
 
 # [strategy] — optional: point at your own brain subclass (else the shipped
 # CopBrain heuristic runs). police_class promoted 2026-08-13 (PRD 14 round-2

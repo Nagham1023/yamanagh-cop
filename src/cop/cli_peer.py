@@ -67,7 +67,8 @@ async def run_peer(
         base_config = GameConfig.from_file(shared_config_path)
         return await run_std_v1_peer(
             private_config, base_config, use_tunnel=use_tunnel, ngrok_domain=ngrok_domain,
-            sub_games_to_play=std_v1_sub_games, counted=counted, league_ledger_path=league_ledger_path,
+            tunnel_provider=tunnel_provider, sub_games_to_play=std_v1_sub_games,
+            counted=counted, league_ledger_path=league_ledger_path,
         )
 
     orchestrator, private_config, config, _game_id = build_orchestrator(
