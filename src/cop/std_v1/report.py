@@ -35,16 +35,19 @@ def group_details(identity: dict) -> dict:
     }
 
 
-def final_result(rows: list[dict], my_group_id: str, their_group_id: str, tie_score: int) -> dict:
+def final_result(sub_games: list[dict], my_group_id: str, their_group_id: str, tie_score: int) -> dict:
     """Section 6's cumulative series aggregate, including the tie bonus
     (Table 17's own `tie_score`, `GameConfig.score_draw` — I6, not a
-    hardcoded `2`) — applied once to each side, and only when the raw
-    cumulative totals (before the bonus) are equal, regardless of which
-    per-row outcomes produced them."""
+    hardcoded `2`) — applied once to each side, only when the raw
+    cumulative totals (before the bonus) are equal. Takes the enriched
+    `sub_games` entries, not raw Section-11 `rows` — `score`/`winner_group`
+    still read the same via `build_result_report`'s own `**row` spread, but
+    `tokens_total_series` can now sum each entry's real `tokens` (rule 54),
+    not a second hardcoded zero."""
     total = {my_group_id: 0, their_group_id: 0}
     won = {my_group_id: 0, their_group_id: 0}
     ties = 0
-    for row in rows:
+    for row in sub_games:
         total[my_group_id] += row["score"].get(my_group_id, 0)
         total[their_group_id] += row["score"].get(their_group_id, 0)
         if row["winner_group"] is None:
@@ -65,7 +68,11 @@ def final_result(rows: list[dict], my_group_id: str, their_group_id: str, tie_sc
         "ties": ties,
         "winner_group": winner_group,
         "series_tie": series_tie,
-        "tokens_total_series": {my_group_id: 0, their_group_id: 0},
+        # their_group_id stays None -- opponent token use is never
+        # transmitted by any protocol (SubGameEntry's own identical logic).
+        "tokens_total_series": {
+            my_group_id: sum(row["tokens"][my_group_id] for row in sub_games), their_group_id: None,
+        },
     }
 
 
@@ -85,8 +92,11 @@ def build_result_report(
 ) -> dict:
     """`sub_game_meta[i]` supplies the per-row fields Section 11's own
     canonical row doesn't carry: `their_github_commit`, `steps`,
-    `started_at`, `ended_at`, and this sub-game's own `audit` outcome
-    (`log_verified`/`tampered`/`result_agreed`)."""
+    `started_at`, `ended_at`, this sub-game's own `audit` outcome
+    (`log_verified`/`tampered`/`result_agreed`), and `tokens` (rule 54 —
+    real hint-generation token usage `Std1TurnHandler` actually tracked,
+    not a second hardcoded zero; `series_sub_game.py`'s own docstring has
+    the collection story)."""
     sub_games = []
     for row, meta in zip(rows, sub_game_meta, strict=True):
         sub_games.append({
@@ -96,7 +106,11 @@ def build_result_report(
                 my_group_id: valid_commit(my_identity.get("github_commit")),
                 their_group_id: valid_commit(meta["their_github_commit"]),
             },
-            "tokens": {my_group_id: 0, their_group_id: 0},
+            # their_group_id stays None -- the opponent's own token usage
+            # is never transmitted by any existing protocol (same honest-
+            # gap reasoning report_bundle_result.py already documents for
+            # the native protocol's own SubGameEntry).
+            "tokens": {my_group_id: meta.get("tokens", 0), their_group_id: None},
             "audit": meta["audit"],
             "log_files": [log_filename(game_id, row["sub_game_number"])] if meta.get("has_log") else [],
             "steps": meta["steps"],
@@ -126,7 +140,7 @@ def build_result_report(
         "game_started_at": game_started_at,
         "game_ended_at": game_ended_at,
         "mutual_agreement": mutual_agreement,
-        "final_result": final_result(rows, my_group_id, their_group_id, tie_score),
+        "final_result": final_result(sub_games, my_group_id, their_group_id, tie_score),
     }
 
 

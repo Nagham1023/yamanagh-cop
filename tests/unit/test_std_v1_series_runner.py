@@ -36,6 +36,8 @@ class _Result:
 
 
 class _FakeTurnHandler:
+    tokens_used_total = 0  # rule 54: series_sub_game.py reads this after play_sub_game returns
+
     def play_turn(self, thief_smell_grid, thief_hint_text):
         return {"move": "N", "hint": "", "barrier_placed": None, "capture_claim": [6, 6], "smell_grid": {}}
 
@@ -172,6 +174,37 @@ def test_play_series_happy_path_reaches_agreement(config):
     assert len(report["sub_games"]) == 2
     assert report["mutual_agreement"]["confirmed"] is True
     assert report["group_details"][THEIR_GROUP]["group_id"] == THEIR_GROUP
+
+
+class _FakeTurnHandlerWithTokens(_FakeTurnHandler):
+    """A fixed, nonzero token count -- proves the real wiring
+    (`turn_handler.tokens_used_total` -> `series_sub_game.py`'s
+    `meta_entry["tokens"]` -> `report.py`'s per-row and series-total
+    fields) actually carries a real number end to end, not just `0`
+    passing through by coincidence."""
+
+    tokens_used_total = 77
+
+
+def test_play_series_carries_real_tokens_used_into_the_final_report(config):
+    # Rule 54: end-to-end proof, not just a unit check on report.py alone.
+    exchange = StdExchange(poll_interval=0.01)
+    connection = _FakePeerConnection(exchange, config)
+
+    result = asyncio.run(play_series(
+        connection, exchange, TERMS, MY_GROUP, THEIR_GROUP, {"group_id": MY_GROUP},
+        lambda: _FakeTurnHandlerWithTokens(), _thief_components_factory, config,
+        turn_deadline_sec=2.0, resend_interval_sec=0.05, negotiate_ceiling_sec=2.0, audit_ceiling_sec=2.0,
+    ))
+
+    report = result["report"]
+    # sub-game 1: our natural Police role -- the one that actually calls
+    # generate_hint, so its own tokens come straight from the fake handler.
+    assert report["sub_games"][0]["tokens"] == {MY_GROUP: 77, THEIR_GROUP: None}
+    # sub-game 2: we play Thief -- thief_round_loop.py never calls
+    # generate_hint at all, so this side's own cost here is honestly zero.
+    assert report["sub_games"][1]["tokens"] == {MY_GROUP: 0, THEIR_GROUP: None}
+    assert report["final_result"]["tokens_total_series"] == {MY_GROUP: 77, THEIR_GROUP: None}
 
 
 def test_play_series_flags_disagreement_when_peer_digest_differs(config):

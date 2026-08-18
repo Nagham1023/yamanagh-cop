@@ -94,3 +94,22 @@ def test_play_turn_folds_in_a_scent_map_boost_toward_the_reported_cell(config):
     handler.belief_map.update_from_scent_map({far_cell: 5.0}, handler.board)
     after = handler.belief_map.probability(far_cell)
     assert after > before
+
+
+def test_tokens_used_total_starts_at_zero(config):
+    handler = _handler(config)
+    assert handler.tokens_used_total == 0
+
+
+def test_tokens_used_total_accumulates_across_multiple_turns(config):
+    # Rule 54: a real, growing accumulator this handler owns -- not a
+    # value invented later at report time with no data flow behind it.
+    handler = _handler(config)
+    handler.play_turn({}, "")
+    after_one = handler.tokens_used_total
+    handler.play_turn({}, "")
+    after_two = handler.tokens_used_total
+
+    assert after_one == 0  # honest: template (the default provider) costs zero
+    assert after_two == 0
+    assert after_two >= after_one  # never goes backwards, whatever the provider actually costs

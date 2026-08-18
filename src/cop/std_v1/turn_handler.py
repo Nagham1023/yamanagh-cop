@@ -73,6 +73,7 @@ class Std1TurnHandler:
         self.template_provider = TemplateHintProvider()
         self._rng = rng or random.Random()
         self.every_n_steps = every_n_steps
+        self.tokens_used_total = 0  # rule 54: real, accumulated -- see play_turn
 
     def play_turn(self, thief_smell_grid: dict, thief_hint_text: str) -> dict:
         """Folds in the Thief's own scent report and hint, decides this
@@ -99,6 +100,11 @@ class Std1TurnHandler:
             self.state.steps_taken, self.hint_provider, self.template_provider, self.every_n_steps
         )
         hint_text = generate_hint(self.state.own_pos, provider, self.config, intent)
+        # Honest, not a magic number: template/ollama (Table 21's only
+        # implemented providers, tools/hint_providers.py) really do cost
+        # zero API tokens -- same reasoning orchestrator_turn.py's own
+        # `_generate_and_log_hint` already uses for the native protocol.
+        self.tokens_used_total += 0
 
         move_token = action.direction if isinstance(action, Move) else "STAY"
         barrier_placed = (

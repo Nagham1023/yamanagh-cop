@@ -64,5 +64,6 @@ def _timeout_row(
         "steps": 0, "started_at": started_at, "ended_at": ended_at,
         "audit": {"log_verified": False, "tampered": False, "result_agreed": False},
         "has_log": False,
+        "tokens": 0,  # honest: a timed-out sub-game never reached play_one_sub_game's own tally
     }
     return row, report_entry, meta_entry

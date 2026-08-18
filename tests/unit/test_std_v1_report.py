@@ -25,11 +25,11 @@ def test_group_details_extracts_the_report_only_fields():
 
 
 def test_final_result_sums_scores_and_applies_tie_bonus_once_on_equal_totals():
-    rows = [
-        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP},
-        {"score": {MY_GROUP: 5, THEIR_GROUP: 20}, "winner_group": THEIR_GROUP},
+    sub_games = [
+        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP, "tokens": {MY_GROUP: 0}},
+        {"score": {MY_GROUP: 5, THEIR_GROUP: 20}, "winner_group": THEIR_GROUP, "tokens": {MY_GROUP: 0}},
     ]
-    result = final_result(rows, MY_GROUP, THEIR_GROUP, tie_score=2)
+    result = final_result(sub_games, MY_GROUP, THEIR_GROUP, tie_score=2)
     assert result["total_score"] == {MY_GROUP: 27, THEIR_GROUP: 27}
     assert result["series_tie"] is True
     assert result["winner_group"] is None
@@ -40,24 +40,35 @@ def test_final_result_sums_scores_and_applies_tie_bonus_once_on_equal_totals():
 def test_final_result_applies_whatever_tie_score_is_passed_not_a_hardcoded_two():
     # I6: tie_score must be a real, threaded-through parameter, not a
     # literal baked into final_result itself.
-    rows = [
-        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP},
-        {"score": {MY_GROUP: 5, THEIR_GROUP: 20}, "winner_group": THEIR_GROUP},
+    sub_games = [
+        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP, "tokens": {MY_GROUP: 0}},
+        {"score": {MY_GROUP: 5, THEIR_GROUP: 20}, "winner_group": THEIR_GROUP, "tokens": {MY_GROUP: 0}},
     ]
-    result = final_result(rows, MY_GROUP, THEIR_GROUP, tie_score=7)
+    result = final_result(sub_games, MY_GROUP, THEIR_GROUP, tie_score=7)
     assert result["total_score"] == {MY_GROUP: 32, THEIR_GROUP: 32}
 
 
 def test_final_result_no_bonus_when_totals_differ():
-    rows = [
-        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP},
-        {"score": {MY_GROUP: 0, THEIR_GROUP: 0}, "winner_group": None},
+    sub_games = [
+        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP, "tokens": {MY_GROUP: 0}},
+        {"score": {MY_GROUP: 0, THEIR_GROUP: 0}, "winner_group": None, "tokens": {MY_GROUP: 0}},
     ]
-    result = final_result(rows, MY_GROUP, THEIR_GROUP, tie_score=2)
+    result = final_result(sub_games, MY_GROUP, THEIR_GROUP, tie_score=2)
     assert result["total_score"] == {MY_GROUP: 20, THEIR_GROUP: 5}
     assert result["series_tie"] is False
     assert result["winner_group"] == MY_GROUP
     assert result["ties"] == 1
+
+
+def test_final_result_sums_real_tokens_not_a_hardcoded_zero():
+    # Rule 54: this is the actual fix -- tokens_total_series used to be a
+    # bare {group: 0, group: 0} literal with no data flow behind it at all.
+    sub_games = [
+        {"score": {MY_GROUP: 20, THEIR_GROUP: 5}, "winner_group": MY_GROUP, "tokens": {MY_GROUP: 150}},
+        {"score": {MY_GROUP: 5, THEIR_GROUP: 20}, "winner_group": THEIR_GROUP, "tokens": {MY_GROUP: 30}},
+    ]
+    result = final_result(sub_games, MY_GROUP, THEIR_GROUP, tie_score=2)
+    assert result["tokens_total_series"] == {MY_GROUP: 180, THEIR_GROUP: None}
 
 
 def test_build_result_report_shapes_a_full_section_12_report():
@@ -76,6 +87,7 @@ def test_build_result_report_shapes_a_full_section_12_report():
     sub_game_meta = [{
         "their_github_commit": "b" * 40, "steps": 12, "started_at": "t0", "ended_at": "t1",
         "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
+        "tokens": 42,
     }]
     mutual_agreement = {
         "sha256": "x", "peer_sha256": "x", "sha_match": True, "results_agreed": True, "confirmed": True,
@@ -96,3 +108,5 @@ def test_build_result_report_shapes_a_full_section_12_report():
     assert report["group_details"][THEIR_GROUP]["members"] == ["Yaman"]
     assert report["mutual_agreement"] == mutual_agreement
     assert report["final_result"]["winner_group"] == MY_GROUP
+    assert row["tokens"] == {MY_GROUP: 42, THEIR_GROUP: None}
+    assert report["final_result"]["tokens_total_series"] == {MY_GROUP: 42, THEIR_GROUP: None}

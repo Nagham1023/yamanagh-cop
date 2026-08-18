@@ -53,12 +53,17 @@ async def play_one_sub_game(
                 turn_handler, connection, exchange, max_steps, turn_deadline_sec,
                 retry_attempts, retry_delay_seconds,
             )
+            tokens_used = turn_handler.tokens_used_total
         else:
+            # Rule 54: honest zero -- thief_round_loop.py never calls
+            # generate_hint at all, always sending a bare hint="" (spec's
+            # own convention), so there is nothing this side spent here.
             board, state, scent_field = thief_components_factory()
             end_reason, records, peer_commits, my_commits = await play_sub_game_as_thief(
                 board, state, scent_field, connection, exchange, max_steps, turn_deadline_sec,
                 retry_attempts, retry_delay_seconds,
             )
+            tokens_used = 0
 
         my_envelope = build_audit_envelope(role, records, end_reason, sub_game_number)
         peer_envelope = await send_and_await(
@@ -89,6 +94,7 @@ async def play_one_sub_game(
                 "result_agreed": peer_envelope.get("result_claim") == end_reason,
             },
             "has_log": True,
+            "tokens": tokens_used,
         }
         sub_game_log = {
             "sub_game_number": sub_game_number,
