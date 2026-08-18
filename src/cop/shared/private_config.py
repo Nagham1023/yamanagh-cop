@@ -94,6 +94,7 @@ class PrivateConfig:
     step_deadline_seconds: float
     email_recipient: str
     email_mode: str
+    email_opponent_recipient: str | None = None
     thief_class: str | None = None
     police_class: str | None = None
     # "native" (default) speaks this repo's own PRD 1-16 protocol; "std_v1"
@@ -146,6 +147,7 @@ class PrivateConfig:
             step_deadline_seconds=float(llm["step_deadline_seconds"]),
             email_recipient=email["recipient"],
             email_mode=email["mode"],
+            email_opponent_recipient=email.get("opponent_recipient"),
             thief_class=strategy.get("thief_class"),
             police_class=strategy.get("police_class"),
             opponent_protocol=network.get("opponent_protocol", "native"),

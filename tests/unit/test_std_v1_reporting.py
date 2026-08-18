@@ -135,6 +135,42 @@ def test_send_std_v1_report_includes_every_sub_game_log_as_its_own_attachment(co
     assert captured["attachments"][result_path.name] == result["report"]
 
 
+def test_send_std_v1_report_counted_reaches_both_the_opponent_and_the_lecturer(config, tmp_path, monkeypatch):
+    captured = {}
+
+    def _fake_send_report_bundle(service, to_addr, subject, body, attachments, email_mode, draft_dir):
+        captured["to_addr"] = to_addr
+        return {"sent": True}
+
+    monkeypatch.setattr(reporting_module, "send_report_bundle", _fake_send_report_bundle)
+
+    result = _minimal_result()
+    result_path = write_std_v1_result(result, tmp_path)
+    private_config = _private_config(email_recipient="lecturer@uni.edu", email_opponent_recipient="opponent@theirteam.com")
+
+    send_std_v1_report(result, result_path, [], private_config, config, tmp_path, counted=True)
+
+    assert captured["to_addr"] == "opponent@theirteam.com, lecturer@uni.edu"
+
+
+def test_send_std_v1_report_uncounted_reaches_only_the_opponent(config, tmp_path, monkeypatch):
+    captured = {}
+
+    def _fake_send_report_bundle(service, to_addr, subject, body, attachments, email_mode, draft_dir):
+        captured["to_addr"] = to_addr
+        return {"sent": True}
+
+    monkeypatch.setattr(reporting_module, "send_report_bundle", _fake_send_report_bundle)
+
+    result = _minimal_result()
+    result_path = write_std_v1_result(result, tmp_path)
+    private_config = _private_config(email_recipient="lecturer@uni.edu", email_opponent_recipient="opponent@theirteam.com")
+
+    send_std_v1_report(result, result_path, [], private_config, config, tmp_path, counted=False)
+
+    assert captured["to_addr"] == "opponent@theirteam.com"
+
+
 def test_send_std_v1_report_goes_through_the_gatekeeper_and_respects_the_daily_quota(config, tmp_path, monkeypatch):
     # Rules 28/29: a real Gatekeeper (Quota Manager -> Token Bucket -> DOS
     # Detector) must actually gate this call, not bypass it -- proven by

@@ -14,9 +14,9 @@ repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://g
 
 [network]
 my_port = 8801               # this peer's own MCP server port
-opponent_url = "https://knight-sticks-responding-realtor.trycloudflare.com/mcp"   # the only thing I know about the opponent
+opponent_url = "https://itinerary-single-overjoyed.ngrok-free.dev/mcp"   # bestteam's own thief endpoint (we play cop) -- 2026-08-18 friendly, M#52
 turn_timeout_seconds = 180
-initiate_step0 = false       # exactly one side sets this true per real match — agreed with the peer team out-of-band, never negotiated in-protocol
+initiate_step0 = true        # we're the replying side with bestteam's endpoint already in hand -- exactly one side sets this true per real match — agreed with the peer team out-of-band, never negotiated in-protocol
 step0_wait_seconds = 300     # how long the passive side waits for the other to dial in and negotiate Step-0 before giving up
 scent_map_retry_attempts = 3       # share_scent_map / Final Reveal are both idempotent (no double-apply risk) — retry a dropped tunnel before forfeiting
 scent_map_retry_delay_seconds = 1.0
@@ -45,3 +45,4 @@ step_deadline_seconds = 30   # hard cap on LLM thinking per step
 [email]
 recipient = "rmisegal+uoh26finalgame@gmail.com"
 mode = "draft"
+opponent_recipient = "itay.malich2@gmail.com"   # bestteam contact -- gets every report; the lecturer address above only joins when the match is counted (this one, M#52, is not)

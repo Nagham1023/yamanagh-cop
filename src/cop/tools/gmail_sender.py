@@ -46,6 +46,20 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 DRAFT_PREVIEW_DIR = "logs"
 
 
+def build_recipients(email_recipient: str, opponent_recipient: str | None, *, is_counted: bool) -> str:
+    """Lecturer's own agent-reporting address (rule 51) whenever counted;
+    a configured opponent address is always CC'd too, for mutual
+    cross-checking. `opponent_recipient` unset preserves the old, single-
+    recipient behavior exactly. Comma-joined -- `MIMEMultipart`'s "to"
+    header already accepts multiple addresses that way."""
+    if opponent_recipient is None:
+        return email_recipient
+    recipients = [opponent_recipient]
+    if is_counted:
+        recipients.append(email_recipient)
+    return ", ".join(recipients)
+
+
 def get_service(token_path: str = "token.json") -> Any:
     """Reuses `token.json` (created by the one-time consent flow, Appendix A
     §1.5) — no browser interaction here, this is the fully-automatic path

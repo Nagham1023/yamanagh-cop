@@ -144,6 +144,6 @@ async def run_std_v1_peer(
         ledger = LeagueLedger(path=league_ledger_path) if league_ledger_path else LeagueLedger()
         ledger.record_counted_game(private_config.opponent_url)
 
-    send_std_v1_report(result, result_path, log_paths, private_config, config, results_dir)
+    send_std_v1_report(result, result_path, log_paths, private_config, config, results_dir, counted=counted)
 
     return result

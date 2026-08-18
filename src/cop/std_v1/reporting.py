@@ -13,7 +13,7 @@ from pathlib import Path
 from ..policy.gatekeeper import ApiGatekeeper
 from ..shared.config import GameConfig
 from ..shared.private_config import PrivateConfig
-from ..tools.gmail_sender import get_service, send_report_bundle
+from ..tools.gmail_sender import build_recipients, get_service, send_report_bundle
 from .replay_log import merge_records, write_sub_game_log
 
 
@@ -58,6 +58,7 @@ def send_std_v1_report(
     private_config: PrivateConfig,
     config: GameConfig,
     results_dir: str | Path,
+    counted: bool = False,
 ) -> dict:
     """Rule 34/35 (**[FATAL]**: "each team send its own separate final
     report"), previously entirely missing for std_v1 — matches would
@@ -65,14 +66,16 @@ def send_std_v1_report(
     the native protocol's own `report_game()` dispatch (`ApiGatekeeper`
     wrapping `send_report_bundle`, ch. 9.3.1's Quota Manager -> Token
     Bucket -> DOS Detector), reusing the same `GameConfig`'s rate-limit
-    fields and the same `PrivateConfig.email_mode`/`email_recipient`.
-    Unconditional on `counted` -- native's own `report_game()` never gates
-    the email on `is_counted` either; every completed series gets its own
-    report, warm-up or not. Attachments are read back from exactly what
-    was just written to disk (`write_std_v1_result`/
-    `write_std_v1_sub_game_logs`'s own return values), the same "never
-    re-derive, always reflect what's actually on disk" posture
-    `report_bundle.py::load_log_entries` already uses natively."""
+    fields. Fires unconditionally once a series finishes, warm-up or not
+    (native's own `report_game()` never gates the send on `is_counted`
+    either) — but WHO it reaches does depend on `counted`, via the same
+    `build_recipients` the native path uses: the opponent's own configured
+    address always, the lecturer's own agent-reporting address only when
+    `counted`. Attachments are read back from exactly what was just
+    written to disk (`write_std_v1_result`/`write_std_v1_sub_game_logs`'s
+    own return values), the same "never re-derive, always reflect what's
+    actually on disk" posture `report_bundle.py::load_log_entries` already
+    uses natively."""
     attachments = {result_path.name: result["report"]}
     for log_path in log_paths:
         attachments[log_path.name] = json.loads(log_path.read_text(encoding="utf-8"))
@@ -83,7 +86,10 @@ def send_std_v1_report(
 
     email_mode = private_config.email_mode
     service = None if email_mode == "draft" else get_service()
+    recipients = build_recipients(
+        private_config.email_recipient, private_config.email_opponent_recipient, is_counted=counted
+    )
     return ApiGatekeeper(config).execute(
-        send_report_bundle, service, private_config.email_recipient, subject, body, attachments,
+        send_report_bundle, service, recipients, subject, body, attachments,
         email_mode=email_mode, draft_dir=results_dir,
     )

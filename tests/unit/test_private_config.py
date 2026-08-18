@@ -60,6 +60,7 @@ def test_loads_the_dev_private_config_from_disk():
     assert config.repos["cop"] == "https://github.com/Nagham1023/yamanagh-cop"
     assert config.model == "claude-sonnet-5"
     assert config.email_recipient == "rmisegal+uoh26finalgame@gmail.com"
+    assert config.email_opponent_recipient == "itay.malich2@gmail.com"
     assert config.thief_class is None
     # PRD 14 round-2 post-gate: RLCopBrain was promoted 2026-08-13 (see
     # training/promoted/promotion_report.json) — the real config/game.toml
@@ -67,7 +68,9 @@ def test_loads_the_dev_private_config_from_disk():
     # match, the same way test_cli_peer_build.py's own zero-regression
     # proof already did.
     assert config.police_class == "cop.reasoning.rl_cop_brain:RLCopBrain"
-    assert config.initiate_step0 is False
+    # 2026-08-18 friendly with bestteam, M#52: we're the replying side
+    # with the peer's endpoint already in hand, so we dial in first.
+    assert config.initiate_step0 is True
     assert config.step0_wait_seconds == 300.0
     assert config.scent_map_retry_attempts == 3
     assert config.scent_map_retry_delay_seconds == 1.0
@@ -115,6 +118,18 @@ def test_strategy_section_is_read_when_present():
         _full_private(strategy={"police_class": "my_team.strategy:MyPoliceBrain"})
     )
     assert config.police_class == "my_team.strategy:MyPoliceBrain"
+
+
+def test_email_opponent_recipient_defaults_to_none_when_absent():
+    config = PrivateConfig.from_dict(_full_private())
+    assert config.email_opponent_recipient is None
+
+
+def test_email_opponent_recipient_round_trips_when_present():
+    config = PrivateConfig.from_dict(
+        _full_private(email={"opponent_recipient": "opponent@theirteam.com"})
+    )
+    assert config.email_opponent_recipient == "opponent@theirteam.com"
 
 
 def test_opponent_url_round_trips_from_network_section():

@@ -294,6 +294,51 @@ def test_report_game_attaches_all_four_table_20_files(config, tmp_path, monkeypa
     assert on_disk == result_payload
 
 
+def test_report_game_counted_reaches_both_the_opponent_and_the_lecturer(config, tmp_path, monkeypatch):
+    client = _final_sub_game_client(config, tmp_path)
+    client.private_config = dataclasses.replace(
+        client.private_config,
+        email_recipient="lecturer@uni.edu", email_opponent_recipient="opponent@theirteam.com",
+    )
+    peer_url = _start_peer(config, tmp_path)
+
+    captured = {}
+    import cop.orchestrator_report_dispatch as report_dispatch_module
+
+    def _spy_send_report_bundle(service, to_addr, subject, body, attachments, email_mode="send", draft_dir=None):
+        captured["to_addr"] = to_addr
+        return None
+
+    monkeypatch.setattr(report_dispatch_module, "send_report_bundle", _spy_send_report_bundle)
+
+    _report_game(client, peer_url, is_counted=True)
+
+    assert captured["to_addr"] == "opponent@theirteam.com, lecturer@uni.edu"
+
+
+def test_report_game_uncounted_reaches_only_the_opponent_never_the_lecturer(config, tmp_path, monkeypatch):
+    client = _final_sub_game_client(config, tmp_path)
+    client.private_config = dataclasses.replace(
+        client.private_config,
+        email_recipient="lecturer@uni.edu", email_opponent_recipient="opponent@theirteam.com",
+    )
+    peer_url = _start_peer(config, tmp_path)
+
+    captured = {}
+    import cop.orchestrator_report_dispatch as report_dispatch_module
+
+    def _spy_send_report_bundle(service, to_addr, subject, body, attachments, email_mode="send", draft_dir=None):
+        captured["to_addr"] = to_addr
+        return None
+
+    monkeypatch.setattr(report_dispatch_module, "send_report_bundle", _spy_send_report_bundle)
+
+    _report_game(client, peer_url, is_counted=False)
+
+    assert captured["to_addr"] == "opponent@theirteam.com"
+    assert "lecturer@uni.edu" not in captured["to_addr"]
+
+
 def test_report_game_does_not_send_before_the_series_final_sub_game(config, tmp_path, monkeypatch):
     # PRD 16's own correction: ch. 9.4's result report is for the whole
     # series, sent once — a non-final sub-game must persist its own merge

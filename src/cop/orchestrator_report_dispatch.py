@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .domain.scoring import Outcome, Score
 from .integrity.audit import run_mutual_audit
-from .tools.gmail_sender import get_service, send_report_bundle
+from .tools.gmail_sender import build_recipients, get_service, send_report_bundle
 from .tools.report_bundle import (
     DeclarationBundle,
     build_declaration,
@@ -122,10 +122,14 @@ class ReportDispatchMixin:
         # path was never going to need.
         service = None if email_mode == "draft" else get_service()
         subject_id = f"{game_id}_g{sub_game_number:02d}"  # human-readable only — not a Table 20 filename
+        recipients = build_recipients(
+            self.private_config.email_recipient, self.private_config.email_opponent_recipient,
+            is_counted=is_counted,
+        )
         return self.gatekeeper.execute(
             send_report_bundle,
             service,
-            self.private_config.email_recipient,
+            recipients,
             f"Match result — {subject_id}",
             f"Outcome: {outcome.value}",
             attachments,
