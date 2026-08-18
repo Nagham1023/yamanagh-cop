@@ -1,15 +1,14 @@
 """Construction helpers for `peer.py::run_std_v1_peer` — split out once
 that file grew past the 150-line house cap. `build_std_v1_game_config`
 and `build_turn_handler_factory` together build everything a fresh
-sub-game needs; `write_std_v1_result` is the one piece of output this
-protocol produces that isn't itself part of the match loop.
+sub-game needs. `reporting.py` (a later, second split) holds everything
+that runs after a series finishes — `write_std_v1_result`,
+`write_std_v1_sub_game_logs`, `send_std_v1_report`.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import json
-from pathlib import Path
 
 from ..domain.barriers import BarrierSet
 from ..domain.board import Board, Position
@@ -19,7 +18,6 @@ from ..reasoning.state import GameState
 from ..shared.config import GameConfig
 from ..shared.private_config import PrivateConfig
 from ..tools.hint_providers import build_provider
-from .replay_log import merge_records, write_sub_game_log
 from .turn_handler import Std1TurnHandler
 
 
@@ -85,37 +83,3 @@ def build_thief_components_factory(config: GameConfig):
         return board, state, scent_field
 
     return factory
-
-
-def write_std_v1_result(result: dict, results_dir: str | Path) -> Path:
-    """Section 12/18 [MUST]: filename is exactly `result_<game_id>.json`
-    (no protocol prefix — this is the one submitted artifact, not an
-    internal debug dump), containing `result["report"]`'s own Section-12
-    shape (`std_v1/report.py::build_result_report`), not the raw
-    `play_series` return value (which also carries the canonical
-    consensus object and other diagnostic-only fields never part of the
-    submitted report)."""
-    out_dir = Path(results_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"result_{result['game_id']}.json"
-    out_path.write_text(json.dumps(result["report"], indent=2), encoding="utf-8")
-    return out_path
-
-
-def write_std_v1_sub_game_logs(result: dict, results_dir: str | Path) -> list[Path]:
-    """Rule 20 **[FATAL]**: one `log_<game_id>_g<NN>.json` per sub-game
-    that actually produced a transcript (never for a `timeout` row, which
-    has none — `play_one_sub_game` already returns `None` for those).
-    Written from the raw records/commits `play_series` already collected
-    (`series_sub_game.py`'s `sub_game_log`), not re-derived, so this can
-    never silently diverge from what was actually played and audited."""
-    game_id = result["game_id"]
-    written = []
-    for entry in result.get("sub_game_logs", []):
-        if entry is None:
-            continue
-        merged = merge_records(
-            entry["my_records"], entry["my_commits"], entry["peer_records"], entry["peer_commits"]
-        )
-        written.append(write_sub_game_log(game_id, entry["sub_game_number"], merged, results_dir))
-    return written

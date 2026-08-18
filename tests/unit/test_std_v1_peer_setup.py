@@ -1,16 +1,12 @@
-"""std_v1/peer_setup.py tests."""
+"""std_v1/peer_setup.py tests — the pre-match construction helpers only;
+`write_std_v1_result`/`write_std_v1_sub_game_logs`/`send_std_v1_report`
+moved to `reporting.py` and its own `test_std_v1_reporting.py`."""
 
 from __future__ import annotations
 
-import json
-
 from cop.reasoning.cop_brain import CopBrain
 from cop.shared.private_config import PrivateConfig
-from cop.std_v1.peer_setup import (
-    build_std_v1_game_config,
-    build_turn_handler_factory,
-    write_std_v1_result,
-)
+from cop.std_v1.peer_setup import build_std_v1_game_config, build_turn_handler_factory
 from cop.std_v1.terms import load_terms
 
 TERMS = load_terms()
@@ -62,12 +58,3 @@ def test_build_turn_handler_factory_resets_state_on_each_call(config):
     second = factory()
     assert (second.state.own_pos.col, second.state.own_pos.row) == tuple(TERMS["cop_start"])
     assert second.state.steps_taken == 0
-
-
-def test_write_std_v1_result_writes_the_report_json_under_the_spec_filename(tmp_path):
-    report = {"game_id": "dev-team-vs-thief-team", "report_type": "std_v1_result"}
-    result = {"game_id": "dev-team-vs-thief-team", "agreed": True, "report": report}
-    out_path = write_std_v1_result(result, tmp_path)
-    assert out_path.name == "result_dev-team-vs-thief-team.json"
-    assert out_path.exists()
-    assert json.loads(out_path.read_text(encoding="utf-8")) == report

@@ -216,12 +216,13 @@ def test_run_peer_propagates_a_std_v1_rule_52_violation_end_to_end(tmp_path, mon
         return {"report": {"game_id": "x"}, "game_id": "x"}
 
     monkeypatch.setattr(peer_module, "play_series", _fake_play_series)
-    # No-op the result-file writers rather than chdir()ing the whole
+    # No-op the result-file/report writers rather than chdir()ing the whole
     # process -- run_peer's std_v1 branch doesn't expose results_dir, and
     # DEFAULT_TERMS_PATH ("config/interop_spec_terms.json") is resolved
     # relative to cwd, so chdir()ing here would break that real read.
     monkeypatch.setattr(peer_module, "write_std_v1_result", lambda result, results_dir: None)
     monkeypatch.setattr(peer_module, "write_std_v1_sub_game_logs", lambda result, results_dir: [])
+    monkeypatch.setattr(peer_module, "send_std_v1_report", lambda *a, **k: None)
 
     async def _run() -> None:
         await cli_peer.run_peer(

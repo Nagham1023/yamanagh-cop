@@ -34,9 +34,8 @@ from .peer_setup import (
     build_std_v1_game_config,
     build_thief_components_factory,
     build_turn_handler_factory,
-    write_std_v1_result,
-    write_std_v1_sub_game_logs,
 )
+from .reporting import send_std_v1_report, write_std_v1_result, write_std_v1_sub_game_logs
 from .scent_model_lock import build_scent_model_lock
 from .series_runner import play_series
 from .server_registration import register_std_v1_tools
@@ -66,12 +65,14 @@ async def run_std_v1_peer(
     parameter, passed straight through to `play_series` — `None` (the
     default) plays the full signed series.
 
-    `counted`/`league_ledger_path`: rule 52 (**[FATAL]**: one counted game
-    per opponent), enforced exactly as the native protocol already does —
-    same `LeagueLedger`, keyed by `opponent_url` (`cli_peer_match_body.py`'s
-    own convention), recorded once the series finishes, regardless of
-    outcome. Purely reactive, like native: `record_counted_game`'s own
-    `ValueError` on a repeat opponent *is* the rule-52 gate."""
+    `counted`/`league_ledger_path`: rule 52 (**[FATAL]**), enforced exactly
+    as native — same `LeagueLedger`, keyed by `opponent_url`
+    (`cli_peer_match_body.py`'s own convention), recorded once the series
+    finishes regardless of outcome; `record_counted_game`'s own
+    `ValueError` on a repeat opponent *is* the rule-52 gate, purely
+    reactive like native. Every series also emails/draft-previews its own
+    report (rule 34/35, unconditional on `counted`) — see
+    `reporting.py::send_std_v1_report`."""
     if not private_config.opponent_group_id:
         raise ValueError('[network] opponent_group_id is required when opponent_protocol = "std_v1"')
 
@@ -84,9 +85,7 @@ async def run_std_v1_peer(
     host = "0.0.0.0" if use_tunnel else "127.0.0.1"
     threading.Thread(
         target=mcp.run,
-        kwargs={
-            "transport": "http", "host": host, "port": private_config.my_port, "show_banner": False,
-        },
+        kwargs={"transport": "http", "host": host, "port": private_config.my_port, "show_banner": False},
         daemon=True,
     ).start()
     tunnel = None
@@ -138,11 +137,13 @@ async def run_std_v1_peer(
         if tunnel is not None:
             stop_tunnel(tunnel)
 
-    write_std_v1_result(result, results_dir)
-    write_std_v1_sub_game_logs(result, results_dir)
+    result_path = write_std_v1_result(result, results_dir)
+    log_paths = write_std_v1_sub_game_logs(result, results_dir)
 
     if counted:
         ledger = LeagueLedger(path=league_ledger_path) if league_ledger_path else LeagueLedger()
         ledger.record_counted_game(private_config.opponent_url)
+
+    send_std_v1_report(result, result_path, log_paths, private_config, config, results_dir)
 
     return result
