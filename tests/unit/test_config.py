@@ -17,8 +17,8 @@ def test_loads_the_dev_config_from_disk():
     assert cfg.barrier_quota == 14
     assert cfg.thief_start == (3, 3)
     assert cfg.cop_start == (0, 0)
-    assert cfg.response_timeout_seconds == 30.0
-    assert cfg.watchdog_threshold_seconds == 60.0
+    assert cfg.response_timeout_seconds == 90.0
+    assert cfg.watchdog_threshold_seconds == 120.0
     assert cfg.arena == "New York"
     assert cfg.hint_word_limit == 15
     assert cfg.scent_source_strength == 0.9
