@@ -53,18 +53,21 @@ async def run_peer(
     `[network] opponent_protocol = "std_v1"` (checked before any
     `Orchestrator` is built) short-circuits to `run_std_v1_peer` instead —
     a genuinely different match lifecycle (`std_v1/peer.py`'s own
-    docstring has the full reasoning) that returns a plain result dict,
-    not an `Orchestrator`, since `counted`/`--gui`/the league ledger are
-    all native-protocol-only concerns std_v1 doesn't have. `std_v1_sub_games`
-    is std_v1-only too — spec Section 15's compatibility-test launch
-    parameter, ignored on the native path."""
+    docstring has the full reasoning) that returns a plain result dict, not
+    an `Orchestrator`. `counted`/`league_ledger_path` thread straight
+    through to `run_std_v1_peer`'s own rule-52 enforcement (same
+    `LeagueLedger`, same `opponent_url` key as the native path) — only
+    `--gui` is a genuine native-protocol-only concern (std_v1 has no GUI at
+    all; `run_peer_with_gui` rejects that combination itself).
+    `std_v1_sub_games` is std_v1-only too — spec Section 15's
+    compatibility-test launch parameter, ignored on the native path."""
     del gui  # CLI routes --gui to run_peer_with_gui; kept for call-site compat
     private_config = PrivateConfig.from_file(private_config_path)
     if private_config.opponent_protocol == "std_v1":
         base_config = GameConfig.from_file(shared_config_path)
         return await run_std_v1_peer(
             private_config, base_config, use_tunnel=use_tunnel, ngrok_domain=ngrok_domain,
-            sub_games_to_play=std_v1_sub_games,
+            sub_games_to_play=std_v1_sub_games, counted=counted, league_ledger_path=league_ledger_path,
         )
 
     orchestrator, private_config, config, _game_id = build_orchestrator(
@@ -96,7 +99,20 @@ def run_peer_with_gui(
     league_ledger_path: str | None = None,
 ) -> Orchestrator:
     """Same match as `run_peer`, but Tk mainloop owns the main thread and the
-    async match runs in a background thread (Thief LiveSession pattern)."""
+    async match runs in a background thread (Thief LiveSession pattern).
+
+    Rejects `[network] opponent_protocol = "std_v1"` up front, before
+    `build_orchestrator` ever runs — std_v1 has no GUI anywhere in its own
+    package (a permanent scope limit, not a deferred TODO), so silently
+    falling through to a native match here would run the wrong protocol
+    against a std_v1-configured opponent with no error at all."""
+    private_config = PrivateConfig.from_file(private_config_path)
+    if private_config.opponent_protocol == "std_v1":
+        raise ValueError(
+            '--gui is not supported when [network] opponent_protocol = "std_v1" '
+            "(std_v1 has no GUI) — omit --gui to run the std_v1 match headless"
+        )
+
     orchestrator, private_config, config, _game_id = build_orchestrator(
         private_config_path,
         shared_config_path,

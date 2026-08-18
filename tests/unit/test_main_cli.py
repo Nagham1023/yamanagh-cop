@@ -140,3 +140,25 @@ def test_peer_subcommand_with_gui_dispatches_to_run_peer_with_gui(monkeypatch):
     main_module.main()
 
     assert captured["args"] == ("a.toml", "b.json", False, False, None, "ngrok")
+
+
+def test_peer_subcommand_exits_nonzero_when_gui_is_combined_with_std_v1(monkeypatch, capsys):
+    # run_peer_with_gui's own new rejection (std_v1 has no GUI) must reach
+    # main() through the same clean ValueError exit path as a rule-52
+    # violation, not as an uncaught traceback.
+    def _fake_run_peer_with_gui(*args, **kwargs):
+        raise ValueError(
+            '--gui is not supported when [network] opponent_protocol = "std_v1" '
+            "(std_v1 has no GUI) — omit --gui to run the std_v1 match headless"
+        )
+
+    monkeypatch.setattr(main_module, "run_peer_with_gui", _fake_run_peer_with_gui)
+    monkeypatch.setattr(sys, "argv", ["cop", "peer", "--gui"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_module.main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "std_v1" in err

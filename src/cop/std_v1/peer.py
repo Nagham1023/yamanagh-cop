@@ -20,6 +20,7 @@ import threading
 
 from fastmcp import FastMCP
 
+from ..policy.league_ledger import LeagueLedger
 from ..reasoning.cop_brain import CopBrain
 from ..shared.config import GameConfig
 from ..shared.private_config import PrivateConfig
@@ -53,6 +54,8 @@ async def run_std_v1_peer(
     ngrok_domain: str | None = None,
     results_dir: str = "logs",
     sub_games_to_play: int | None = None,
+    counted: bool = False,
+    league_ledger_path: str | None = None,
 ) -> dict:
     """Runs one full std_v1 series against `private_config.opponent_url`,
     writes the result JSON, and returns it. Raises `ValueError` up front
@@ -61,7 +64,14 @@ async def run_std_v1_peer(
 
     `sub_games_to_play`: spec Section 15's own compatibility-test launch
     parameter, passed straight through to `play_series` — `None` (the
-    default) plays the full signed series."""
+    default) plays the full signed series.
+
+    `counted`/`league_ledger_path`: rule 52 (**[FATAL]**: one counted game
+    per opponent), enforced exactly as the native protocol already does —
+    same `LeagueLedger`, keyed by `opponent_url` (`cli_peer_match_body.py`'s
+    own convention), recorded once the series finishes, regardless of
+    outcome. Purely reactive, like native: `record_counted_game`'s own
+    `ValueError` on a repeat opponent *is* the rule-52 gate."""
     if not private_config.opponent_group_id:
         raise ValueError('[network] opponent_group_id is required when opponent_protocol = "std_v1"')
 
@@ -130,4 +140,9 @@ async def run_std_v1_peer(
 
     write_std_v1_result(result, results_dir)
     write_std_v1_sub_game_logs(result, results_dir)
+
+    if counted:
+        ledger = LeagueLedger(path=league_ledger_path) if league_ledger_path else LeagueLedger()
+        ledger.record_counted_game(private_config.opponent_url)
+
     return result
