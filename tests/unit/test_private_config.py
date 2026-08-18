@@ -56,7 +56,7 @@ def test_loads_the_dev_private_config_from_disk():
     assert config.my_port == 8801
     assert config.turn_timeout_seconds == 180.0
     assert config.group_name == "yamanagh"
-    assert config.members == ("dev-1",)
+    assert config.members == ("Nagham Manasra", "Yaman Dahle")
     assert config.repos["cop"] == "https://github.com/Nagham1023/yamanagh-cop"
     assert config.model == "claude-sonnet-5"
     assert config.email_recipient == "rmisegal+uoh26finalgame@gmail.com"
