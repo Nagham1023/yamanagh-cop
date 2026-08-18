@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -15,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from cop.tools.tunnel import _ngrok_command, stop_tunnel
+from cop.tools.tunnel import Tunnel, _ngrok_command, stop_tunnel
 from cop.tools.tunnel_start import start_tunnel
 
 _PLACEHOLDER_COMMAND = [sys.executable, "-c", "import time; time.sleep(60)"]
@@ -255,6 +256,37 @@ def test_start_tunnel_without_a_log_path_keeps_the_old_silent_devnull_behavior()
         stop_tunnel(tunnel)  # must not raise even with nothing to close
     finally:
         server.shutdown()
+
+
+class _StubbornProcess:
+    """Ignores terminate() (like a real cloudflared not honoring SIGTERM
+    within the bounded wait) -- proves stop_tunnel falls back to kill()
+    instead of letting TimeoutExpired propagate and mask whatever real
+    error the caller's own finally block was already handling."""
+
+    def __init__(self):
+        self.terminated = False
+        self.killed = False
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        if not self.killed:
+            raise subprocess.TimeoutExpired(cmd="stub", timeout=timeout)
+
+
+def test_stop_tunnel_kills_a_process_that_does_not_honor_terminate():
+    process = _StubbornProcess()
+    tunnel = Tunnel(process=process, public_url="https://fake.example.com", log_file=None)
+
+    stop_tunnel(tunnel)  # must not raise TimeoutExpired
+
+    assert process.terminated is True
+    assert process.killed is True
 
 
 def test_start_tunnel_times_out_when_the_admin_api_is_unreachable():

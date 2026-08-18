@@ -45,8 +45,18 @@ def _ngrok_command(port: int, domain: str | None) -> list[str]:
 
 
 def stop_tunnel(tunnel: Tunnel) -> None:
-    """Terminate the tunnel process, waiting with a bounded timeout."""
+    """Terminate the tunnel process, waiting with a bounded timeout, then
+    force-killing rather than letting `TimeoutExpired` propagate — found
+    live: cloudflared (reused through this same provider-agnostic `Tunnel`
+    shape) didn't always honor SIGTERM within 5s, and the resulting
+    exception, raised from inside `run_std_v1_peer`'s own `finally` block,
+    replaced the real match-ending error in the traceback entirely (a
+    genuine rule-3 terms mismatch, in the one case that surfaced this)."""
     tunnel.process.terminate()
-    tunnel.process.wait(timeout=5)
+    try:
+        tunnel.process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        tunnel.process.kill()
+        tunnel.process.wait(timeout=5)
     if tunnel.log_file is not None:
         tunnel.log_file.close()

@@ -48,7 +48,14 @@ def validate_offer(offer: dict, my_terms: dict) -> None:
     terms = offer.get("terms")
     validate_terms(terms)
     if terms != my_terms:
-        raise ValueError("peer's terms differ from ours -- refusing the greeting (rule 3)")
+        diff = {
+            key: (my_terms.get(key), terms.get(key))
+            for key in set(my_terms) | set(terms)
+            if my_terms.get(key) != terms.get(key)
+        }
+        raise ValueError(
+            f"peer's terms differ from ours -- refusing the greeting (rule 3): {diff}"
+        )
     nonce = offer.get("nonce")
     signature = offer.get("signature")
     if not nonce or not signature:

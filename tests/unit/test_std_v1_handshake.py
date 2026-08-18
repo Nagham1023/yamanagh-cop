@@ -135,6 +135,18 @@ def test_validate_offer_rejects_terms_that_differ():
         validate_offer(offer, TERMS)
 
 
+def test_validate_offer_names_the_actual_differing_keys_and_values():
+    # A bare "terms differ" used to give no way to tell which field, or
+    # whether it was even the real cause vs. a masked secondary error --
+    # found live against a real opponent whose terms genuinely differed.
+    offer = build_offer({**TERMS, "setting": "Tampered"}, "thief-team", "thief", 1, {}, "uid", fresh_nonce())
+    with pytest.raises(ValueError) as exc_info:
+        validate_offer(offer, TERMS)
+    assert "setting" in str(exc_info.value)
+    assert "Tampered" in str(exc_info.value)
+    assert TERMS["setting"] in str(exc_info.value)
+
+
 def test_validate_offer_rejects_a_bad_signature():
     offer = build_offer(TERMS, "thief-team", "thief", 1, {}, "uid", fresh_nonce())
     offer["signature"] = "0" * 64
