@@ -16,6 +16,8 @@ from cop.cli_replay import run_replay
 from cop.orchestrator import Orchestrator
 from cop.reasoning.brain_base import Move
 from cop.reasoning.cop_brain import CopBrain
+from cop.std_v1.replay_log import merge_records, write_sub_game_log
+from cop.std_v1.sealing import build_audit_record, build_turn_payload, seal_turn
 
 
 def _free_port() -> int:
@@ -97,3 +99,24 @@ def test_run_replay_exits_one_with_a_clear_error_when_the_match_never_completed(
     assert exit_code == 1
     err = capsys.readouterr().err
     assert "nonces_revealed" in err
+
+
+def _sealed_record(step: int, sender: str) -> tuple[dict, str]:
+    payload = build_turn_payload(step=step, sender=sender, move="N", hint="", smell_grid={})
+    sealed = seal_turn(payload)
+    return build_audit_record(payload, sealed["nonce"]), sealed["commit"]
+
+
+def test_run_replay_dispatches_a_std_v1_log_through_its_own_verifier(tmp_path, capsys):
+    # run_replay sniffs protocol from the file itself (is_std_v1_log) — a
+    # std_v1 log must reach _run_std_v1_replay, not the native JSONL path.
+    my_record, my_commit = _sealed_record(1, "police")
+    merged = merge_records([my_record], {1: my_commit}, [], {})
+    log_path = write_sub_game_log("dev-team-vs-thief-team", 1, merged, tmp_path)
+
+    exit_code = run_replay(str(log_path))
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Verified OK" in out
+    assert "step 1: ok" in out

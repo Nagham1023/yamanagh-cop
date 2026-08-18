@@ -65,8 +65,15 @@ class ReplayViewer:
         ]
 
     @property
+    def passed(self) -> bool:
+        """Same boolean `std_v1/replay_viewer.py::StdV1ReplayViewer` exposes
+        directly — lets `ReplayViewerWindow` read either viewer type the
+        same way instead of assuming a native-only `audit_result`."""
+        return self.audit_result.passed
+
+    @property
     def overall_status(self) -> str:
-        return "Verified OK" if self.audit_result.passed else "TAMPERED"
+        return "Verified OK" if self.passed else "TAMPERED"
 
     @property
     def halted(self) -> bool:
@@ -100,7 +107,7 @@ class ReplayViewerWindow:
         self.viewer = viewer
         self.root = tk.Tk()
         self.root.title("Replay Viewer")
-        color = "green" if viewer.audit_result.passed else "red"
+        color = "green" if viewer.passed else "red"
         self.banner = tk.Label(
             self.root, text=viewer.overall_status, font=("Helvetica", 20, "bold"), fg=color
         )
