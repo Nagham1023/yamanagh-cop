@@ -43,13 +43,16 @@ def test_loads_the_dev_private_config_from_disk():
     assert config.provider == "template"
     assert config.every_n_steps == 1
     # real-match wiring (PRD 5/10's tunnel), not the old localhost
-    # placeholder — flips whenever the two teams agree a new opponent URL,
-    # same "real file, real regression check" discipline as police_class
-    # below. Switched to a Cloudflare Quick Tunnel URL once ngrok's
-    # free-tier connection-rate cap was diagnosed as the round-26/27
-    # match failure's real cause — the URL itself is ephemeral (a fresh
-    # one every relaunch), so this will flip again on the next real match.
-    assert config.opponent_url == "https://viewer-bangkok-notebooks-promotion.trycloudflare.com/mcp"
+    # placeholder — a Cloudflare Quick Tunnel URL, not ngrok, since ngrok's
+    # free-tier connection-rate cap was diagnosed as the round-26/27 match
+    # failure's real cause. The exact value is never asserted here: it's
+    # genuinely ephemeral (a fresh one every relaunch, and every live
+    # coordination round with the actual opponent) -- pinning it to one
+    # literal string made this test go stale on every real match setup,
+    # not just on a real regression. Shape, not value, is the real
+    # invariant worth checking.
+    assert config.opponent_url.startswith("https://")
+    assert config.opponent_url.endswith("/mcp")
     assert config.my_port == 8801
     assert config.turn_timeout_seconds == 180.0
     assert config.group_name == "yamanagh"
