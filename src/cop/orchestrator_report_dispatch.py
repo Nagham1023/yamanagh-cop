@@ -130,4 +130,5 @@ class ReportDispatchMixin:
             f"Outcome: {outcome.value}",
             attachments,
             email_mode=email_mode,
+            draft_dir=reports_dir,
         )

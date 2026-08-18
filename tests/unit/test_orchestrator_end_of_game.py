@@ -19,6 +19,7 @@ import json
 import socket
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -134,7 +135,9 @@ def test_report_game_returns_cleanly_under_draft_mode(config, tmp_path):
 
     result = _report_game(client, peer_url, is_counted=True)
 
-    assert result is None  # config/game.toml's own email_mode is "draft"
+    # config/game.toml's own email_mode is "draft" -- rule 30 forbids a
+    # real Gmail draft (send-only scope), so this is a local .eml preview.
+    assert Path(result["draft_path"]).exists()
 
 
 def test_report_game_records_a_counted_game_when_is_counted_true(config, tmp_path):
@@ -246,7 +249,7 @@ def test_report_game_attaches_all_four_table_20_files(config, tmp_path, monkeypa
     captured = {}
     import cop.orchestrator_report_dispatch as report_dispatch_module
 
-    def _spy_send_report_bundle(service, to_addr, subject, body, attachments, email_mode="send"):
+    def _spy_send_report_bundle(service, to_addr, subject, body, attachments, email_mode="send", draft_dir=None):
         captured["attachments"] = attachments
         return None
 

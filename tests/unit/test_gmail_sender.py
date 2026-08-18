@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import unittest.mock
+from pathlib import Path
 
 from cop.policy.gatekeeper import ApiGatekeeper
 from cop.tools.gmail_sender import SCOPES, build_message, send_report, send_report_bundle
@@ -86,13 +87,16 @@ def test_send_report_bundle_attaches_all_four_files_in_one_message():
     assert {p.get_filename() for p in attachment_parts} == set(attachments)
 
 
-def test_send_report_in_draft_mode_never_calls_gmail_send():
+def test_send_report_in_draft_mode_never_calls_gmail_send(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     service = _FakeService()
     result = send_report(
         service, "grader@example.com", "subject", "body", {"a": 1}, "result_g01.json", email_mode="draft"
     )
-    assert result is None
     assert service._messages.calls == []
+    draft_path = Path(result["draft_path"])
+    assert draft_path.exists()
+    assert "subject" in draft_path.read_text(encoding="utf-8")
 
 
 def test_send_report_in_send_mode_calls_gmail_send_exactly_once():
@@ -104,13 +108,16 @@ def test_send_report_in_send_mode_calls_gmail_send_exactly_once():
     assert len(service._messages.calls) == 1
 
 
-def test_send_report_bundle_in_draft_mode_never_calls_gmail_send():
+def test_send_report_bundle_in_draft_mode_never_calls_gmail_send(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     service = _FakeService()
     result = send_report_bundle(
         service, "grader@example.com", "subject", "body", {"a.json": {}}, email_mode="draft"
     )
-    assert result is None
     assert service._messages.calls == []
+    draft_path = Path(result["draft_path"])
+    assert draft_path.exists()
+    assert "subject" in draft_path.read_text(encoding="utf-8")
 
 
 def test_send_report_bundle_in_send_mode_calls_gmail_send_exactly_once():
