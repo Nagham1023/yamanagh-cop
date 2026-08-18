@@ -19,8 +19,22 @@
     "best_single_seed_win_rate_vs_baseline_belief_aware": 0.545
   },
   "evaluate_metrics": {
-    "win_rate_vs_baseline": 0.925,
-    "win_rate_vs_baseline_belief_aware": 0.57
+    "win_rate_vs_baseline": 0.94,
+    "win_rate_vs_baseline_belief_aware": 0.625
+  },
+  "re_evaluation_2026-08-18": {
+    "reason": "src/cop/memory/scent.py::ScentField.advance() was missing Appendix E's upper clamp (min(source_strength, ...)) -- a cell an agent revisited repeatedly had no ceiling. training/belief_tracker.py uses this exact ScentField class during self-play, so the evaluate_metrics this checkpoint was originally promoted against (recorded below) were measured under the uncapped formula.",
+    "checkpoint_unchanged": true,
+    "checkpoint_sha256_unchanged_confirmed": "38eb3e2f9e44abbc9f7733095ea95c7aad0bc94bb0b20cc877ad30092b66e02b",
+    "evaluate_metrics_at_original_promotion_2026-08-13": {
+      "win_rate_vs_baseline": 0.925,
+      "win_rate_vs_baseline_belief_aware": 0.57
+    },
+    "evaluate_metrics_after_fix": {
+      "win_rate_vs_baseline": 0.94,
+      "win_rate_vs_baseline_belief_aware": 0.625
+    },
+    "verdict": "no retrain needed -- re-ran only the evaluate stage (orchestrate_pipeline.py --stage evaluate --run-id belief_ensemble_final_ensemble) against the same, unretrained checkpoint under the fixed formula. Both win rates held or improved; win_rate_vs_baseline_belief_aware moved from below the 0.6 target (0.57) to above it (0.625), so the human_sign_off exception below no longer describes the checkpoint's current, real performance -- left unedited as an accurate record of the decision actually made on 2026-08-13, not because it's still the live number."
   },
   "quantize_metrics": {
     "argmax_agreement_rate": 0.9994335347432024,
