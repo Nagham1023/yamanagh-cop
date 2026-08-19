@@ -14,11 +14,13 @@ import sys
 from .cli_peer import (
     DEFAULT_PRIVATE_CONFIG_PATH,
     DEFAULT_SHARED_CONFIG_PATH,
+    run_cop_relay,
     run_peer,
     run_peer_with_gui,
 )
 from .cli_replay import run_replay
 from .orchestrator_step0 import Step0MismatchError
+from .std_v1.relay_server import DEFAULT_RELAY_PORT
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -62,6 +64,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     peer_parser.add_argument("--private-config", default=DEFAULT_PRIVATE_CONFIG_PATH)
     peer_parser.add_argument("--shared-config", default=DEFAULT_SHARED_CONFIG_PATH)
+
+    relay_parser = subparsers.add_parser(
+        "relay",
+        help="run this repo's loopback-only police-decision relay for a std_v1 match where the "
+        "paired thief-peer process plays the real police sub-games via this repo's own real "
+        "Std1TurnHandler/CopBrain, over a local network call (rule 1/2: two separate processes, "
+        "not a Python import) -- run this alongside, not instead of, the normal 'peer' command "
+        "on whichever repo plays the Thief role",
+    )
+    relay_parser.add_argument("--port", type=int, default=DEFAULT_RELAY_PORT)
+    relay_parser.add_argument("--private-config", default=DEFAULT_PRIVATE_CONFIG_PATH)
+    relay_parser.add_argument("--shared-config", default=DEFAULT_SHARED_CONFIG_PATH)
 
     replay_parser = subparsers.add_parser("replay", help="verify a recorded match's log file")
     replay_parser.add_argument("--log", required=True, help="path to log_<game_id>_g<NN>.json")
@@ -110,6 +124,8 @@ def main() -> None:
             # traceback — same clean exit as a Step0MismatchError now.
             print(f"error: {exc}", file=sys.stderr)
             sys.exit(1)
+    elif args.command == "relay":
+        run_cop_relay(args.private_config, args.shared_config, port=args.port)
     elif args.command == "replay":
         sys.exit(run_replay(args.log, gui=args.gui))
 

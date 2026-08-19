@@ -21,6 +21,7 @@ from .orchestrator import Orchestrator
 from .shared.config import GameConfig
 from .shared.private_config import PrivateConfig
 from .std_v1.peer import run_std_v1_peer
+from .std_v1.relay_server import DEFAULT_RELAY_PORT, run_cop_relay_server
 
 DEFAULT_PRIVATE_CONFIG_PATH = "config/game.toml"
 DEFAULT_SHARED_CONFIG_PATH = "config/shared/config_dev_g01.json"
@@ -86,6 +87,22 @@ async def run_peer(
         ngrok_domain=ngrok_domain,
         tunnel_provider=tunnel_provider,
     )
+
+
+def run_cop_relay(
+    private_config_path: str = DEFAULT_PRIVATE_CONFIG_PATH,
+    shared_config_path: str = DEFAULT_SHARED_CONFIG_PATH,
+    *,
+    port: int = DEFAULT_RELAY_PORT,
+) -> None:
+    """Runs this repo's loopback-only police-decision relay -- see
+    `std_v1/relay_server.py`'s own docstring for why this exists and what
+    it does and doesn't expose. Blocks forever; stop with Ctrl+C. A
+    separate process from `run_peer`, started independently and left
+    running for a match's whole duration."""
+    private_config = PrivateConfig.from_file(private_config_path)
+    base_config = GameConfig.from_file(shared_config_path)
+    run_cop_relay_server(private_config, base_config, port=port)
 
 
 def run_peer_with_gui(
