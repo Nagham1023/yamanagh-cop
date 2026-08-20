@@ -31,6 +31,14 @@ _ALLOWED_RANDOM_FILES = {
     # entry above: feeds decide_intent for std_v1's own turn cycle, never
     # a nonce (std_v1/crypto.py uses secrets.token_hex, not this rng).
     SRC_ROOT / "std_v1" / "turn_handler.py",
+    # PLAN.md Stage 11.4: self._rng = random.Random() drives softmax
+    # sampling among near-tied move/barrier candidates only (move-choice
+    # weighting, same category as weighted_cop_brain.py's own entry above)
+    # -- so behavior isn't perfectly repeatable match to match. Never
+    # touches a nonce or anything that gets hashed/committed; sealing
+    # stays on std_v1/crypto.py's own secrets.token_hex, untouched by this
+    # class entirely.
+    SRC_ROOT / "reasoning" / "adaptive_cop_brain.py",
 }
 
 _RANDOM_IMPORT_PATTERN = re.compile(r"^\s*import random\b|^\s*from random\b", re.MULTILINE)

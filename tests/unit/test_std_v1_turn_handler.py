@@ -8,6 +8,7 @@ from cop.domain.barriers import BarrierSet
 from cop.domain.board import Board, Position
 from cop.memory.belief import BeliefMap
 from cop.memory.scent import ScentField
+from cop.reasoning.brain_base import BrainBase, Move
 from cop.reasoning.cop_brain import CopBrain
 from cop.reasoning.state import GameState
 from cop.std_v1.turn_handler import Std1TurnHandler, _parse_smell_grid, _serialize_smell_grid
@@ -99,6 +100,45 @@ def test_play_turn_folds_in_a_scent_map_boost_toward_the_reported_cell(config):
 def test_tokens_used_total_starts_at_zero(config):
     handler = _handler(config)
     assert handler.tokens_used_total == 0
+
+
+class _SpyBrain(BrainBase):
+    """Records the `target_pos` it's actually handed, so a test can tell
+    whether a decision used this turn's freshly-updated belief or a stale
+    one -- a real live-match bug (see the regression test below)."""
+
+    def __init__(self):
+        self.seen_target_pos: Position | None = None
+
+    def _pick_move(self, own_pos, target_pos, board, barriers) -> str:
+        self.seen_target_pos = target_pos
+        return "STAY"
+
+    def _decide_move(self, own_pos, target_pos, board, barriers) -> Move:
+        self.seen_target_pos = target_pos
+        return Move("STAY")
+
+
+def test_play_turn_decides_using_this_turns_freshly_updated_belief_not_last_turns(config):
+    # Real bug found live: the Cop never caught an actively-fleeing Thief
+    # within the 35-step ceiling, in any real match, regardless of brain.
+    # Root cause: target_pos was only refreshed from belief_map *after*
+    # _decide_move already ran, so every decision used a full turn of
+    # stale belief on top of the network round trip's own unavoidable lag.
+    board = Board(size=config.board_size)
+    barriers = BarrierSet(quota=config.barrier_quota)
+    belief_map = BeliefMap.uniform(board, barriers=barriers)
+    stale_target = belief_map.most_likely_cell()
+    state = GameState(own_pos=Position(0, 0), target_pos=stale_target, barriers=barriers)
+    scent_field = ScentField.from_config(config)
+    spy = _SpyBrain()
+    handler = Std1TurnHandler(board, state, spy, belief_map, scent_field, config)
+
+    far_cell = Position(6, 6)
+    handler.play_turn({"6,6": 5.0}, "")
+
+    assert spy.seen_target_pos == far_cell
+    assert spy.seen_target_pos != stale_target
 
 
 def test_tokens_used_total_accumulates_across_multiple_turns(config):

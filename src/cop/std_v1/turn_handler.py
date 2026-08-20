@@ -85,6 +85,19 @@ class Std1TurnHandler:
         focal_point = interpret_hint(thief_hint_text, self.board) if thief_hint_text else None
         if focal_point is not None:
             self.belief_map.update_from_hint(focal_point, self.board)
+        # Refresh target_pos from the belief map now, before deciding the
+        # move -- mirrors orchestrator_turn.py::take_turn's own single
+        # refresh-before-decide placement for the native protocol (its
+        # `target_pos = belief_map.most_likely_cell()` runs before its own
+        # later `brain._decide_move` call). This file's refresh used to sit
+        # *after* the decision instead, so every decision read the
+        # *previous* turn's belief -- a self-inflicted extra turn of
+        # pursuit lag on top of the network round trip's own unavoidable
+        # one. Found live: real matches showed the Cop never catching an
+        # actively-fleeing Thief within the 35-step ceiling, every
+        # sub-game, both brains. One assignment site, moved, not two --
+        # see test_prd4_seam.py's own "exactly one site" check.
+        self.state.target_pos = self.belief_map.most_likely_cell()
 
         action = self.brain._decide_move(
             self.state.own_pos, self.state.target_pos, self.board, self.state.barriers
@@ -93,7 +106,6 @@ class Std1TurnHandler:
         self.belief_map.zero_out_barriers(self.state.barriers)
         self.scent_field.advance(self.state.own_pos, self.board)
         self.belief_map.update_from_scent(self.scent_field, self.state.own_pos, self.board)
-        self.state.target_pos = self.belief_map.most_likely_cell()
 
         intent = decide_intent(_DEFAULT_LIE_PROBABILITY, self._rng)
         provider = choose_provider(

@@ -170,6 +170,59 @@ def test_update_from_scent_map_leaves_absent_cells_relatively_worse_off():
     assert belief.probability(untouched) < before
 
 
+def test_observe_declaration_concentrates_trust_on_the_declared_cell(config):
+    board = Board(size=config.board_size)
+    belief = BeliefMap.uniform(board)
+    declared_cell = Position(2, 2)
+
+    belief.observe_declaration(declared_cell, radius=0, trust=0.9)
+
+    assert abs(belief.probability(declared_cell) - 0.9) < 1e-9
+    assert abs(belief.total_probability() - 1.0) < 1e-9
+
+
+def test_observe_declaration_radius_one_spreads_trust_over_the_orthogonal_cross(config):
+    board = Board(size=config.board_size)
+    belief = BeliefMap.uniform(board)
+    center = Position(2, 2)
+    cross = [center, Position(1, 2), Position(3, 2), Position(2, 1), Position(2, 3)]
+
+    belief.observe_declaration(center, radius=1, trust=0.9)
+
+    declared_mass = sum(belief.probability(pos) for pos in cross)
+    assert abs(declared_mass - 0.9) < 1e-9
+    # A diagonal neighbor is NOT part of the radius-1 orthogonal cross.
+    assert belief.probability(Position(1, 1)) < belief.probability(center)
+
+
+def test_observe_declaration_never_zeroes_out_a_non_barrier_cell(config):
+    # Rule 21/22: lying about a capture is a real, permitted-to-happen
+    # violation, not something structurally impossible -- so a declaration
+    # must never collapse belief to certainty the way an unfakeable scent
+    # signal is allowed to.
+    board = Board(size=config.board_size)
+    belief = BeliefMap.uniform(board)
+
+    belief.observe_declaration(Position(0, 0), radius=0, trust=0.99)
+
+    for col in range(board.size):
+        for row in range(board.size):
+            if (col, row) != (0, 0):
+                assert belief.probability(Position(col, row)) > 0.0
+
+
+def test_observe_declaration_never_boosts_a_barrier_cell(config):
+    board = Board(size=config.board_size)
+    barriers = BarrierSet(quota=config.barrier_quota)
+    barrier_cell = Position(2, 3)
+    barriers.place(Position(2, 2), barrier_cell, board)
+    belief = BeliefMap.uniform(board, barriers=barriers)
+
+    belief.observe_declaration(Position(2, 2), radius=1, trust=0.9)
+
+    assert belief.probability(barrier_cell) == 0.0
+
+
 def test_scent_map_corroboration_outweighs_a_disagreeing_hint(config):
     # The actual corroboration mechanic: a (possibly-lying) hint pointing
     # one way and the peer's own real scent data pointing another way,

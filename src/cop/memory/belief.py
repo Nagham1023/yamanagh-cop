@@ -123,6 +123,35 @@ class BeliefMap(BeliefHintUpdateMixin, BeliefQueriesMixin):
                 self._probabilities[cell] *= max(0.0, 1 - level)
         self._normalize()
 
+    def observe_declaration(self, cell: Position, *, radius: int = 0, trust: float = 0.97) -> None:
+        """Fold in a stated position (`capture_claim` -> radius 0, the
+        sender claims to stand exactly there; `barrier_placed` -> radius 1,
+        the barrier law only allows the placer's own cell or an orthogonal
+        neighbor) as direct evidence, separate from the scent channels
+        above (PLAN.md Stage 11.4). `trust` is the probability mass placed
+        on the declared radius after this call; the remaining `1 - trust`
+        stays spread (proportionally, not wiped) over every other
+        non-barrier cell, so a single false declaration -- the spec
+        permits lying, rule 21/22 -- can never fully blind the belief the
+        way `update_from_scent_map`'s own unfakeable signal is allowed to."""
+        declared = {
+            pos
+            for pos in self._probabilities
+            if pos not in self._barrier_positions
+            and abs(pos.col - cell.col) + abs(pos.row - cell.row) <= radius
+        }
+        total_declared = sum(self._probabilities[pos] for pos in declared)
+        remaining = self.total_probability() - total_declared
+        if total_declared <= 0.0 or remaining <= 0.0:
+            return  # degenerate distribution -- nothing sane to reweight
+        boost = trust / total_declared
+        fade = (1.0 - trust) / remaining
+        for pos in self._probabilities:
+            if pos in self._barrier_positions:
+                continue
+            self._probabilities[pos] *= boost if pos in declared else fade
+        self._normalize()
+
     def update_from_scent_map(self, scent_data: dict[Position, float], board: Board) -> None:
         """Up-weight every cell proportionally to the peer's own real scent
         magnitude there (PRD 4 "Revision 3", `todoFullFix.md` §C6/§E) —

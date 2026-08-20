@@ -476,3 +476,134 @@ Config files are named per game so any match is reproducible, and every game's c
 5. Warm-up games against friendly teams (uncounted) to shake out protocol mismatches.
 6. Counted games against at least two different teams.
 7. Submission gate (`spec-guard` Mode 4), tag `v1.0-submission`, Moodle submission per member.
+
+---
+
+## 11. Stage: Adaptive Strategy Overhaul (post-league findings, 2026-08-20)
+
+**Status:** PLANNED — not yet implemented, written up for team agreement before
+either repo changes. Mirrored in `thief-peer/docs/PLAN.md` §7 (paired repo,
+same stage).
+
+### 11.1 Why
+
+Real matches against two opponents went 0-6 both roles, every sub-game, both
+matches, fully deterministic across independent re-runs. One real defect
+already found and fixed live this session: `std_v1/turn_handler.py::
+Std1TurnHandler.play_turn` refreshed `target_pos` from the belief map *after*
+`brain._decide_move` ran instead of before — every decision read one full
+turn of stale belief on top of the network round trip's own unavoidable lag.
+Fixed by moving the single assignment earlier (not duplicating it —
+`test_prd4_seam.py`'s "exactly one `target_pos` site per file" check caught
+the first, duplicate-site attempt at this fix and forced the correct one).
+
+That fix alone is not the ceiling: even a correctly-timed greedy-Manhattan
+`CopBrain`/`RLCopBrain` is architecturally weak against a well-designed
+evader. Public research from a real opponent (moamteam's own published
+`docs/STRATEGY.md`, read for context, not copied) documents — across 48
+tuning combinations and two independent cross-team validations — that **a
+well-designed thief cannot be captured by any Manhattan/greedy-style cop on
+this board** (7×7, 1 cop, 14 walls, equal speed): capture only exists against
+a thief that errs, and beating a realistic (imperfect) evader needs
+escape-area-shrinking search plus barrier economy, not raw pursuit distance.
+Per team decision, this stage does not copy that specific algorithm — it's
+context for what's structurally achievable, not a spec to match ourselves to.
+
+### 11.2 Three findings, one design response each
+
+| Finding | Response |
+|---|---|
+| Belief only ever uses scent, which saturates flat late-game (confirmed live: an opponent's own transmitted field carried zero information by step 21) | Fold in the opponent's own `capture_claim` (co-location assertion) and `barrier_placed` (pins the placer within radius 1) as direct stated evidence — legal, already-disclosed wire fields currently discarded entirely. |
+| Both brains score the *current* square reactively; nothing looks at the opponent's likely reply, including its own barrier options | Add one-ply pessimistic lookahead (assume the opponent's best reply, not its average one) before scoring a candidate move/barrier. |
+| **Every match is bit-for-bit deterministic — no adaptation, easy to scout, permanently stuck against one opponent shape** | **(a)** a per-series opponent-style profile updated only from data legitimately observed over the wire during that series' own earlier sub-games (this specific opponent's move patterns, claim timing, wall frequency), adjusting risk/search-depth/barrier-cost parameters for later sub-games in the same series; **(b)** controlled stochastic action selection — softmax over near-tied top candidates instead of a fixed argmax + tie-break. |
+
+**Safety note on (b):** move-selection randomness only, a plain `random.Random`
+source seeded per-decision — never the commit-reveal nonce (stays
+`secrets`-based, sealed exactly as today; rule 18 is fatal on this and this
+plan keeps the two call sites structurally separate).
+
+### 11.3 What stays untouched
+
+Wire protocol, sealing/commit-reveal, the relay server exposing this repo's
+real decision to `thief-peer` (rule 1/2), watchdog/state-machine layers — all
+already proven working end-to-end against two real opponents. Every change
+in this stage lands only inside `_pick_move`/`_decide_move`, the same
+dotted-path `[strategy] police_class` swap point already used for
+`RLCopBrain`'s own promotion (`config/game.toml`). New brains ship as new
+classes behind that same switch — one config line to enable or roll back,
+never a change to an already-working call site.
+
+### 11.4 New modules
+
+- `memory/belief.py::observe_declaration(cell, radius, trust)` — folds a
+  stated position into `BeliefMap` as evidence separate from
+  `update_from_scent`/`update_from_scent_map`, with a trust floor so one
+  false declaration (a lying opponent, which the spec explicitly permits)
+  can't permanently blind the belief.
+- `reasoning/escape_area.py` (new) — BFS-bounded reachable-area scorer used
+  to score candidate moves/barriers by how much they shrink the opponent's
+  own reachable region, not raw Manhattan distance.
+- `reasoning/opponent_profile.py` (new) — mirrors `thief-peer`'s own module
+  of the same purpose; tracks, per opponent `group_id`, across a series'
+  own sub-games only (never across different opponents/series): observed
+  move-direction distribution, center-vs-edge bias, capture-claim
+  confidence pattern. Read-only signal into brain scoring, never touches
+  the wire.
+- `reasoning/adaptive_cop_brain.py` (new, `BrainBase` subclass) —
+  escape-area + barrier-economy one-ply pessimistic search, profile-adjusted
+  aggressiveness, softmax-sampled among near-tied candidates. Selectable via
+  `[strategy] police_class = "cop.reasoning.adaptive_cop_brain:AdaptiveCopBrain"`,
+  same pattern `RLCopBrain`'s own promotion already used.
+- Synthetic-opponent test roster reused from `thief-peer`'s own
+  `strategy/synthetic_opponents.py` (imported, not duplicated) for symmetric
+  local validation between the two repos.
+
+### 11.5 Testing plan (must not be a rigged benchmark)
+
+1. Unit tests per new module (declaration folding, profile updates,
+   escape-area correctness, lookahead correctness) — pure logic, no live
+   match needed.
+2. Local self-play harness (`thief-peer`'s own
+   `scratchpad/thief_vs_real_cop_sim.py` from this session's A/B testing,
+   to be promoted into a real cross-repo test module) run against **all**
+   synthetic opponents, not just this repo's own current brain — a brain
+   that only beats itself proves nothing.
+3. One supervised friendly (uncounted) re-match against a real opponent once
+   local validation passes, before any counted game uses the new brain.
+4. Roll back is a one-line `police_class` config change back to the shipped
+   default (`CopBrain`/`RLCopBrain`) if a real match shows a regression — no
+   code revert needed, same promotion-gate discipline `RLCopBrain` already
+   established (`training/promoted/promotion_report.json` provenance).
+
+### 11.6 Proof (measured, 2026-08-20 -- not a projection)
+
+Ran the real turn-handler classes from both repos end-to-end (belief,
+scent, declaration-folding), no network, same terms both real matches
+used. Full results and methodology in `thief-peer/docs/PLAN.md` §7.7
+(paired repo, same measurement). Headline: with the `target_pos` staleness
+fix (11.1) and the paired repo's own thief-side fixes (declaration-folding,
+weight tuning) in place, our own thief-side play reaches this board's
+actual theoretical ceiling -- an evader with decent information and
+mobility cannot be captured here at all, confirmed by measurement and by
+the published research cited in 11.1.
+
+`AdaptiveCopBrain` is unit-proven to prefer a barrier over a redundant step
+exactly when the barrier nets a positive escape-area gain over its cost
+(`test_decide_move_prefers_a_barrier_that_meaningfully_shrinks_the_thiefs_
+area`, `test_decide_move_skips_a_barrier_that_isnt_worth_its_cost_on_an_
+open_board`, both passing). Did not out-capture plain `CopBrain` against a
+theoretically-uncatchable evader in the open-board test -- expected per the
+same theorem, not a defect: no cop captures a reasonably-informed
+distance-maximizer with no barriers already in play. Real-match validation
+against a realistically-imperfect opponent thief is still open (11.5
+testing plan item 3) -- not yet run against a live opponent.
+
+### 11.7 Explicit non-goals
+
+- Not copying moamteam's `FunnelPoliceBrain`/`TerritoryThiefBrain` verbatim —
+  their published numbers are context for what's structurally achievable,
+  not a spec to match ourselves against.
+- Not claiming 100% capture is achievable — their own 48-combination sweep
+  found none exists against a sound thief on this board; the real target is
+  "as good as an adaptive cop can be" against realistic (imperfect)
+  opponents.
