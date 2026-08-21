@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
+from ..integrity.step0 import current_git_commit_hash
 from ..reasoning.cop_brain import CopBrain
 from ..shared.config import GameConfig
 from ..shared.private_config import PrivateConfig
@@ -42,6 +43,16 @@ class _RelayState:
 
 
 def register_relay_tools(mcp: FastMCP, turn_handler_factory, state: _RelayState) -> None:
+    @mcp.tool
+    def relay_identity() -> dict:
+        """Rule 49/[REPORT] accuracy: lets the calling thief-peer process
+        report which repo -- and which exact commit -- actually played the
+        relayed Police sub-games, instead of misattributing them to its own
+        commit. `current_git_commit_hash()` raises on failure rather than
+        returning a placeholder (integrity/step0.py's own reasoning); the
+        caller decides how to handle that, this tool doesn't swallow it."""
+        return {"github_commit": current_git_commit_hash()}
+
     @mcp.tool
     def start_police_subgame(sub_game_number: int) -> dict:
         """Builds one fresh `Std1TurnHandler` for the given sub-game --

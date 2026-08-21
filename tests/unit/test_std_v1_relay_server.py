@@ -93,6 +93,12 @@ def test_decide_police_turn_commit_is_a_real_seal_over_the_returned_payload(conf
     assert isinstance(resealed["commit"], str) and len(resealed["commit"]) == 64
 
 
+def test_relay_identity_returns_this_repos_own_real_commit(config):
+    mcp, _state = _server(config)
+    result = _call(mcp, "relay_identity", {})
+    assert len(result["github_commit"]) == 40  # a real git rev-parse HEAD, not a placeholder
+
+
 def test_decide_police_turn_persists_state_across_turns(config):
     mcp, state = _server(config)
     _call(mcp, "start_police_subgame", {"sub_game_number": 1})
